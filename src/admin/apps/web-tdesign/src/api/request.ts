@@ -20,6 +20,21 @@ import { refreshTokenApi } from './core';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
+function normalizeFrameworkResponse(responseData: any) {
+  if (
+    responseData &&
+    responseData.succeeded === true &&
+    responseData.code === 200
+  ) {
+    return {
+      ...responseData,
+      code: 0,
+    };
+  }
+
+  return responseData;
+}
+
 function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   const client = new RequestClient({
     ...options,
@@ -71,6 +86,15 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   });
 
   // 处理返回的响应数据格式
+  client.addResponseInterceptor(
+    {
+      fulfilled: (response) => {
+        response.data = normalizeFrameworkResponse(response.data);
+        return response;
+      },
+    },
+  );
+
   client.addResponseInterceptor(
     defaultResponseInterceptor({
       codeField: 'code',

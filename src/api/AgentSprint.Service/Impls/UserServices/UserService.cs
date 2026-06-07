@@ -1,11 +1,12 @@
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.SecurityServices;
 using AgentSprint.Service.Services.UserServices;
 
 namespace AgentSprint.Service.Impls.UserServices;
 
-public sealed class UserService : IUserService
+public sealed class UserService : AgentSprintServiceBase, IUserService
 {
     private readonly IUserDomain _userDomain;
     private readonly ISecurityAuthorizationService _authorizationService;

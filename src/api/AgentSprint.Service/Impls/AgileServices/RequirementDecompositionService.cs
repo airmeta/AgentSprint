@@ -1,9 +1,10 @@
 using AgentSprint.Model.Modules.Agile;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AgileServices;
 
 namespace AgentSprint.Service.Impls.AgileServices;
 
-public sealed class RequirementDecompositionService : IRequirementDecompositionService
+public sealed class RequirementDecompositionService : AgentSprintServiceBase, IRequirementDecompositionService
 {
     /// <inheritdoc />
     public Task<IReadOnlyList<SprintDevelopmentTaskEntity>> DecomposeAsync(

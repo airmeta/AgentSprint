@@ -5,12 +5,13 @@ using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Model.Modules.Tests;
 using AgentSprint.Model.Modules.Tests.Domains;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Service.Impls.AgileServices;
 
-public sealed class AgileMvpService : IAgileMvpService
+public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 {
     private const string DefaultWorkspacePath = @"F:\AI\AgentSprint";
     private const string DefaultMcpEndpoint = "http://localhost:5010/mcp";

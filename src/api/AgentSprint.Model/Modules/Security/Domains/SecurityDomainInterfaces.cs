@@ -2,9 +2,13 @@ using System.Linq.Expressions;
 
 using AgentSprint.Model.Modules.Common;
 
+using Air.Cloud.Core.Standard.DataBase.Domains;
+using Air.Cloud.Core.Standard.DynamicServer;
+
 namespace AgentSprint.Model.Modules.Security.Domains;
 
 public interface IEntityDomainBase<TEntity>
+    : IEntityDomain, ITransient
     where TEntity : EntityBase, new()
 {
     Task<string> CreateAsync(TEntity entity);

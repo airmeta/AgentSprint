@@ -3,11 +3,12 @@ using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Tests;
 using AgentSprint.Model.Modules.Tests.Domains;
 using AgentSprint.Model.Modules.Tests.Dtos;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.TestServices;
 
 namespace AgentSprint.Service.Impls.TestServices;
 
-public sealed class TestService : ITestService
+public sealed class TestService : AgentSprintServiceBase, ITestService
 {
     private static readonly HashSet<string> ValidPlanStatuses =
     [

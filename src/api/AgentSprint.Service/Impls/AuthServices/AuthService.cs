@@ -6,6 +6,7 @@ using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Security;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AuthServices;
 using AgentSprint.Service.Services.SecurityServices;
 
@@ -14,7 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AgentSprint.Service.Impls.AuthServices;
 
-public sealed class AuthService : IAuthService
+public sealed class AuthService : AgentSprintServiceBase, IAuthService
 {
     private readonly IUserDomain _userDomain;
     private readonly ISecurityAuthorizationService _authorizationService;

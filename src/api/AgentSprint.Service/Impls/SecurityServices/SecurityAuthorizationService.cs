@@ -1,11 +1,12 @@
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Service.Impls.SecurityServices;
 
-public sealed class SecurityAuthorizationService : ISecurityAuthorizationService
+public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecurityAuthorizationService
 {
     private static readonly HashSet<string> SprintMenuNames =
     [

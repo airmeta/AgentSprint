@@ -672,11 +672,6 @@ watch(
   },
 );
 
-watch(selectedProjectId, async () => {
-  expandedRequirementIds.value = [];
-  await loadRequirements();
-});
-
 watch(filteredRequirements, syncExpandedRequirementIds);
 
 onActivated(async () => {

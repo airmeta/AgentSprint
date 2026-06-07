@@ -1,11 +1,12 @@
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Service.Impls.SecurityServices;
 
-public sealed class SystemConfigurationService : ISystemConfigurationService
+public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystemConfigurationService
 {
     private readonly ISystemConfigurationDomain _configurationDomain;
 

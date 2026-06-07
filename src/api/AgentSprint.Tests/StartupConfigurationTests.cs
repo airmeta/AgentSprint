@@ -1,10 +1,14 @@
 using AgentSprint.Entry;
-using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.AuthServices;
-using AgentSprint.Service.Services.TestServices;
 using AgentSprint.Service.Services.UserServices;
+using AgentSprint.Model.Modules.Security.Domains;
+using AgentSprint.Service.Impls.AgileServices;
+using AgentSprint.Service.Impls.TestServices;
 
+using Air.Cloud.Core.Standard.DataBase.Domains;
+using Air.Cloud.Core.Standard.DynamicServer;
 using Air.Cloud.EntityFrameWork.Core.Filters;
+using Air.Cloud.WebApp.UnifyResult.Providers;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -52,8 +56,39 @@ public sealed class StartupConfigurationTests
                 services,
                 descriptor => descriptor.ServiceType == typeof(IUserService) &&
                     descriptor.ImplementationType?.Name == "DevelopmentUserService");
-            Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IAgileMvpService));
-            Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ITestService));
+        });
+    }
+
+    [Fact]
+    public void BusinessServices_FollowAirCloudDynamicServiceContract()
+    {
+        Assert.True(typeof(IDynamicService).IsAssignableFrom(typeof(AgileMvpService)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(AgileMvpService)));
+        Assert.True(typeof(IDynamicService).IsAssignableFrom(typeof(TestService)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(TestService)));
+    }
+
+    [Fact]
+    public void DomainInterfaces_FollowAirCloudEntityDomainScanningContract()
+    {
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IUserDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IUserDomain)));
+    }
+
+    [Fact]
+    public void ConfigureServices_RegistersAgentSprintUnifyResultProvider()
+    {
+        var services = new ServiceCollection();
+        var startup = new Startup();
+
+        WithDevelopmentStartupEnvironment(() =>
+        {
+            startup.ConfigureServices(services);
+
+            Assert.Contains(
+                services,
+                descriptor => descriptor.ServiceType == typeof(IUnifyResultProvider) &&
+                    descriptor.ImplementationType == typeof(AgentSprintUnifyResultProvider));
         });
     }
 

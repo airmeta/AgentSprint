@@ -4,12 +4,13 @@ using System.Text;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AuthServices;
 using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Service.Impls.SecurityServices;
 
-public sealed class AgentTokenService : IAgentTokenService
+public sealed class AgentTokenService : AgentSprintServiceBase, IAgentTokenService
 {
     private const int TokenLength = 64;
     private readonly IAgentTokenDomain _agentTokenDomain;

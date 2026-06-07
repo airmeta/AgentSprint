@@ -21,9 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AgentSprint.Model\AgentSprint.Model.csproj" />
     <ProjectReference Include="..\AgentSprint.Repository\AgentSprint.Repository.csproj" />
-    <ProjectReference Include="..\AgentSprint.Domain\AgentSprint.Domain.csproj" />
     <ProjectReference Include="..\AgentSprint.Service\AgentSprint.Service.csproj" />
   </ItemGroup>
 
