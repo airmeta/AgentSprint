@@ -1,0 +1,6 @@
+@AgentSprint.Entry_HostAddress = http://localhost:5248
+
+GET {{AgentSprint.Entry_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

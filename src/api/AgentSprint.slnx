@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="AgentSprint.Domain/AgentSprint.Domain.csproj" />
+  <Project Path="AgentSprint.Entry/AgentSprint.Entry.csproj" />
+  <Project Path="AgentSprint.Mcp/AgentSprint.Mcp.csproj" />
+  <Project Path="AgentSprint.Model/AgentSprint.Model.csproj" />
+  <Project Path="AgentSprint.Repository/AgentSprint.Repository.csproj" />
+  <Project Path="AgentSprint.Service/AgentSprint.Service.csproj" />
+  <Project Path="AgentSprint.Tests/AgentSprint.Tests.csproj" />
+</Solution>

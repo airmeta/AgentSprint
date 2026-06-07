@@ -1,0 +1,479 @@
+<script lang="ts" setup>
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
+
+import {
+  deleteSystemMenuApi,
+  deleteSystemPermissionApi,
+  listSystemMenusApi,
+  listSystemPermissionsApi,
+  saveSystemMenuApi,
+  saveSystemPermissionApi,
+  type SystemApi,
+} from '#/api';
+import { useAccessStore } from '@vben/stores';
+import SystemPage from '#/views/system/_shared/system-page.vue';
+import { getCellRow } from '#/views/system/_shared/table-cell';
+import {
+  Button as TButton,
+  Dialog as TDialog,
+  DialogPlugin,
+  Form as TForm,
+  FormItem as TFormItem,
+  Input as TInput,
+  Link as TLink,
+  MessagePlugin,
+  Select as TSelect,
+  Space as TSpace,
+  Table as TTable,
+} from 'tdesign-vue-next';
+import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+
+type MenuTreeNode = SystemApi.Menu & {
+  buttonPermissionCount: number;
+  children?: MenuTreeNode[];
+  displayName: string;
+};
+
+const loading = ref(false);
+const visible = ref(false);
+const formRef = ref<FormInstanceFunctions>();
+const permissionVisible = ref(false);
+const permissionFormRef = ref<FormInstanceFunctions>();
+const menus = ref<SystemApi.Menu[]>([]);
+const permissions = ref<SystemApi.Permission[]>([]);
+const accessStore = useAccessStore();
+const treeVersion = ref(0);
+const expandedTreeNodes = ref<Array<number | string>>([]);
+const selectedMenu = ref<SystemApi.Menu>();
+const form = reactive<Partial<SystemApi.Menu>>({
+  component: '',
+  icon: '',
+  id: undefined,
+  name: '',
+  parentId: '',
+  path: '',
+  sort: 0,
+  status: 1,
+  type: 1,
+});
+const permissionForm = reactive<Partial<SystemApi.Permission>>({
+  code: '',
+  id: undefined,
+  menuId: '',
+  name: '',
+});
+const rules: FormRules<typeof form> = {
+  name: requiredRule('请输入菜单标识'),
+  path: requiredRule('请输入路由路径'),
+  sort: optionalNumberRule('排序必须是数字'),
+};
+const permissionRules: FormRules<typeof permissionForm> = {
+  code: requiredRule('请输入权限码'),
+  name: requiredRule('请输入按钮名称'),
+};
+const filters = reactive({
+  keyword: '',
+  status: undefined as number | undefined,
+  type: undefined as number | undefined,
+});
+const query = reactive({ ...filters });
+
+const menuNameMap: Record<string, string> = {
+  ProductDefects: '缺陷跟踪',
+  ProductGroup: '产品管理',
+  ProductReviews: '需求评审',
+  ProductRequirements: '需求管理',
+  ProjectGroup: '项目管理',
+  Security: '安全管理',
+  SprintDefectDetail: '缺陷详情',
+  SprintDefects: '缺陷跟踪',
+  SprintProjectDetail: '项目详情',
+  SprintProjects: '项目配置',
+  SprintRequirementDetail: '需求详情',
+  SprintRequirementReviews: '需求评审',
+  SprintRequirements: '需求管理',
+  SprintTaskDetail: '任务详情',
+  SprintTasks: '任务大厅',
+  SprintTests: '测试计划',
+  System: '系统管理',
+  SystemAgentTokens: '令牌管理',
+  SystemAssignments: '岗位管理',
+  SystemConfigurations: '系统配置',
+  SystemDepartments: '部门管理',
+  SystemMenus: '菜单管理',
+  SystemRoles: '角色管理',
+  SystemUsers: '用户管理',
+  TestGroup: '测试验证',
+  TestPlans: '测试计划',
+  WorkerGroup: '研发执行',
+  WorkerMyTasks: '我的任务',
+  WorkerTasks: '任务大厅',
+};
+
+const columns = [
+  { colKey: 'displayName', title: '菜单名称', treeNode: true, width: 220 },
+  { colKey: 'path', title: '路由路径', width: 220 },
+  { colKey: 'component', title: '组件路径' },
+  {
+    colKey: 'buttonPermissionCount',
+    title: '按钮权限',
+    width: 100,
+  },
+  {
+    colKey: 'type',
+    title: '类型',
+    width: 120,
+    cell: (...args: any[]) => {
+      const row = getCellRow(args[0], args[1]);
+      return row?.type === 0 ? '组菜单' : row?.type === 2 ? '隐藏路由' : '页面菜单';
+    },
+  },
+  { colKey: 'sort', title: '排序', width: 90 },
+  {
+    colKey: 'status',
+    title: '状态',
+    width: 100,
+    cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用'),
+  },
+  { colKey: 'actions', title: '操作', width: 200, cell: 'actions' },
+];
+const permissionColumns = [
+  { colKey: 'code', title: '权限码', width: 220 },
+  { colKey: 'name', title: '按钮名称' },
+  { colKey: 'actions', title: '操作', width: 140, cell: 'actions' },
+];
+const treeConfig = {
+  childrenKey: 'children',
+  defaultExpandAll: true,
+  treeNodeColumnIndex: 0,
+};
+
+const parentOptions = computed(() =>
+  menus.value
+    .filter((menu) => menu.type === 0 || menu.type === 1)
+    .map((menu) => ({
+      label: `${getDisplayName(menu)} (${menu.path})`,
+      value: menu.id,
+    })),
+);
+
+const filteredMenus = computed(() => {
+  const keyword = query.keyword.trim().toLowerCase();
+  const matches = (menu: SystemApi.Menu) => {
+    const buttonPermissions = getMenuPermissions(menu.id);
+    const displayName = getDisplayName(menu).toLowerCase();
+    const matchesKeyword =
+      !keyword ||
+      menu.name.toLowerCase().includes(keyword) ||
+      displayName.includes(keyword) ||
+      menu.path.toLowerCase().includes(keyword) ||
+      (menu.component || '').toLowerCase().includes(keyword) ||
+      (menu.icon || '').toLowerCase().includes(keyword) ||
+      buttonPermissions.some(
+        (permission) =>
+          permission.code.toLowerCase().includes(keyword) || permission.name.toLowerCase().includes(keyword),
+      );
+    const matchesType = query.type === undefined || menu.type === query.type;
+    const matchesStatus = query.status === undefined || menu.status === query.status;
+    return matchesKeyword && matchesType && matchesStatus;
+  };
+  return buildMenuTree(menus.value, matches, !!keyword || query.type !== undefined || query.status !== undefined);
+});
+
+const selectedMenuPermissions = computed(() =>
+  selectedMenu.value
+    ? getMenuPermissions(selectedMenu.value.id).sort((left, right) => left.code.localeCompare(right.code))
+    : [],
+);
+
+function getDisplayName(menu: SystemApi.Menu) {
+  return menuNameMap[menu.name] || menu.name;
+}
+
+function buildMenuTree(source: SystemApi.Menu[], predicate: (menu: SystemApi.Menu) => boolean, filtered: boolean) {
+  const nodeMap = new Map<string, MenuTreeNode>();
+  source.forEach((menu) =>
+    nodeMap.set(menu.id, {
+      ...menu,
+      buttonPermissionCount: getMenuPermissions(menu.id).length,
+      displayName: getDisplayName(menu),
+      children: [],
+    }),
+  );
+
+  const roots: MenuTreeNode[] = [];
+  nodeMap.forEach((node) => {
+    if (node.parentId && nodeMap.has(node.parentId)) {
+      nodeMap.get(node.parentId)?.children?.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  const sortNodes = (nodes: MenuTreeNode[]) => {
+    nodes.sort((left, right) => left.sort - right.sort || left.displayName.localeCompare(right.displayName));
+    nodes.forEach((node) => sortNodes(node.children || []));
+  };
+  sortNodes(roots);
+
+  const prune = (node: MenuTreeNode): MenuTreeNode | null => {
+    const children = (node.children || []).map(prune).filter(Boolean) as MenuTreeNode[];
+    const selfMatched = predicate(node);
+    if (!filtered || selfMatched || children.length > 0) {
+      return { ...node, children };
+    }
+    return null;
+  };
+
+  return roots.map(prune).filter(Boolean) as MenuTreeNode[];
+}
+
+function getMenuPermissions(menuId: string) {
+  return permissions.value.filter((permission) => permission.menuId === menuId);
+}
+
+function search() {
+  Object.assign(query, filters);
+}
+
+function reset() {
+  Object.assign(filters, { keyword: '', status: undefined, type: undefined });
+  search();
+}
+
+function open(row?: SystemApi.Menu) {
+  Object.assign(form, {
+    component: row?.component || '',
+    icon: row?.icon || '',
+    id: row?.id,
+    name: row?.name || '',
+    parentId: row?.parentId || '',
+    path: row?.path || '',
+    sort: row?.sort ?? 0,
+    status: row?.status ?? 1,
+    type: row?.type ?? 1,
+  });
+  visible.value = true;
+}
+
+async function load() {
+  loading.value = true;
+  try {
+    const [menuRows, permissionRows] = await Promise.all([listSystemMenusApi(), listSystemPermissionsApi()]);
+    menus.value = menuRows;
+    permissions.value = permissionRows;
+    accessStore.syncAccessMenusFromSystemMenus(menuRows);
+    expandedTreeNodes.value = menus.value.filter((menu) => menu.type === 0).map((menu) => menu.id);
+    await nextTick();
+    treeVersion.value += 1;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function openPermissions(row: SystemApi.Menu) {
+  selectedMenu.value = row;
+  openPermission();
+  permissionVisible.value = true;
+}
+
+function openPermission(row?: SystemApi.Permission) {
+  if (!selectedMenu.value) {
+    return;
+  }
+
+  Object.assign(permissionForm, {
+    code: row?.code || '',
+    id: row?.id,
+    menuId: selectedMenu.value.id,
+    name: row?.name || '',
+  });
+}
+
+async function savePermission() {
+  if (!selectedMenu.value) {
+    return;
+  }
+  if (!(await validateForm(permissionFormRef.value))) return;
+
+  await saveSystemPermissionApi({ ...permissionForm, menuId: selectedMenu.value.id });
+  MessagePlugin.success('按钮权限已保存');
+  Object.assign(permissionForm, { code: '', id: undefined, menuId: selectedMenu.value.id, name: '' });
+  await load();
+}
+
+function removePermission(row: SystemApi.Permission) {
+  DialogPlugin.confirm({
+    body: `确认删除按钮权限 ${row.code}？`,
+    confirmBtn: '删除',
+    header: '删除按钮权限',
+    onConfirm: async () => {
+      await deleteSystemPermissionApi(row.id);
+      MessagePlugin.success('按钮权限已删除');
+      await load();
+    },
+  });
+}
+
+async function save() {
+  if (!(await validateForm(formRef.value))) return;
+  await saveSystemMenuApi(form);
+  MessagePlugin.success('菜单已保存');
+  visible.value = false;
+  await load();
+}
+
+function remove(row: SystemApi.Menu) {
+  DialogPlugin.confirm({
+    body: `确认删除菜单 ${getDisplayName(row)}？`,
+    confirmBtn: '删除',
+    header: '删除菜单',
+    onConfirm: async () => {
+      await deleteSystemMenuApi(row.id);
+      MessagePlugin.success('菜单已删除');
+      await load();
+    },
+  });
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <SystemPage
+    title="菜单管理"
+    description="维护系统菜单树和菜单下的按钮权限，支持组菜单、页面菜单、隐藏详情路由和页面级按钮权限。"
+    :columns="columns"
+    :data="filteredMenus"
+    :expanded-tree-nodes="expandedTreeNodes"
+    :loading="loading"
+    :table-key="treeVersion"
+    :tree="treeConfig"
+    @add="open()"
+    @expanded-tree-nodes-change="expandedTreeNodes = $event"
+  >
+    <template #filters>
+      <TInput v-model="filters.keyword" clearable placeholder="名称 / 路径 / 组件 / 图标" class="filter-control" />
+      <TSelect
+        v-model="filters.type"
+        clearable
+        placeholder="类型"
+        :options="[
+          { label: '组菜单', value: 0 },
+          { label: '页面菜单', value: 1 },
+          { label: '隐藏路由', value: 2 },
+        ]"
+        class="filter-control"
+      />
+      <TSelect
+        v-model="filters.status"
+        clearable
+        placeholder="状态"
+        :options="[
+          { label: '启用', value: 1 },
+          { label: '停用', value: 0 },
+        ]"
+        class="filter-control"
+      />
+      <TSpace>
+        <TButton theme="primary" @click="search">查询</TButton>
+        <TButton @click="reset">重置</TButton>
+      </TSpace>
+    </template>
+    <template #action>新增菜单</template>
+    <template #actions="{ row }">
+      <TSpace>
+        <TLink v-if="row" theme="primary" @click="openPermissions(row)">按钮权限</TLink>
+        <TLink v-if="row" theme="primary" @click="open(row)">编辑</TLink>
+        <TLink v-if="row" theme="danger" @click="remove(row)">删除</TLink>
+      </TSpace>
+    </template>
+  </SystemPage>
+
+  <TDialog v-model:visible="visible" header="菜单维护" width="660px" confirm-btn="保存" @confirm="save">
+    <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
+      <TFormItem label="上级菜单">
+        <TSelect v-model="form.parentId" clearable filterable :options="parentOptions" placeholder="顶级菜单可留空" />
+      </TFormItem>
+      <TFormItem label="菜单标识" name="name"><TInput v-model="form.name" placeholder="如 SystemUsers" /></TFormItem>
+      <TFormItem label="路由路径" name="path"><TInput v-model="form.path" placeholder="/system/users" /></TFormItem>
+      <TFormItem label="组件路径"><TInput v-model="form.component" placeholder="/system/users/index" /></TFormItem>
+      <TFormItem label="图标"><TInput v-model="form.icon" placeholder="lucide:users" /></TFormItem>
+      <TFormItem label="类型">
+        <TSelect
+          v-model="form.type"
+          :options="[
+            { label: '组菜单', value: 0 },
+            { label: '页面菜单', value: 1 },
+            { label: '隐藏路由', value: 2 },
+          ]"
+        />
+      </TFormItem>
+      <TFormItem label="状态">
+        <TSelect
+          v-model="form.status"
+          :options="[
+            { label: '启用', value: 1 },
+            { label: '停用', value: 0 },
+          ]"
+        />
+      </TFormItem>
+      <TFormItem label="排序" name="sort"><TInput v-model="form.sort" type="number" /></TFormItem>
+    </TForm>
+  </TDialog>
+
+  <TDialog
+    v-model:visible="permissionVisible"
+    :footer="false"
+    :header="`${selectedMenu ? getDisplayName(selectedMenu) : ''} - 按钮权限`"
+    width="760px"
+  >
+    <TForm
+      ref="permissionFormRef"
+      :data="permissionForm"
+      :rules="permissionRules"
+      label-width="88px"
+      class="permission-form"
+    >
+      <TFormItem label="权限码" name="code"><TInput v-model="permissionForm.code" placeholder="System:User:Create" /></TFormItem>
+      <TFormItem label="按钮名称" name="name"><TInput v-model="permissionForm.name" placeholder="新增用户" /></TFormItem>
+      <TFormItem>
+        <TSpace>
+          <TButton theme="primary" @click="savePermission">保存按钮权限</TButton>
+          <TButton @click="openPermission()">清空</TButton>
+        </TSpace>
+      </TFormItem>
+    </TForm>
+    <TTable
+      row-key="id"
+      :columns="permissionColumns"
+      :data="selectedMenuPermissions"
+      :loading="loading"
+      bordered
+      hover
+      class="permission-table"
+    >
+      <template #actions="{ row }">
+        <TSpace>
+          <TLink v-if="row" theme="primary" @click="openPermission(row)">编辑</TLink>
+          <TLink v-if="row" theme="danger" @click="removePermission(row)">删除</TLink>
+        </TSpace>
+      </template>
+    </TTable>
+  </TDialog>
+</template>
+
+<style scoped>
+.filter-control {
+  width: 240px;
+}
+
+.permission-form {
+  margin-bottom: 16px;
+}
+
+.permission-table {
+  margin-top: 8px;
+}
+</style>

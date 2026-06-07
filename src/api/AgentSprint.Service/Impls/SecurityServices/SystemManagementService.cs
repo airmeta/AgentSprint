@@ -1,0 +1,649 @@
+using AgentSprint.Model.Modules.Security;
+using AgentSprint.Model.Modules.Security.Domains;
+using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Security;
+using AgentSprint.Service.Services.SecurityServices;
+
+namespace AgentSprint.Service.Impls.SecurityServices;
+
+public sealed class SystemManagementService : ISystemManagementService
+{
+    private readonly IUserDomain _userDomain;
+    private readonly IRoleDomain _roleDomain;
+    private readonly IMenuDomain _menuDomain;
+    private readonly IPermissionDomain _permissionDomain;
+    private readonly IUserGroupDomain _userGroupDomain;
+    private readonly IRoleGroupDomain _roleGroupDomain;
+    private readonly IDepartmentDomain _departmentDomain;
+    private readonly IAssignmentDomain _assignmentDomain;
+    private readonly IUserRoleDomain _userRoleDomain;
+    private readonly IRoleMenuDomain _roleMenuDomain;
+    private readonly IRolePermissionDomain _rolePermissionDomain;
+    private readonly IEntityAssociationDomain _associationDomain;
+
+    /// <summary>
+    /// zh-cn: 创建系统管理服务，负责维护当前项目范围内的 RBAC 主体、菜单、权限码和通用关联表，并同步旧关系表以兼容既有 MVP 流程。
+    /// en-us: Creates the system management service responsible for maintaining RBAC subjects, menus, permission codes, and generic associations in the current project scope while synchronizing legacy relation tables for existing MVP compatibility.
+    /// </summary>
+    public SystemManagementService(
+        IUserDomain userDomain,
+        IRoleDomain roleDomain,
+        IMenuDomain menuDomain,
+        IPermissionDomain permissionDomain,
+        IUserGroupDomain userGroupDomain,
+        IRoleGroupDomain roleGroupDomain,
+        IDepartmentDomain departmentDomain,
+        IAssignmentDomain assignmentDomain,
+        IUserRoleDomain userRoleDomain,
+        IRoleMenuDomain roleMenuDomain,
+        IRolePermissionDomain rolePermissionDomain,
+        IEntityAssociationDomain associationDomain)
+    {
+        _userDomain = userDomain;
+        _roleDomain = roleDomain;
+        _menuDomain = menuDomain;
+        _permissionDomain = permissionDomain;
+        _userGroupDomain = userGroupDomain;
+        _roleGroupDomain = roleGroupDomain;
+        _departmentDomain = departmentDomain;
+        _assignmentDomain = assignmentDomain;
+        _userRoleDomain = userRoleDomain;
+        _roleMenuDomain = roleMenuDomain;
+        _rolePermissionDomain = rolePermissionDomain;
+        _associationDomain = associationDomain;
+    }
+
+    /// <summary>
+    /// zh-cn: 返回用户列表，并从通用关联表解析用户直连角色；旧 UserRole 仅作为没有通用关联时的兜底。
+    /// en-us: Lists users and resolves direct user roles from generic associations; legacy UserRole is used only as a fallback when generic associations are absent.
+    /// </summary>
+    public async Task<IReadOnlyList<UserManagementResult>> ListUsersAsync()
+    {
+        var users = await _userDomain.ListAsync();
+        var results = new List<UserManagementResult>();
+        foreach (var entity in users.OrderBy(entity => entity.Username, StringComparer.Ordinal))
+        {
+            results.Add(new UserManagementResult(
+                entity.Id,
+                entity.Username,
+                entity.DisplayName,
+                entity.Email,
+                entity.PhoneNumber,
+                entity.Avatar,
+                entity.Status,
+                await GetTargets(entity.Id, SecurityAssociationTypes.UserRole)));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// zh-cn: 新增或更新用户；新增时必须提供密码，更新时密码为空则保持原密码，并同步用户-角色通用关联和旧 UserRole 表。
+    /// en-us: Creates or updates a user; new users require a password, updates keep the existing password when Password is empty, and user-role generic associations are synchronized with legacy UserRole rows.
+    /// </summary>
+    public async Task<UserManagementResult> UpsertUserAsync(UpsertUserRequest request)
+    {
+        ValidateRequired(request.Username, "Username is required.");
+        ValidateRequired(request.DisplayName, "Display name is required.");
+
+        var entity = string.IsNullOrWhiteSpace(request.Id)
+            ? null
+            : await _userDomain.GetAsync(request.Id);
+        entity ??= await _userDomain.FindAnyByUsernameAsync(request.Username.Trim());
+
+        if (entity is null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Password))
+            {
+                throw new InvalidOperationException("Password is required for new users.");
+            }
+
+            entity = new UserEntity();
+            entity.PasswordHash = PasswordHasher.Hash(request.Password);
+            await _userDomain.CreateAsync(entity);
+        }
+        else if (!string.Equals(entity.Username, request.Username.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            var sameUsername = await _userDomain.FindAnyByUsernameAsync(request.Username.Trim());
+            if (sameUsername is not null && sameUsername.Id != entity.Id)
+            {
+                throw new InvalidOperationException("Username already exists.");
+            }
+        }
+
+        entity.Username = request.Username.Trim();
+        entity.DisplayName = request.DisplayName.Trim();
+        entity.Email = NormalizeOptional(request.Email);
+        entity.PhoneNumber = NormalizeOptional(request.PhoneNumber);
+        entity.Avatar = NormalizeOptional(request.Avatar);
+        entity.Status = request.Status;
+        entity.IsDelete = 0;
+        if (!string.IsNullOrWhiteSpace(request.Password))
+        {
+            entity.PasswordHash = PasswordHasher.Hash(request.Password);
+        }
+
+        await _userDomain.UpdateAsync(entity);
+        await ReplaceAssociationsAsync(entity.Id, SecurityAssociationTypes.UserRole, request.RoleIds ?? []);
+        await ReplaceUserRolesAsync(entity.Id, request.RoleIds ?? []);
+        return (await ListUsersAsync()).Single(item => item.Id == entity.Id);
+    }
+
+    public Task<bool> DeleteUserAsync(string id)
+    {
+        return _userDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<RoleManagementResult>> ListRolesAsync()
+    {
+        var roles = await _roleDomain.ListAsync();
+        var results = new List<RoleManagementResult>();
+        foreach (var entity in roles.OrderBy(entity => entity.Code, StringComparer.Ordinal))
+        {
+            results.Add(new RoleManagementResult(
+                entity.Id,
+                entity.Code,
+                entity.Name,
+                entity.Description,
+                entity.Status,
+                await GetTargets(entity.Id, SecurityAssociationTypes.RoleMenu),
+                await GetTargets(entity.Id, SecurityAssociationTypes.RolePermission)));
+        }
+
+        return results;
+    }
+
+    public async Task<RoleManagementResult> UpsertRoleAsync(UpsertRoleRequest request)
+    {
+        ValidateRequired(request.Code, "Role code is required.");
+        ValidateRequired(request.Name, "Role name is required.");
+
+        var entity = string.IsNullOrWhiteSpace(request.Id)
+            ? null
+            : await _roleDomain.GetAsync(request.Id);
+        entity ??= await _roleDomain.FindAnyByCodeAsync(request.Code.Trim());
+        entity ??= new RoleEntity();
+
+        entity.Code = request.Code.Trim();
+        entity.Name = request.Name.Trim();
+        entity.Description = NormalizeOptional(request.Description);
+        entity.Status = request.Status;
+        entity.IsDelete = 0;
+
+        if (string.IsNullOrWhiteSpace(entity.Id) || (await _roleDomain.GetAsync(entity.Id)) is null)
+        {
+            await _roleDomain.CreateAsync(entity);
+        }
+        else
+        {
+            await _roleDomain.UpdateAsync(entity);
+        }
+
+        await ReplaceAssociationsAsync(entity.Id, SecurityAssociationTypes.RoleMenu, request.MenuIds ?? []);
+        await ReplaceAssociationsAsync(entity.Id, SecurityAssociationTypes.RolePermission, request.PermissionIds ?? []);
+        await ReplaceRoleMenusAsync(entity.Id, request.MenuIds ?? []);
+        await ReplaceRolePermissionsAsync(entity.Id, request.PermissionIds ?? []);
+        return (await ListRolesAsync()).Single(item => item.Id == entity.Id);
+    }
+
+    public Task<bool> DeleteRoleAsync(string id)
+    {
+        return _roleDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<MenuManagementResult>> ListMenusAsync()
+    {
+        return (await _menuDomain.ListAsync())
+            .OrderBy(entity => entity.Sort)
+            .Select(MapMenu)
+            .ToList();
+    }
+
+    public async Task<MenuManagementResult> UpsertMenuAsync(UpsertMenuRequest request)
+    {
+        ValidateRequired(request.Path, "Menu path is required.");
+        ValidateRequired(request.Name, "Menu name is required.");
+        var entity = string.IsNullOrWhiteSpace(request.Id) ? new MenuEntity() : await _menuDomain.GetAsync(request.Id) ?? new MenuEntity();
+        entity.ParentId = NormalizeOptional(request.ParentId);
+        entity.Path = request.Path.Trim();
+        entity.Name = request.Name.Trim();
+        entity.Component = NormalizeOptional(request.Component);
+        entity.Icon = NormalizeOptional(request.Icon);
+        entity.Sort = request.Sort;
+        entity.Type = request.Type;
+        entity.Status = request.Status;
+        entity.IsDelete = 0;
+
+        if (string.IsNullOrWhiteSpace(request.Id))
+        {
+            await _menuDomain.CreateAsync(entity);
+        }
+        else
+        {
+            await _menuDomain.UpdateAsync(entity);
+        }
+
+        return MapMenu(entity);
+    }
+
+    /// <summary>
+    /// zh-cn: 软删除指定菜单，并同步软删除直接挂载在该菜单下的按钮权限码，避免菜单管理合并按钮权限后留下无归属的按钮授权项。
+    /// en-us: Soft-deletes the specified menu and also soft-deletes button permission codes directly attached to it, preventing orphaned button grants after permissions are managed inside menus.
+    /// </summary>
+    /// <param name="id">
+    /// zh-cn: 要删除的菜单编号；为空时由底层领域对象按现有规则处理。
+    /// en-us: Menu id to delete; empty values are handled by the underlying domain according to its existing rules.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 返回菜单软删除是否成功；按钮权限清理由同一调用顺序执行，失败会向调用方传播异常。
+    /// en-us: Returns whether menu soft deletion succeeded; button permission cleanup runs in the same call sequence and propagates failures to the caller.
+    /// </returns>
+    public async Task<bool> DeleteMenuAsync(string id)
+    {
+        var deleted = await _menuDomain.DeleteAsync(id);
+        if (!deleted)
+        {
+            return false;
+        }
+
+        var permissions = await _permissionDomain.ListAsync(entity => entity.MenuId == id);
+        foreach (var permission in permissions)
+        {
+            await _permissionDomain.DeleteAsync(permission.Id);
+        }
+
+        return true;
+    }
+
+    public async Task<IReadOnlyList<PermissionManagementResult>> ListPermissionsAsync()
+    {
+        return (await _permissionDomain.ListAsync())
+            .OrderBy(entity => entity.Code, StringComparer.Ordinal)
+            .Select(MapPermission)
+            .ToList();
+    }
+
+    public async Task<PermissionManagementResult> UpsertPermissionAsync(UpsertPermissionRequest request)
+    {
+        ValidateRequired(request.Code, "Permission code is required.");
+        ValidateRequired(request.Name, "Permission name is required.");
+        ValidateRequired(request.MenuId, "Permission menu is required.");
+        var menuId = request.MenuId!.Trim();
+        if (await _menuDomain.GetAsync(menuId) is null)
+        {
+            throw new InvalidOperationException("Permission menu does not exist.");
+        }
+
+        var existing = (await _permissionDomain.ListIncludingDeletedAsync(entity => entity.Code == request.Code.Trim()))
+            .FirstOrDefault(entity => string.IsNullOrWhiteSpace(request.Id) || entity.Id != request.Id);
+        if (existing is not null)
+        {
+            throw new InvalidOperationException("Permission code already exists.");
+        }
+
+        var entity = string.IsNullOrWhiteSpace(request.Id) ? new PermissionEntity() : await _permissionDomain.GetAsync(request.Id) ?? new PermissionEntity();
+        entity.Code = request.Code.Trim();
+        entity.Name = request.Name.Trim();
+        entity.MenuId = menuId;
+        entity.IsDelete = 0;
+        if (string.IsNullOrWhiteSpace(request.Id))
+        {
+            await _permissionDomain.CreateAsync(entity);
+        }
+        else
+        {
+            await _permissionDomain.UpdateAsync(entity);
+        }
+
+        return MapPermission(entity);
+    }
+
+    public Task<bool> DeletePermissionAsync(string id)
+    {
+        return _permissionDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<UserGroupManagementResult>> ListUserGroupsAsync()
+    {
+        return (await _userGroupDomain.ListAsync()).OrderBy(entity => entity.Code, StringComparer.Ordinal).Select(MapUserGroup).ToList();
+    }
+
+    public async Task<UserGroupManagementResult> UpsertUserGroupAsync(UpsertUserGroupRequest request)
+    {
+        var entity = await UpsertCodeNameEntityAsync(
+            _userGroupDomain,
+            request.Id,
+            request.Code,
+            request.Name,
+            request.Description,
+            request.Status,
+            (target, code, name, description, status) =>
+            {
+                target.Code = code;
+                target.Name = name;
+                target.Description = description;
+                target.Status = status;
+            });
+        return MapUserGroup(entity);
+    }
+
+    /// <summary>
+    /// zh-cn: 软删除用户组主数据；该操作不级联清理通用关联表，维护人员可以在关联维护视图中单独调整授权关系。
+    /// en-us: Soft-deletes user-group master data without cascading generic association cleanup; maintainers can adjust grants separately in the association maintenance view.
+    /// </summary>
+    public Task<bool> DeleteUserGroupAsync(string id)
+    {
+        return _userGroupDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<RoleGroupManagementResult>> ListRoleGroupsAsync()
+    {
+        return (await _roleGroupDomain.ListAsync()).OrderBy(entity => entity.Code, StringComparer.Ordinal).Select(MapRoleGroup).ToList();
+    }
+
+    public async Task<RoleGroupManagementResult> UpsertRoleGroupAsync(UpsertRoleGroupRequest request)
+    {
+        var entity = await UpsertCodeNameEntityAsync(
+            _roleGroupDomain,
+            request.Id,
+            request.Code,
+            request.Name,
+            request.Description,
+            request.Status,
+            (target, code, name, description, status) =>
+            {
+                target.Code = code;
+                target.Name = name;
+                target.Description = description;
+                target.Status = status;
+            });
+        return MapRoleGroup(entity);
+    }
+
+    /// <summary>
+    /// zh-cn: 软删除角色组主数据；角色组关联历史保留在通用关联表中，避免破坏授权审计轨迹。
+    /// en-us: Soft-deletes role-group master data while keeping role-group association history in the generic association table to preserve authorization audit trails.
+    /// </summary>
+    public Task<bool> DeleteRoleGroupAsync(string id)
+    {
+        return _roleGroupDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<DepartmentManagementResult>> ListDepartmentsAsync()
+    {
+        return (await _departmentDomain.ListAsync()).OrderBy(entity => entity.Sort).Select(MapDepartment).ToList();
+    }
+
+    public async Task<DepartmentManagementResult> UpsertDepartmentAsync(UpsertDepartmentRequest request)
+    {
+        ValidateRequired(request.Code, "Department code is required.");
+        ValidateRequired(request.Name, "Department name is required.");
+        var entity = string.IsNullOrWhiteSpace(request.Id) ? new DepartmentEntity() : await _departmentDomain.GetAsync(request.Id) ?? new DepartmentEntity();
+        entity.ParentId = NormalizeOptional(request.ParentId);
+        entity.Code = request.Code.Trim();
+        entity.Name = request.Name.Trim();
+        entity.Sort = request.Sort;
+        entity.Status = request.Status;
+        entity.IsDelete = 0;
+        if (string.IsNullOrWhiteSpace(request.Id)) await _departmentDomain.CreateAsync(entity);
+        else await _departmentDomain.UpdateAsync(entity);
+        return MapDepartment(entity);
+    }
+
+    /// <summary>
+    /// zh-cn: 软删除部门主数据；不会自动处理子部门或用户部门关联，避免维护操作产生隐式级联影响。
+    /// en-us: Soft-deletes department master data without automatically processing child departments or user-department links, avoiding implicit cascade effects during maintenance.
+    /// </summary>
+    public Task<bool> DeleteDepartmentAsync(string id)
+    {
+        return _departmentDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<AssignmentManagementResult>> ListAssignmentsAsync()
+    {
+        return (await _assignmentDomain.ListAsync()).OrderBy(entity => entity.Code, StringComparer.Ordinal).Select(MapAssignment).ToList();
+    }
+
+    public async Task<AssignmentManagementResult> UpsertAssignmentAsync(UpsertAssignmentRequest request)
+    {
+        var entity = await UpsertCodeNameEntityAsync(
+            _assignmentDomain,
+            request.Id,
+            request.Code,
+            request.Name,
+            request.Description,
+            request.Status,
+            (target, code, name, description, status) =>
+            {
+                target.Code = code;
+                target.Name = name;
+                target.Description = description;
+                target.Status = status;
+            });
+        return MapAssignment(entity);
+    }
+
+    /// <summary>
+    /// zh-cn: 软删除岗位主数据；用户岗位关系保留在通用关联表中，可由维护人员后续清理或恢复。
+    /// en-us: Soft-deletes assignment master data while user-assignment links remain in the generic association table for later cleanup or restoration by maintainers.
+    /// </summary>
+    public Task<bool> DeleteAssignmentAsync(string id)
+    {
+        return _assignmentDomain.DeleteAsync(id);
+    }
+
+    public async Task<IReadOnlyList<SecurityAssociationResult>> ListAssociationsAsync()
+    {
+        return (await _associationDomain.ListAsync()).Select(MapAssociation).ToList();
+    }
+
+    public async Task<SecurityAssociationResult> CreateAssociationAsync(SecurityAssociationRequest request)
+    {
+        ValidateRequired(request.SourceEntityId, "Source entity id is required.");
+        ValidateRequired(request.TargetEntityId, "Target entity id is required.");
+        ValidateRequired(request.AssociationType, "Association type is required.");
+        await EnsureAssociationAsync(request.SourceEntityId, request.TargetEntityId, request.AssociationType);
+        return (await ListAssociationsAsync()).First(item =>
+            item.SourceEntityId == request.SourceEntityId &&
+            item.TargetEntityId == request.TargetEntityId &&
+            item.AssociationType == request.AssociationType);
+    }
+
+    public Task<bool> DeleteAssociationAsync(string id)
+    {
+        return _associationDomain.DeleteAsync(id);
+    }
+
+    private async Task<IReadOnlyList<string>> GetTargets(string sourceId, string associationType)
+    {
+        var targets = (await _associationDomain.ListAsync(entity =>
+                entity.SourceEntityId == sourceId && entity.AssociationType == associationType))
+            .Select(entity => entity.TargetEntityId)
+            .ToList();
+        if (targets.Count > 0)
+        {
+            return targets;
+        }
+
+        return associationType switch
+        {
+            SecurityAssociationTypes.UserRole => (await _userRoleDomain.ListAsync(entity => entity.UserId == sourceId)).Select(entity => entity.RoleId).ToList(),
+            SecurityAssociationTypes.RoleMenu => (await _roleMenuDomain.ListAsync(entity => entity.RoleId == sourceId)).Select(entity => entity.MenuId).ToList(),
+            SecurityAssociationTypes.RolePermission => (await _rolePermissionDomain.ListAsync(entity => entity.RoleId == sourceId)).Select(entity => entity.PermissionId).ToList(),
+            _ => []
+        };
+    }
+
+    private async Task ReplaceAssociationsAsync(string sourceId, string associationType, IReadOnlyList<string> targetIds)
+    {
+        var existing = await _associationDomain.ListIncludingDeletedAsync(entity =>
+            entity.SourceEntityId == sourceId && entity.AssociationType == associationType);
+        var wanted = targetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var relation in existing)
+        {
+            relation.IsDelete = wanted.Contains(relation.TargetEntityId) ? 0 : 1;
+            await _associationDomain.UpdateAsync(relation);
+            wanted.Remove(relation.TargetEntityId);
+        }
+
+        foreach (var targetId in wanted)
+        {
+            await _associationDomain.CreateAsync(new EntityAssociationEntity
+            {
+                SourceEntityId = sourceId,
+                TargetEntityId = targetId,
+                AssociationType = associationType
+            });
+        }
+    }
+
+    private async Task EnsureAssociationAsync(string sourceId, string targetId, string associationType)
+    {
+        var existing = (await _associationDomain.ListIncludingDeletedAsync(entity =>
+                entity.SourceEntityId == sourceId &&
+                entity.TargetEntityId == targetId &&
+                entity.AssociationType == associationType))
+            .FirstOrDefault();
+        if (existing is not null)
+        {
+            existing.IsDelete = 0;
+            await _associationDomain.UpdateAsync(existing);
+            return;
+        }
+
+        await _associationDomain.CreateAsync(new EntityAssociationEntity
+        {
+            SourceEntityId = sourceId,
+            TargetEntityId = targetId,
+            AssociationType = associationType
+        });
+    }
+
+    private async Task ReplaceUserRolesAsync(string userId, IReadOnlyList<string> roleIds)
+    {
+        await ReplaceLegacyRelationsAsync(_userRoleDomain, relation => relation.UserId == userId, roleIds, roleId => new UserRoleEntity { UserId = userId, RoleId = roleId }, relation => relation.RoleId);
+    }
+
+    private async Task ReplaceRoleMenusAsync(string roleId, IReadOnlyList<string> menuIds)
+    {
+        await ReplaceLegacyRelationsAsync(_roleMenuDomain, relation => relation.RoleId == roleId, menuIds, menuId => new RoleMenuEntity { RoleId = roleId, MenuId = menuId }, relation => relation.MenuId);
+    }
+
+    private async Task ReplaceRolePermissionsAsync(string roleId, IReadOnlyList<string> permissionIds)
+    {
+        await ReplaceLegacyRelationsAsync(_rolePermissionDomain, relation => relation.RoleId == roleId, permissionIds, permissionId => new RolePermissionEntity { RoleId = roleId, PermissionId = permissionId }, relation => relation.PermissionId);
+    }
+
+    private static async Task ReplaceLegacyRelationsAsync<TEntity>(
+        IEntityDomainBase<TEntity> domain,
+        System.Linq.Expressions.Expression<Func<TEntity, bool>> predicate,
+        IReadOnlyList<string> targetIds,
+        Func<string, TEntity> create,
+        Func<TEntity, string> getTargetId)
+        where TEntity : Model.Modules.Common.EntityBase, new()
+    {
+        var existing = await domain.ListIncludingDeletedAsync(predicate);
+        var wanted = targetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).ToHashSet(StringComparer.Ordinal);
+        foreach (var relation in existing)
+        {
+            relation.IsDelete = wanted.Contains(getTargetId(relation)) ? 0 : 1;
+            await domain.UpdateAsync(relation);
+            wanted.Remove(getTargetId(relation));
+        }
+
+        foreach (var targetId in wanted)
+        {
+            await domain.CreateAsync(create(targetId));
+        }
+    }
+
+    private static async Task<TEntity> UpsertCodeNameEntityAsync<TEntity>(
+        IEntityDomainBase<TEntity> domain,
+        string? id,
+        string code,
+        string name,
+        string? description,
+        int status,
+        Action<TEntity, string, string, string?, int> assign)
+        where TEntity : Model.Modules.Common.EntityBase, new()
+    {
+        ValidateRequired(code, "Code is required.");
+        ValidateRequired(name, "Name is required.");
+        var normalizedCode = code.Trim();
+        var duplicate = (await domain.ListIncludingDeletedAsync())
+            .FirstOrDefault(entity =>
+                string.Equals(ReadCode(entity), normalizedCode, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrWhiteSpace(id) || entity.Id != id));
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException("Code already exists.");
+        }
+
+        var entity = string.IsNullOrWhiteSpace(id) ? new TEntity() : await domain.GetAsync(id) ?? new TEntity();
+        assign(entity, normalizedCode, name.Trim(), NormalizeOptional(description), status);
+        entity.IsDelete = 0;
+        if (string.IsNullOrWhiteSpace(id)) await domain.CreateAsync(entity);
+        else await domain.UpdateAsync(entity);
+        return entity;
+    }
+
+    private static string ReadCode<TEntity>(TEntity entity)
+    {
+        return entity switch
+        {
+            UserGroupEntity typed => typed.Code,
+            RoleGroupEntity typed => typed.Code,
+            AssignmentEntity typed => typed.Code,
+            _ => string.Empty
+        };
+    }
+
+    private static void ValidateRequired(string? value, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static MenuManagementResult MapMenu(MenuEntity entity)
+    {
+        return new MenuManagementResult(entity.Id, entity.ParentId, entity.Path, entity.Name, entity.Component, entity.Icon, entity.Sort, entity.Type, entity.Status);
+    }
+
+    private static PermissionManagementResult MapPermission(PermissionEntity entity)
+    {
+        return new PermissionManagementResult(entity.Id, entity.Code, entity.Name, entity.MenuId);
+    }
+
+    private static UserGroupManagementResult MapUserGroup(UserGroupEntity entity)
+    {
+        return new UserGroupManagementResult(entity.Id, entity.Code, entity.Name, entity.Description, entity.Status);
+    }
+
+    private static RoleGroupManagementResult MapRoleGroup(RoleGroupEntity entity)
+    {
+        return new RoleGroupManagementResult(entity.Id, entity.Code, entity.Name, entity.Description, entity.Status);
+    }
+
+    private static DepartmentManagementResult MapDepartment(DepartmentEntity entity)
+    {
+        return new DepartmentManagementResult(entity.Id, entity.ParentId, entity.Code, entity.Name, entity.Sort, entity.Status);
+    }
+
+    private static AssignmentManagementResult MapAssignment(AssignmentEntity entity)
+    {
+        return new AssignmentManagementResult(entity.Id, entity.Code, entity.Name, entity.Description, entity.Status);
+    }
+
+    private static SecurityAssociationResult MapAssociation(EntityAssociationEntity entity)
+    {
+        return new SecurityAssociationResult(entity.Id, entity.SourceEntityId, entity.TargetEntityId, entity.AssociationType);
+    }
+}

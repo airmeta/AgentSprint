@@ -1,0 +1,13 @@
+.git
+.github
+.tmp
+**/.vs
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.turbo
+**/.vite
+**/*.log
+**/*.pid
+docs/evidence

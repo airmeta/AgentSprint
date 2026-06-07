@@ -1,0 +1,118 @@
+.sprint-list-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.sprint-page-title,
+.sprint-filter-panel,
+.sprint-table-panel {
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.sprint-page-title {
+  padding: 14px 16px;
+}
+
+.sprint-page-title h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.sprint-page-title p {
+  margin: 4px 0 0;
+  color: var(--td-text-color-secondary);
+  line-height: 20px;
+}
+
+.sprint-filter-panel {
+  padding: 12px 16px;
+}
+
+.sprint-filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+}
+
+.sprint-filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+.sprint-filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sprint-table-panel {
+  overflow: hidden;
+}
+
+.sprint-table-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--td-component-border);
+}
+
+.sprint-table-header h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.sprint-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sprint-compact-table .t-table th,
+.sprint-compact-table .t-table td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.sprint-compact-table .t-table__pagination {
+  padding: 10px 16px;
+  border-top: 1px solid var(--td-component-border);
+}
+
+.sprint-row-actions {
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  line-height: 1.5;
+}
+
+.sprint-row-actions .t-link {
+  min-height: 20px;
+}
+
+@media (max-width: 760px) {
+  .sprint-filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .sprint-filter-field .t-select,
+  .sprint-filter-field .t-input {
+    width: 100%;
+  }
+
+  .sprint-filter-actions {
+    width: 100%;
+  }
+}
