@@ -337,6 +337,24 @@ public sealed class AgileMvpController : ControllerBase
     }
 
     /// <summary>
+    /// zh-cn: 删除尚未提交立项推进的草稿需求。
+    /// en-us: Deletes a draft requirement that has not been submitted for initiation.
+    /// </summary>
+    /// <param name="id">
+    /// zh-cn: 需求标识。
+    /// en-us: Requirement identifier.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 删除结果。
+    /// en-us: Delete result.
+    /// </returns>
+    [HttpDelete("requirements/{id}")]
+    public Task<ActionResult<ApiResponse<bool>>> DeleteDraftRequirement(string id)
+    {
+        return ExecuteBooleanAction(() => _agileMvpService.DeleteDraftRequirementAsync(id, GetUserId()));
+    }
+
+    /// <summary>
     /// zh-cn: 提交需求评审。
     /// en-us: Submits a requirement for review.
     /// </summary>
@@ -1204,6 +1222,18 @@ public sealed class AgileMvpController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return BadRequest(ApiResponse<SprintRequirementResult>.Error(ex.Message, 400));
+        }
+    }
+
+    private async Task<ActionResult<ApiResponse<bool>>> ExecuteBooleanAction(Func<Task<bool>> action)
+    {
+        try
+        {
+            return ApiResponse<bool>.Ok(await action());
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<bool>.Error(ex.Message, 400));
         }
     }
 

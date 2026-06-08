@@ -299,6 +299,21 @@ public sealed class AgileMvpControllerTests
         Assert.Equal("po-100", service.LastUserId);
     }
 
+    [Fact]
+    public async Task DeleteDraftRequirement_UsesRouteRequirementAndAuthenticatedUser()
+    {
+        var service = new CapturingAgileMvpService();
+        var controller = CreateController(service, "po-100", ["pm"]);
+
+        var result = await controller.DeleteDraftRequirement("req-100");
+
+        var response = Assert.IsType<ApiResponse<bool>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.True(response.Data);
+        Assert.Equal("req-100", service.LastRequirementId);
+        Assert.Equal("po-100", service.LastUserId);
+    }
+
     private static AgileMvpController CreateController(
         IAgileMvpService service,
         string userId,
@@ -737,6 +752,13 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         LastRequirementId = id;
         LastUserId = userId;
         return Task.FromResult(CreateRequirementResult(id, "project-1", "Requirement"));
+    }
+
+    public Task<bool> DeleteDraftRequirementAsync(string id, string userId)
+    {
+        LastRequirementId = id;
+        LastUserId = userId;
+        return Task.FromResult(true);
     }
 
     public Task<IReadOnlyList<SprintDevelopmentTaskResult>> DecomposeRequirementAsync(

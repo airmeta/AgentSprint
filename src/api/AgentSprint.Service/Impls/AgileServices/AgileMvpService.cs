@@ -479,6 +479,16 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     /// <inheritdoc />
+    public async Task<bool> DeleteDraftRequirementAsync(string id, string userId)
+    {
+        var entity = await GetRequirementOrThrowAsync(id);
+        EnsureRequirementStatus(entity, SprintRequirementStatuses.Draft);
+        EnsureRequirementCreator(entity, userId, "Only requirement creator can delete a draft requirement.");
+
+        return await _requirementDomain.DeleteAsync(id);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<SprintRequirementResult>> ListRequirementsAsync(string? projectId)
     {
         var entities = await _requirementDomain.ListAsync(entity =>

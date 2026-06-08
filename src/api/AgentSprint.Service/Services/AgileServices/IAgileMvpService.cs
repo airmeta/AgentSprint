@@ -170,6 +170,24 @@ public interface IAgileMvpService
         string userId);
 
     /// <summary>
+    /// zh-cn: 删除尚未提交立项推进的草稿需求，仅允许需求创建人操作，删除后需求会从常规列表中隐藏。
+    /// en-us: Deletes a draft requirement that has not been submitted for initiation, allowing only the requirement creator and hiding the requirement from normal lists.
+    /// </summary>
+    /// <param name="id">
+    /// zh-cn: 需求标识。
+    /// en-us: Requirement identifier.
+    /// </param>
+    /// <param name="userId">
+    /// zh-cn: 当前登录用户标识，用于校验需求创建人身份。
+    /// en-us: Current signed-in user identifier used to validate requirement ownership.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 删除是否成功。
+    /// en-us: Whether the delete operation succeeded.
+    /// </returns>
+    Task<bool> DeleteDraftRequirementAsync(string id, string userId);
+
+    /// <summary>
     /// zh-cn: 查询需求列表，可按项目筛选。
     /// en-us: Lists requirements with an optional project filter.
     /// </summary>

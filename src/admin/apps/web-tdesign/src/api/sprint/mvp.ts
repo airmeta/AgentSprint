@@ -671,6 +671,10 @@ export function voidRequirementApi(id: string) {
   );
 }
 
+export function deleteDraftRequirementApi(id: string) {
+  return requestClient.delete<boolean>(`/mvp/requirements/${id}`);
+}
+
 export function decomposeRequirementApi(
   id: string,
   data: SprintMvpApi.DecomposeRequirementRequest,

@@ -1265,6 +1265,62 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task DeleteDraftRequirementAsync_AllowsRequirementCreatorToDeleteDraftRequirement()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DELETE-DRAFT", "Delete draft path"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Delete stale draft", "Not ready to submit", 1),
+            "po-1");
+
+        var deleted = await service.DeleteDraftRequirementAsync(requirement.Id, "po-1");
+        var requirements = await service.ListRequirementsAsync(project.Id);
+
+        Assert.True(deleted);
+        Assert.Empty(requirements);
+    }
+
+    [Fact]
+    public async Task DeleteDraftRequirementAsync_RejectsRequirementAfterSubmittedForReview()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DELETE-SUBMITTED", "Delete submitted guard"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Submitted requirement", "Already in review", 1),
+            "po-1");
+        requirement = await service.SubmitRequirementReviewAsync(
+            requirement.Id,
+            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            "po-1");
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteDraftRequirementAsync(requirement.Id, "po-1"));
+
+        Assert.Equal("Requirement status does not allow this operation.", exception.Message);
+    }
+
+    [Fact]
+    public async Task DeleteDraftRequirementAsync_RejectsUserWhoIsNotRequirementCreator()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DELETE-OWNER", "Delete owner guard"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Protect draft", "Only owner can delete", 1),
+            "po-1");
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteDraftRequirementAsync(requirement.Id, "pm-2"));
+
+        Assert.Equal("Only requirement creator can delete a draft requirement.", exception.Message);
+    }
+
+    [Fact]
     public async Task VoidRequirementAsync_AllowsRequirementCreatorToVoidRejectedRequirement()
     {
         var service = CreateService();

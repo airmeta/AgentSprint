@@ -1,4 +1,4 @@
-﻿<script lang="ts" setup>
+<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router';
 
 import {
   Button as TButton,
+  DialogPlugin,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -27,6 +28,7 @@ import {
   convertRequirementSourcesApi,
   createRequirementFeedbackApi,
   createRequirementApi,
+  deleteDraftRequirementApi,
   decomposeRequirementApi,
   listDevelopmentTasksApi,
   listFeatureSuggestionsApi,
@@ -725,6 +727,20 @@ async function voidRequirement(requirement: SprintMvpApi.Requirement) {
   await loadRequirements();
 }
 
+function deleteDraftRequirement(requirement: SprintMvpApi.Requirement) {
+  DialogPlugin.confirm({
+    body: `确认删除草稿需求「${requirement.title}」？`,
+    confirmBtn: '删除',
+    header: '删除草稿需求',
+    onConfirm: async () => {
+      await deleteDraftRequirementApi(requirement.id);
+      MessagePlugin.success('草稿需求已删除');
+      detailVisible.value = false;
+      await loadRequirements();
+    },
+  });
+}
+
 async function closeRequirement(requirement: SprintMvpApi.Requirement) {
   await closeRequirementApi(requirement.id);
   MessagePlugin.success('闇€姹傚凡楠屾敹鍏抽棴');
@@ -875,63 +891,65 @@ onActivated(async () => {
 <template>
   <div class="requirements-page sprint-list-page">
     <section class="sprint-page-title">
-      <h2>闇€姹傜鐞?/h2>
-      <p>缁存姢闇€姹傘€佽瘎瀹°€佹媶瑙ｃ€佹祴璇曢棴鐜拰楠屾敹鍚庣殑浜у搧鍥為銆?/p>
+      <h2>需求管理</h2>
+      <p>维护需求、评审、拆解、测试闭环和验收后的产品回馈。</p>
     </section>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
         <label class="sprint-filter-field">
-          <span>褰撳墠椤圭洰</span>
+          <span>当前项目</span>
           <TSelect
             v-model="selectedProjectId"
             :options="projectOptions"
             clearable
-            placeholder="鍏ㄩ儴椤圭洰"
+            placeholder="全部项目"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>鐘舵€?/span>
+          <span>状态</span>
           <TSelect
             v-model="filters.status"
             :options="statusOptions"
             clearable
-            placeholder="鍏ㄩ儴鐘舵€?
+            placeholder="全部状态"
             @change="handleLocalFilterChange"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>鍋ュ悍</span>
+          <span>健康度</span>
           <TSelect
             v-model="filters.health"
             :options="healthOptions"
             clearable
-            placeholder="鍏ㄩ儴鍋ュ悍鐘舵€?
+            placeholder="全部健康状态"
             @change="handleLocalFilterChange"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>闇€姹備俊鎭?/span>
+          <span>需求信息</span>
           <TInput
             v-model="filters.requirementInfo"
             clearable
-            placeholder="闇€姹傚悕銆佸唴瀹广€佸共绯讳汉"
+            placeholder="需求名、内容、干系人"
             @change="handleLocalFilterChange"
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :loading="loading" @click="queryRequirements">鏌ヨ</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">閲嶇疆</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryRequirements">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
 
     <section class="sprint-table-panel">
       <div class="sprint-table-header">
-        <h3>{{ selectedProjectName || '闇€姹傚垪琛? }}</h3>
+        <h3>{{ selectedProjectName || '需求列表' }}</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">鈫?/TButton>
-          <TButton theme="primary" @click="openCreate">鏂板闇€姹?/TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">
+            刷新
+          </TButton>
+          <TButton theme="primary" @click="openCreate">新增需求</TButton>
         </div>
       </div>
 
@@ -952,9 +970,9 @@ onActivated(async () => {
         <template #expandedRow="{ row }">
           <div class="requirement-expanded">
             <section class="expanded-section">
-              <h4>浠诲姟鍒嗚В</h4>
+              <h4>任务拆解</h4>
               <div v-if="getRequirementTasks(row.id).length === 0" class="expanded-empty">
-                鏆傛棤鎷嗚В浠诲姟
+                暂无拆解任务
               </div>
               <div
                 v-for="task in getRequirementTasks(row.id)"
@@ -963,33 +981,34 @@ onActivated(async () => {
               >
                 <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
                 <strong>{{ task.title }}</strong>
-                <span>{{ task.assigneeId || '鏈寚娲? }}</span>
-                <span>浼樺厛绾?{{ task.priority }}</span>
+                <span>{{ task.assigneeId || '未指派' }}</span>
+                <span>优先级 {{ task.priority }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
-                  <TLink theme="primary" @click="goTaskAdvance(task)">浠诲姟鎺ㄨ繘</TLink>
+                  <TLink theme="primary" @click="goTaskAdvance(task)">任务推进</TLink>
                   <TLink
                     v-if="task.status === 'completed' && canCreateFeedback(row)"
                     theme="warning"
                     @click="openFeedback(row, task)"
                   >
-                    璁板綍鍥為
+                    记录回馈
                   </TLink>
                 </TSpace>
-                <p>{{ task.description || '鏆傛棤浠诲姟璇存槑' }}</p>
+                <p>{{ task.description || '暂无任务说明' }}</p>
               </div>
             </section>
 
             <section class="expanded-section">
-              <h4>鍥為涓庡瓙闇€姹?/h4>
+              <h4>回馈与子需求</h4>
               <div v-if="getRequirementFollowUpItems(row).length === 0" class="expanded-empty">
-                鏆傛棤鍥為涓庡瓙闇€姹?              </div>
+                暂无回馈与子需求
+              </div>
               <div
                 v-for="item in getRequirementFollowUpItems(row)"
                 :key="item.id"
                 class="expanded-item"
               >
                 <TTag :theme="item.type === 'feedback' ? 'warning' : 'primary'" variant="light">
-                  {{ item.type === 'feedback' ? '鍥為' : '闇€姹? }}
+                  {{ item.type === 'feedback' ? '回馈' : '需求' }}
                 </TTag>
                 <TTag variant="light">
                   {{
@@ -1006,20 +1025,21 @@ onActivated(async () => {
                     theme="primary"
                     @click="openConvertFeedbackFromRequirement(row, item.feedback)"
                   >
-                    杞渶姹?                  </TLink>
+                    转需求
+                  </TLink>
                   <TLink
                     v-if="item.type === 'requirement' && canSubmitReview(item.child)"
                     theme="primary"
                     @click="openReview(item.child)"
                   >
-                    鎻愪氦璇勫
+                    提交评审
                   </TLink>
                   <TLink
                     v-if="item.type === 'requirement' && decomposeAllowedStatuses.has(item.child.status)"
                     theme="primary"
                     @click="openDecompose(item.child)"
                   >
-                    浠诲姟鎷嗚В
+                    任务拆解
                   </TLink>
                   <TLink
                     v-if="
@@ -1029,20 +1049,21 @@ onActivated(async () => {
                     theme="success"
                     @click="completeRequirementDevelopment(item.child)"
                   >
-                    瀹屾垚寮€鍙?                  </TLink>
+                    完成开发
+                  </TLink>
                   <TLink
                     v-if="item.type === 'requirement' && item.child.status === 'tested'"
                     theme="success"
                     @click="closeRequirement(item.child)"
                   >
-                    楠屾敹鍏抽棴
+                    验收关闭
                   </TLink>
                   <TLink
                     v-if="item.type === 'requirement'"
                     theme="primary"
                     @click="openDetail(item.child)"
                   >
-                    璇︽儏
+                    详情
                   </TLink>
                 </TSpace>
                 <p>{{ item.content }}</p>
@@ -1067,27 +1088,30 @@ onActivated(async () => {
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
             <TLink v-if="canEditRequirement(row)" theme="primary" @click="openEdit(row)">
-              缂栬緫
+              编辑
             </TLink>
-            <TLink v-else theme="primary" @click="openDetail(row)">璇︽儏</TLink>
+            <TLink v-else theme="primary" @click="openDetail(row)">详情</TLink>
             <TLink
               v-if="decomposeAllowedStatuses.has(row.status)"
               theme="primary"
               @click="openDecompose(row)"
             >
-              浠诲姟鎷嗚В
+              任务拆解
             </TLink>
             <TLink v-if="canSubmitReview(row)" theme="primary" @click="openReview(row)">
-              绔嬮」鎺ㄨ繘
+              立项推进
+            </TLink>
+            <TLink v-if="row.status === 'draft'" theme="danger" @click="deleteDraftRequirement(row)">
+              删除
             </TLink>
             <TLink v-if="row.status === 'rejected'" theme="danger" @click="voidRequirement(row)">
-              浣滃簾
+              作废
             </TLink>
             <TLink v-if="row.status === 'tested'" theme="success" @click="closeRequirement(row)">
-              楠屾敹鍏抽棴
+              验收关闭
             </TLink>
             <TLink v-if="canCreateFeedback(row)" theme="primary" @click="openFeedback(row)">
-              璁板綍鍥為
+              记录回馈
             </TLink>
           </TSpace>
         </template>
@@ -1102,33 +1126,33 @@ onActivated(async () => {
       @confirm="saveRequirement"
     >
       <TForm ref="requirementFormRef" :data="requirementForm" :rules="requirementRules" label-width="90px">
-        <TFormItem label="鎵€灞為」鐩? name="projectId">
+        <TFormItem label="所属项目" name="projectId">
           <TSelect
             v-model="requirementForm.projectId"
             :disabled="!!selectedRequirement"
             :options="projectOptions"
           />
         </TFormItem>
-        <TFormItem label="绔? name="endpointId">
+        <TFormItem label="端点" name="endpointId">
           <TSelect
             v-model="requirementForm.endpointId"
             :disabled="!!selectedRequirement"
             :options="endpointOptions"
-            placeholder="璇烽€夋嫨绔?
+            placeholder="请选择端点"
           />
         </TFormItem>
-        <TFormItem label="鍔熻兘妯″潡" name="moduleId">
+        <TFormItem label="功能模块" name="moduleId">
           <TSelect
             v-model="requirementForm.moduleId"
             :disabled="!!selectedRequirement"
             :options="moduleOptions"
-            placeholder="璇烽€夋嫨鍔熻兘妯″潡"
+            placeholder="请选择功能模块"
           />
         </TFormItem>
-        <TFormItem label="闇€姹傛爣棰? name="title">
+        <TFormItem label="需求标题" name="title">
           <TInput v-model="requirementForm.title" />
         </TFormItem>
-        <TFormItem label="浼樺厛绾? name="priority">
+        <TFormItem label="优先级" name="priority">
           <div class="priority-options">
             <TButton
               v-for="item in priorityOptions"
@@ -1141,23 +1165,23 @@ onActivated(async () => {
             </TButton>
           </div>
         </TFormItem>
-        <TFormItem label="骞茬郴浜?>
+        <TFormItem label="干系人">
           <TSelect
             v-model="requirementForm.stakeholderIds"
             multiple
             filterable
             :options="userOptions"
-            placeholder="閫夋嫨骞茬郴浜?
+            placeholder="选择干系人"
           />
         </TFormItem>
         <TFormItem label="Skill">
           <TSelect v-model="requirementForm.skillIds" multiple filterable :options="skillOptions" />
         </TFormItem>
-        <TFormItem label="闇€姹傚唴瀹? class="markdown-form-item">
+        <TFormItem label="需求内容" class="markdown-form-item">
           <MarkdownEditor
             v-model="requirementForm.description"
             :height="420"
-            placeholder="浣跨敤 Markdown 缂栧啓闇€姹傝儗鏅€佺洰鏍囥€侀獙鏀舵爣鍑嗐€?
+            placeholder="使用 Markdown 编写需求背景、目标、验收标准。"
           />
         </TFormItem>
       </TForm>
@@ -1167,7 +1191,7 @@ onActivated(async () => {
       v-model:visible="detailVisible"
       :footer="false"
       :size="'60%'"
-      :header="selectedRequirement?.title || '闇€姹傝鎯?"
+      :header="selectedRequirement?.title || '需求详情'"
     >
       <article v-if="selectedRequirement" class="detail">
         <TTag :theme="healthTheme[selectedRequirement.health] || 'primary'" variant="light">
@@ -1176,18 +1200,18 @@ onActivated(async () => {
         <h3>{{ selectedRequirement.title }}</h3>
         <article
           class="markdown-preview detail-markdown"
-          v-html="renderMarkdown(selectedRequirement.description || '鏆傛棤闇€姹傚唴瀹?)"
+          v-html="renderMarkdown(selectedRequirement.description || '暂无需求内容')"
         ></article>
         <dl>
-          <dt>鐘舵€?/dt>
+          <dt>状态</dt>
           <dd>{{ statusText[selectedRequirement.status] || selectedRequirement.status }}</dd>
-          <dt>浜у搧缁忕悊</dt>
+          <dt>产品经理</dt>
           <dd>{{ selectedRequirement.createdBy }}</dd>
-          <dt>骞茬郴浜?/dt>
+          <dt>干系人</dt>
           <dd>{{ resolveStakeholderNames(selectedRequirement.stakeholders) }}</dd>
         </dl>
         <section v-if="requirementReviews.length > 0" class="review-history">
-          <h4>璇勫璁板綍</h4>
+          <h4>评审记录</h4>
           <div
             v-for="review in requirementReviews"
             :key="review.id"
@@ -1198,13 +1222,13 @@ onActivated(async () => {
               {{ userMap[review.reviewerId]?.displayName || review.reviewerId }}
             </strong>
             <span>{{ review.reviewedAt || review.createTime }}</span>
-            <p>{{ review.comment || '鏆傛棤鎰忚' }}</p>
+            <p>{{ review.comment || '暂无意见' }}</p>
           </div>
         </section>
         <section class="feedback-history">
-          <h4>浜у搧鍥為</h4>
+          <h4>产品回馈</h4>
           <div v-if="requirementFeedback.length === 0" class="feedback-empty">
-            鏆傛棤鍥為
+            暂无回馈
           </div>
           <div
             v-for="feedback in requirementFeedback"
@@ -1216,7 +1240,7 @@ onActivated(async () => {
             </TTag>
             <strong>{{ feedback.title }}</strong>
             <span>{{ feedback.createTime }}</span>
-            <p>{{ feedback.content || '鏆傛棤鍐呭' }}</p>
+            <p>{{ feedback.content || '暂无内容' }}</p>
             <TButton
               v-if="feedback.status === 'open'"
               size="small"
@@ -1224,7 +1248,8 @@ onActivated(async () => {
               variant="outline"
               @click="openConvertFeedback(feedback)"
             >
-              杞悗缁渶姹?            </TButton>
+              转后续需求
+            </TButton>
           </div>
         </section>
         <div class="detail-actions">
@@ -1234,34 +1259,43 @@ onActivated(async () => {
               theme="primary"
               @click="openEdit(selectedRequirement)"
             >
-              缂栬緫
+              编辑
             </TButton>
             <TButton
               v-if="decomposeAllowedStatuses.has(selectedRequirement.status)"
               theme="primary"
               @click="openDecompose(selectedRequirement)"
             >
-              浠诲姟鎷嗚В
+              任务拆解
             </TButton>
             <TButton
               v-if="canSubmitReview(selectedRequirement)"
               theme="primary"
               @click="openReview(selectedRequirement)"
             >
-              绔嬮」鎺ㄨ繘
+              立项推进
+            </TButton>
+            <TButton
+              v-if="selectedRequirement.status === 'draft'"
+              theme="danger"
+              variant="outline"
+              @click="deleteDraftRequirement(selectedRequirement)"
+            >
+              删除草稿
             </TButton>
             <TButton
               v-if="selectedRequirement.status === 'rejected'"
               theme="danger"
               @click="voidRequirement(selectedRequirement)"
             >
-              浣滃簾闇€姹?            </TButton>
+              作废需求
+            </TButton>
             <TButton
               v-if="selectedRequirement.status === 'tested'"
               theme="success"
               @click="closeRequirement(selectedRequirement)"
             >
-              楠屾敹鍏抽棴
+              验收关闭
             </TButton>
             <TButton
               v-if="canCreateFeedback(selectedRequirement)"
@@ -1269,7 +1303,7 @@ onActivated(async () => {
               variant="outline"
               @click="openFeedback(selectedRequirement)"
             >
-              璁板綍鍥為
+              记录回馈
             </TButton>
           </TSpace>
         </div>
@@ -1298,17 +1332,17 @@ onActivated(async () => {
     <TDrawer
       v-model:visible="decomposeVisible"
       :size="'40%'"
-      header="AI 浠诲姟鎷嗚В"
+      header="AI 任务拆解"
       :confirm-btn="{ content: '生成任务', loading: decomposing }"
       @confirm="decomposeRequirement"
     >
       <TForm :data="decomposeForm" label-width="90px">
-        <TFormItem label="浠诲姟鍒嗘淳">
+        <TFormItem label="任务分派">
           <TSelect
             v-model="decomposeForm.assignmentMode"
             :options="[
-              { label: '鑷姩鍒嗘淳', value: 'auto' },
-              { label: '鎵嬪姩鎸囨淳', value: 'manual' },
+              { label: '自动分派', value: 'auto' },
+              { label: '手动指派', value: 'manual' },
             ]"
           />
         </TFormItem>
@@ -1316,7 +1350,7 @@ onActivated(async () => {
       <TTextarea
         v-model="decomposeForm.instruction"
         class="drawer-textarea"
-        placeholder="濉啓鎷嗚В琛ュ厖瑕佹眰锛岀暀绌哄垯鎸夐渶姹傚唴瀹圭敓鎴愰粯璁や换鍔°€?
+        placeholder="填写拆解补充要求，留空则按需求内容生成默认任务。"
       />
     </TDrawer>
 
@@ -1328,14 +1362,14 @@ onActivated(async () => {
       @confirm="saveFeedback"
     >
       <TForm ref="feedbackFormRef" :data="feedbackForm" :rules="feedbackRules" label-width="90px">
-        <TFormItem label="鏍囬" name="title">
+        <TFormItem label="标题" name="title">
           <TInput v-model="feedbackForm.title" />
         </TFormItem>
-        <TFormItem label="鍐呭">
+        <TFormItem label="内容">
           <TTextarea
             v-model="feedbackForm.content"
             class="drawer-textarea"
-            placeholder="璁板綍楠屾敹鍚庣殑鏂版兂娉曘€佽ˉ鍏呰寖鍥存垨浼樺寲寤鸿"
+            placeholder="记录验收后的新想法、补充范围或优化建议"
           />
         </TFormItem>
       </TForm>
@@ -1354,10 +1388,10 @@ onActivated(async () => {
         :rules="convertFeedbackRules"
         label-width="90px"
       >
-        <TFormItem label="鏍囬" name="title">
+        <TFormItem label="标题" name="title">
           <TInput v-model="convertFeedbackForm.title" />
         </TFormItem>
-        <TFormItem label="鍥為鏉ユ簮">
+        <TFormItem label="回馈来源">
           <TSelect
             v-model="convertFeedbackForm.feedbackIds"
             :options="convertFeedbackOptions"
@@ -1365,7 +1399,7 @@ onActivated(async () => {
             multiple
           />
         </TFormItem>
-        <TFormItem label="寤鸿鏉ユ簮">
+        <TFormItem label="建议来源">
           <TSelect
             v-model="convertFeedbackForm.suggestionIds"
             :options="convertSuggestionOptions"
@@ -1373,7 +1407,7 @@ onActivated(async () => {
             multiple
           />
         </TFormItem>
-        <TFormItem label="浼樺厛绾? name="priority">
+        <TFormItem label="优先级" name="priority">
           <div class="priority-options">
             <TButton
               v-for="item in priorityOptions"
@@ -1386,34 +1420,33 @@ onActivated(async () => {
             </TButton>
           </div>
         </TFormItem>
-        <TFormItem label="骞茬郴浜?>
+        <TFormItem label="干系人">
           <TSelect
             v-model="convertFeedbackForm.stakeholderIds"
             multiple
             filterable
             :options="userOptions"
-            placeholder="閫夋嫨骞茬郴浜?
+            placeholder="选择干系人"
           />
         </TFormItem>
-        <TFormItem label="鏉╄棄濮炴径鍥ㄦ暈">
+        <TFormItem label="备注">
           <TTextarea
             v-model="convertFeedbackForm.remark"
             class="drawer-textarea drawer-textarea--short"
-            placeholder="閺堝秴濮熺粩顖欑窗鏉╄棄濮炴稉鐚寸窗鏉╄棄濮炴径鍥ㄦ暈: xxxx"
+            placeholder="填写转需求备注"
           />
         </TFormItem>
-        <TFormItem label="闇€姹傚唴瀹? class="markdown-form-item">
+        <TFormItem label="需求内容" class="markdown-form-item">
           <MarkdownEditor
             v-model="convertFeedbackForm.description"
             :height="360"
-            placeholder="鍚庣画闇€姹備細淇濈暀鏉ユ簮闇€姹傚拰鏉ユ簮鍥為"
+            placeholder="后续需求会保留来源需求和来源回馈"
           />
         </TFormItem>
       </TForm>
     </TDrawer>
   </div>
 </template>
-
 <style scoped>
 .requirements-page {
   display: flex;
