@@ -198,6 +198,146 @@ public sealed class AssignmentEntity : EntityBase
     public int Status { get; set; } = 1;
 }
 
+[Table("sys_dictionary_type")]
+public sealed class DictionaryTypeEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    public int Sort { get; set; }
+
+    public int Status { get; set; } = 1;
+}
+
+[Table("sys_dictionary_item")]
+public sealed class DictionaryItemEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string DictionaryTypeId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    public int Sort { get; set; }
+
+    public int Status { get; set; } = 1;
+}
+
+[Table("sys_runtime_environment")]
+public sealed class RuntimeEnvironmentEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string? ProjectId { get; set; }
+
+    [MaxLength(64)]
+    public string? EndpointId { get; set; }
+
+    [MaxLength(64)]
+    public string? ModuleId { get; set; }
+
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(32)]
+    public string EnvironmentType { get; set; } = "test";
+
+    [MaxLength(1024)]
+    public string? Description { get; set; }
+
+    [MaxLength(512)]
+    public string? FrontendUrl { get; set; }
+
+    [MaxLength(512)]
+    public string? ApiBaseUrl { get; set; }
+
+    [MaxLength(512)]
+    public string? FrontendProxyApiUrl { get; set; }
+
+    [MaxLength(512)]
+    public string? McpEndpoint { get; set; }
+
+    [MaxLength(512)]
+    public string? DeployRoot { get; set; }
+
+    [MaxLength(512)]
+    public string? DockerDirectory { get; set; }
+
+    [MaxLength(512)]
+    public string? RemotePackagePath { get; set; }
+
+    [MaxLength(512)]
+    public string? ComposeFilePath { get; set; }
+
+    [MaxLength(2048)]
+    public string? LocalPackagePaths { get; set; }
+
+    public int Sort { get; set; }
+
+    public int Status { get; set; } = 1;
+}
+
+[Table("sys_runtime_environment_container")]
+public sealed class RuntimeEnvironmentContainerEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string RuntimeEnvironmentId { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    public int HostPort { get; set; }
+
+    public int ContainerPort { get; set; }
+
+    [MaxLength(16)]
+    public string Protocol { get; set; } = "tcp";
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    public int Sort { get; set; }
+
+    public int Status { get; set; } = 1;
+}
+
+[Table("sys_prompt_template")]
+public sealed class PromptTemplateEntity : EntityBase
+{
+    [MaxLength(32)]
+    public string AgentEnvironment { get; set; } = "codex";
+
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(8192)]
+    public string Content { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    public int Sort { get; set; }
+
+    public int Status { get; set; } = 1;
+}
+
 [Table("sys_entity_association")]
 public sealed class EntityAssociationEntity : EntityBase
 {

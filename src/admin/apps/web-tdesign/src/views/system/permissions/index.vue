@@ -26,6 +26,7 @@ import {
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
+const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const permissions = ref<SystemApi.Permission[]>([]);
@@ -113,11 +114,17 @@ async function load() {
 }
 
 async function save() {
+  if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
-  await saveSystemPermissionApi(form);
-  MessagePlugin.success('权限码已保存');
-  visible.value = false;
-  await load();
+  saving.value = true;
+  try {
+    await saveSystemPermissionApi(form);
+    MessagePlugin.success('权限码已保存');
+    visible.value = false;
+    await load();
+  } finally {
+    saving.value = false;
+  }
 }
 
 function remove(row: SystemApi.Permission) {
@@ -149,7 +156,7 @@ onMounted(load);
       <TInput v-model="filters.keyword" clearable placeholder="权限码 / 名称 / 菜单" class="filter-control" />
       <TSelect v-model="filters.menuId" clearable filterable placeholder="关联菜单" :options="menuOptions" class="filter-control" />
       <TSpace>
-        <TButton theme="primary" @click="search">查询</TButton>
+        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
         <TButton @click="reset">重置</TButton>
       </TSpace>
     </template>
@@ -162,7 +169,7 @@ onMounted(load);
     </template>
   </SystemPage>
 
-  <TDialog v-model:visible="visible" header="权限码维护" width="580px" confirm-btn="保存" @confirm="save">
+  <TDialog v-model:visible="visible" header="权限码维护" width="580px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="权限码" name="code"><TInput v-model="form.code" placeholder="System:User:Manage" /></TFormItem>
       <TFormItem label="名称" name="name"><TInput v-model="form.name" /></TFormItem>

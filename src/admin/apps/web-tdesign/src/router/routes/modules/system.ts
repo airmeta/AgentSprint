@@ -42,6 +42,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'SystemDictionaries',
+        path: '/system/dictionaries',
+        component: () => import('#/views/system/dictionaries/index.vue'),
+        meta: {
+          icon: 'lucide:book-open-text',
+          keepAlive: false,
+          title: '字典管理',
+        },
+      },
+      {
         name: 'SystemConfigurations',
         path: '/system/configurations',
         component: () => import('#/views/system/configurations/index.vue'),
@@ -69,6 +79,38 @@ const routes: RouteRecordRaw[] = [
           icon: 'lucide:briefcase-business',
           keepAlive: false,
           title: '岗位管理',
+        },
+      },
+    ],
+  },
+  {
+    meta: {
+      icon: 'lucide:sliders-horizontal',
+      order: 92,
+      title: '全局配置',
+    },
+    name: 'GlobalConfig',
+    path: '/global-config',
+    redirect: '/global-config/environments',
+    children: [
+      {
+        name: 'GlobalConfigEnvironments',
+        path: '/global-config/environments',
+        component: () => import('#/views/system/runtime-environments/index.vue'),
+        meta: {
+          icon: 'lucide:server-cog',
+          keepAlive: false,
+          title: '环境管理',
+        },
+      },
+      {
+        name: 'GlobalConfigPromptTemplates',
+        path: '/global-config/prompt-templates',
+        component: () => import('#/views/system/prompt-templates/index.vue'),
+        meta: {
+          icon: 'lucide:message-square-code',
+          keepAlive: false,
+          title: '提示词设置',
         },
       },
     ],

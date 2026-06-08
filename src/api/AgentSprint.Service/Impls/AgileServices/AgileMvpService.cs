@@ -2,6 +2,8 @@ using System.Text;
 
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
+using AgentSprint.Model.Modules.Security;
+using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Model.Modules.Tests;
 using AgentSprint.Model.Modules.Tests.Domains;
@@ -15,6 +17,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 {
     private const string DefaultWorkspacePath = @"F:\AI\AgentSprint";
     private const string DefaultMcpEndpoint = "http://localhost:5010/mcp";
+    private const string SyncTestEnvironmentOnCompletionKey = "Sprint:Requirement:SyncTestEnvironmentOnCompletion";
 
     private readonly ISprintProjectDomain _projectDomain;
     private readonly ISprintProjectMemberDomain _projectMemberDomain;
@@ -28,6 +31,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private readonly ISprintDevelopmentTaskDomain _taskDomain;
     private readonly ISprintBugDomain _bugDomain;
     private readonly ISprintTaskLeaseDomain _leaseDomain;
+    private readonly IRuntimeEnvironmentDomain _runtimeEnvironmentDomain;
     private readonly ITestPlanDomain _testPlanDomain;
     private readonly IRequirementDecompositionService _decompositionService;
     private readonly ISystemConfigurationService _configurationService;
@@ -77,6 +81,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         ISprintDevelopmentTaskDomain taskDomain,
         ISprintBugDomain bugDomain,
         ISprintTaskLeaseDomain leaseDomain,
+        IRuntimeEnvironmentDomain runtimeEnvironmentDomain,
         ITestPlanDomain testPlanDomain,
         IRequirementDecompositionService decompositionService,
         ISystemConfigurationService configurationService)
@@ -93,6 +98,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         _taskDomain = taskDomain;
         _bugDomain = bugDomain;
         _leaseDomain = leaseDomain;
+        _runtimeEnvironmentDomain = runtimeEnvironmentDomain;
         _testPlanDomain = testPlanDomain;
         _decompositionService = decompositionService;
         _configurationService = configurationService;
@@ -128,7 +134,10 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             Code = code,
             Name = request.Name.Trim(),
             RepositoryUrl = projectProfile.RepositoryUrl,
-            TestEnvironmentUrl = NormalizeOptional(request.TestEnvironmentUrl),
+            TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId),
+            TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
+                request.TestEnvironmentId,
+                request.TestEnvironmentUrl),
             Description = projectProfile.Description,
             FrontendTechStack = projectProfile.FrontendTechStack,
             BackendTechStack = projectProfile.BackendTechStack,
@@ -177,7 +186,10 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var entity = await GetProjectOrThrowAsync(id);
         entity.Name = request.Name.Trim();
         entity.RepositoryUrl = projectProfile.RepositoryUrl;
-        entity.TestEnvironmentUrl = NormalizeOptional(request.TestEnvironmentUrl);
+        entity.TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId);
+        entity.TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
+            request.TestEnvironmentId,
+            request.TestEnvironmentUrl);
         entity.Description = projectProfile.Description;
         entity.FrontendTechStack = projectProfile.FrontendTechStack;
         entity.BackendTechStack = projectProfile.BackendTechStack;
@@ -504,10 +516,26 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("Feedback title is required.");
         }
 
+        var developmentTaskId = NormalizeOptional(request.DevelopmentTaskId);
+        if (!string.IsNullOrWhiteSpace(developmentTaskId))
+        {
+            var task = await GetDevelopmentTaskOrThrowAsync(developmentTaskId);
+            if (!string.Equals(task.RequirementId, requirement.Id, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Feedback task does not belong to this requirement.");
+            }
+
+            if (task.Status != SprintDevelopmentTaskStatuses.Completed)
+            {
+                throw new InvalidOperationException("Only completed tasks can receive feedback.");
+            }
+        }
+
         var feedback = new SprintRequirementFeedbackEntity
         {
             ProjectId = requirement.ProjectId,
             RequirementId = requirement.Id,
+            DevelopmentTaskId = developmentTaskId,
             Title = request.Title.Trim(),
             Content = NormalizeOptional(request.Content),
             CreatedBy = userId
@@ -536,44 +564,124 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         ConvertSprintRequirementFeedbackRequest request,
         string userId)
     {
+        return await ConvertRequirementSourcesAsync(
+            requirementId,
+            new ConvertSprintRequirementSourcesRequest(
+                request.Title,
+                request.Description,
+                request.Priority,
+                request.Stakeholders,
+                [feedbackId],
+                null,
+                request.Remark),
+            userId);
+    }
+
+    /// <inheritdoc />
+    public async Task<SprintRequirementResult> ConvertRequirementSourcesAsync(
+        string requirementId,
+        ConvertSprintRequirementSourcesRequest request,
+        string userId)
+    {
         var sourceRequirement = await GetRequirementOrThrowAsync(requirementId);
-        var feedback = await GetRequirementFeedbackOrThrowAsync(feedbackId);
-        if (!string.Equals(feedback.RequirementId, sourceRequirement.Id, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("Feedback does not belong to this requirement.");
-        }
-
-        if (feedback.Status != SprintRequirementFeedbackStatuses.Open)
-        {
-            throw new InvalidOperationException("Feedback status does not allow conversion.");
-        }
-
         if (string.IsNullOrWhiteSpace(request.Title))
         {
             throw new InvalidOperationException("Follow-up requirement title is required.");
         }
 
+        var feedback = new List<SprintRequirementFeedbackEntity>();
+        foreach (var feedbackId in NormalizeIds(request.FeedbackIds))
+        {
+            var entity = await GetRequirementFeedbackOrThrowAsync(feedbackId);
+            if (!string.Equals(entity.RequirementId, sourceRequirement.Id, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Feedback does not belong to this requirement.");
+            }
+
+            if (entity.Status != SprintRequirementFeedbackStatuses.Open)
+            {
+                throw new InvalidOperationException("Feedback status does not allow conversion.");
+            }
+
+            feedback.Add(entity);
+        }
+
+        var suggestions = new List<SprintFeatureSuggestionEntity>();
+        foreach (var suggestionId in NormalizeIds(request.SuggestionIds))
+        {
+            var entity = await GetFeatureSuggestionOrThrowAsync(suggestionId);
+            if (entity.Status != SprintFeatureSuggestionStatuses.Open)
+            {
+                throw new InvalidOperationException("Suggestion status does not allow conversion.");
+            }
+
+            if (!string.Equals(entity.ProjectId, sourceRequirement.ProjectId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion does not belong to this project.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(entity.RequirementId) &&
+                !string.Equals(entity.RequirementId, sourceRequirement.Id, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion does not belong to this requirement.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(entity.EndpointId) &&
+                !string.Equals(entity.EndpointId, sourceRequirement.EndpointId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion endpoint does not match this requirement.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(entity.ModuleId) &&
+                !string.Equals(entity.ModuleId, sourceRequirement.ModuleId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion module does not match this requirement.");
+            }
+
+            suggestions.Add(entity);
+        }
+
+        if (feedback.Count == 0 && suggestions.Count == 0)
+        {
+            throw new InvalidOperationException("At least one feedback or suggestion source is required.");
+        }
+
+        var description = BuildConvertedRequirementDescription(
+            NormalizeOptional(request.Description) ?? feedback.FirstOrDefault()?.Content ?? suggestions.FirstOrDefault()?.Content,
+            request.Remark);
         var followUp = new SprintRequirementEntity
         {
             ProjectId = sourceRequirement.ProjectId,
             EndpointId = sourceRequirement.EndpointId,
             ModuleId = sourceRequirement.ModuleId,
             Title = request.Title.Trim(),
-            Description = NormalizeOptional(request.Description) ?? feedback.Content,
+            Description = description,
             Priority = Math.Clamp(request.Priority ?? sourceRequirement.Priority, 1, 5),
             CreatedBy = userId,
             Stakeholders = NormalizeOptional(request.Stakeholders) ?? sourceRequirement.Stakeholders,
             SourceRequirementId = sourceRequirement.Id,
-            SourceFeedbackId = feedback.Id,
+            SourceFeedbackId = feedback.Count == 1 && suggestions.Count == 0 ? feedback[0].Id : null,
             SkillIds = sourceRequirement.SkillIds
         };
 
         await _requirementDomain.CreateAsync(followUp);
 
-        feedback.Status = SprintRequirementFeedbackStatuses.Converted;
-        feedback.ConvertedRequirementId = followUp.Id;
-        feedback.ConvertedAt = DateTime.UtcNow;
-        await _feedbackDomain.UpdateAsync(feedback);
+        var convertedAt = DateTime.UtcNow;
+        foreach (var entity in feedback)
+        {
+            entity.Status = SprintRequirementFeedbackStatuses.Converted;
+            entity.ConvertedRequirementId = followUp.Id;
+            entity.ConvertedAt = convertedAt;
+            await _feedbackDomain.UpdateAsync(entity);
+        }
+
+        foreach (var entity in suggestions)
+        {
+            entity.Status = SprintFeatureSuggestionStatuses.Accepted;
+            entity.ConvertedRequirementId = followUp.Id;
+            entity.ConvertedAt = convertedAt;
+            await _suggestionDomain.UpdateAsync(entity);
+        }
 
         await EnsureProjectMemberAsync(sourceRequirement.ProjectId, userId, SprintProjectMemberRoles.Product);
         return await ToRequirementResultAsync(followUp);
@@ -613,6 +721,18 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             if (!string.Equals(requirement.ProjectId, request.ProjectId, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("Suggestion requirement does not belong to this project.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(endpointId) &&
+                !string.Equals(requirement.EndpointId, endpointId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion endpoint does not match the requirement.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(moduleId) &&
+                !string.Equals(requirement.ModuleId, moduleId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Suggestion module does not match the requirement.");
             }
         }
 
@@ -789,7 +909,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             SprintRequirementStatuses.ReadyForDevelopment,
             SprintRequirementStatuses.Decomposed);
 
-        await EnsureDevelopmentTasksAsync(requirement, request.Instruction, request.AssignmentMode, userId);
+        await EnsureDevelopmentTasksAsync(requirement, request.Instruction, request.AssignmentMode, userId, request.TaskCount);
 
         if (requirement.Status != SprintRequirementStatuses.Developing)
         {
@@ -869,6 +989,15 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         var task = await GetDevelopmentTaskOrThrowAsync(id);
+        EnsureDevelopmentTaskStatus(
+            task,
+            SprintDevelopmentTaskStatuses.PendingAssign,
+            SprintDevelopmentTaskStatuses.Assigned);
+        if (task.Status == SprintDevelopmentTaskStatuses.Assigned &&
+            await HasActiveTargetLeaseAsync(SprintTaskTargetTypes.DevelopmentTask, task.Id))
+        {
+            throw new InvalidOperationException("Target already has an active lease.");
+        }
         task.AssigneeId = request.AssigneeId.Trim();
         task.AssignedBy = string.IsNullOrWhiteSpace(assignedBy) ? null : assignedBy.Trim();
         task.Status = SprintDevelopmentTaskStatuses.Assigned;
@@ -884,6 +1013,31 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         await _requirementDomain.UpdateAsync(requirement);
 
         return await ToTaskResultAsync(task);
+    }
+
+    /// <inheritdoc />
+    public async Task<SprintTaskLeaseResult> ClaimDevelopmentTaskAsync(
+        string id,
+        ClaimSprintTaskRequest request,
+        string userId)
+    {
+        var task = await GetDevelopmentTaskOrThrowAsync(id);
+        if (!string.Equals(task.AssigneeId, userId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Task is not assigned to current user.");
+        }
+
+        EnsureDevelopmentTaskStatus(
+            task,
+            SprintDevelopmentTaskStatuses.Assigned,
+            SprintDevelopmentTaskStatuses.InProgress);
+
+        return await CreateTargetLeaseAsync(
+            task.ProjectId,
+            SprintTaskTargetTypes.DevelopmentTask,
+            task.Id,
+            userId,
+            request.OwnerDevice);
     }
 
     /// <inheritdoc />
@@ -930,6 +1084,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         await _taskDomain.UpdateAsync(task);
+        await CompleteActiveLeasesAsync(SprintTaskTargetTypes.DevelopmentTask, task.Id);
 
         var requirementTasks = await _taskDomain.ListAsync(entity => entity.RequirementId == task.RequirementId);
         var currentTask = requirementTasks.SingleOrDefault(entity => entity.Id == task.Id);
@@ -946,6 +1101,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
             requirement.Status = SprintRequirementStatuses.ReadyForTest;
             requirement.DevelopmentCompletedAt = DateTime.UtcNow;
+            await SyncRequirementTestEnvironmentAsync(requirement, null);
             await _requirementDomain.UpdateAsync(requirement);
         }
 
@@ -970,7 +1126,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         entity.DeveloperId = userId;
         await _requirementDomain.UpdateAsync(entity);
 
-        return await CreateLeaseAsync(
+        return await CreateTargetLeaseAsync(
             entity.ProjectId,
             SprintTaskTargetTypes.Requirement,
             entity.Id,
@@ -989,6 +1145,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         entity.Status = SprintRequirementStatuses.ReadyForTest;
         entity.TestUrl = NormalizeOptional(request.TestUrl);
         entity.DevelopmentCompletedAt = DateTime.UtcNow;
+        await SyncRequirementTestEnvironmentAsync(entity, entity.TestUrl);
         await _requirementDomain.UpdateAsync(entity);
 
         await CompleteActiveLeasesAsync(SprintTaskTargetTypes.Requirement, entity.Id);
@@ -1099,7 +1256,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         requirement.DeveloperId = userId;
         await _requirementDomain.UpdateAsync(requirement);
 
-        return await CreateLeaseAsync(
+        return await CreateTargetLeaseAsync(
             entity.ProjectId,
             SprintTaskTargetTypes.Bug,
             entity.Id,
@@ -1249,7 +1406,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         SprintRequirementEntity requirement,
         string? instruction,
         string? assignmentMode,
-        string userId)
+        string userId,
+        int? taskCount)
     {
         var existingTasks = await _taskDomain.ListAsync(entity => entity.RequirementId == requirement.Id);
         if (existingTasks.Count > 0)
@@ -1257,7 +1415,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             return;
         }
 
-        var tasks = await _decompositionService.DecomposeAsync(requirement, instruction, userId);
+        var tasks = await _decompositionService.DecomposeAsync(requirement, instruction, userId, taskCount);
         var normalizedAssignmentMode = NormalizeAssignmentMode(assignmentMode);
         var developers = await ResolveRequirementDevelopersAsync(requirement);
         var developerIndex = 0;
@@ -1295,11 +1453,10 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private async Task<SprintTaskPromptResult> BuildTaskPromptAsync(SprintDevelopmentTaskEntity task)
     {
         var project = await GetProjectOrThrowAsync(task.ProjectId);
-        var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
         var workspacePath = SanitizeRepositoryReference(project.RepositoryUrl) ?? DefaultWorkspacePath;
         var mcpEndpoint = await _configurationService.GetValueAsync("Mcp:Endpoint", DefaultMcpEndpoint);
         var mcpSetupPrompt = BuildMcpSetupPromptV2(mcpEndpoint);
-        var taskExecutionPrompt = BuildTaskExecutionPrompt(task, project, requirement, workspacePath);
+        var taskExecutionPrompt = BuildTaskExecutionPrompt(task, project, workspacePath);
         var mergedPrompt = string.Join(
             Environment.NewLine + Environment.NewLine,
             [
@@ -1328,26 +1485,28 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         builder.AppendLine("5. 默认只配置 MCP endpoint 和 Authorization，不要默认写入 `X-AgentSprint-Api-Base-Url`。");
         builder.AppendLine("6. 只有在用户明确提供“远程 MCP 服务可访问的 AgentSprint API 地址”时，才写入 `X-AgentSprint-Api-Base-Url`。");
         builder.AppendLine("7. 不要把 `http://localhost:5000` 固定写入 `X-AgentSprint-Api-Base-Url`。因为这里的 localhost 对远程 MCP 服务来说通常表示 MCP 服务所在机器，不一定是当前 Codex 开发机。");
-        builder.AppendLine("8. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确告诉我。");
+        builder.AppendLine("8. Codex HTTP MCP 请求头必须使用 `http_headers` 字段，不要使用 `[mcp_servers.agentsprint.headers]` 子表。");
+        builder.AppendLine("9. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确告诉我。");
         builder.AppendLine();
         builder.AppendLine("需要写入的 Codex TOML 配置为：");
         builder.AppendLine();
         builder.AppendLine("```toml");
         builder.AppendLine("[mcp_servers.agentsprint]");
         builder.AppendLine($"url = \"{EscapeTomlString(mcpEndpoint)}\"");
-        builder.AppendLine();
-        builder.AppendLine("[mcp_servers.agentsprint.headers]");
-        builder.AppendLine("Authorization = \"Bearer <这里填令牌>\"");
+        builder.AppendLine("http_headers = { Authorization = \"Bearer <这里填令牌>\" }");
         builder.AppendLine("```");
         builder.AppendLine();
         builder.AppendLine("可选覆盖配置：");
-        builder.AppendLine("仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加：");
+        builder.AppendLine("仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加到 `http_headers`：");
         builder.AppendLine();
         builder.AppendLine("```toml");
-        builder.AppendLine("\"X-AgentSprint-Api-Base-Url\" = \"<远程 MCP 服务可访问的 AgentSprint API 地址>\"");
+        builder.AppendLine("http_headers = {");
+        builder.AppendLine("  Authorization = \"Bearer <这里填令牌>\",");
+        builder.AppendLine("  \"X-AgentSprint-Api-Base-Url\" = \"<远程 MCP 服务可访问的 AgentSprint API 地址>\"");
+        builder.AppendLine("}");
         builder.AppendLine("```");
         builder.AppendLine();
-        builder.AppendLine("如果当前 Codex 版本不支持 HTTP MCP 的 headers 字段，请不要继续猜测配置方式，直接说明阻塞点。");
+        builder.AppendLine("如果当前 Codex 版本不支持 HTTP MCP 的 `http_headers` 字段，请不要继续猜测配置方式，直接说明阻塞点。");
 
         return new SprintTaskPromptSectionResult(
             "MCP 接入配置",
@@ -1372,22 +1531,27 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private static SprintTaskPromptSectionResult BuildTaskExecutionPrompt(
         SprintDevelopmentTaskEntity task,
         SprintProjectEntity project,
-        SprintRequirementEntity requirement,
         string workspacePath)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("你正在推进 AgentSprint 平台任务，请通过 agentsprint MCP 获取上下文，不要只依赖这段静态文本。");
-        builder.AppendLine("执行顺序：");
-        builder.AppendLine("1. 调用 agentsprint.register_session 注册本地 Codex 会话。");
-        builder.AppendLine("2. 调用 agentsprint.get_agent_skill_pack 获取 Skill、后端规则、前端规则和验证命令。");
-        builder.AppendLine("3. 调用 agentsprint.get_task_prompt 或 agentsprint.get_project_bootstrap 获取任务上下文。");
-        builder.AppendLine("4. 完成后运行相关后端测试和前端类型检查，并通过 agentsprint.complete_my_task 回写任务状态。");
+        builder.AppendLine("你正在推进 AgentSprint 平台任务，请通过 agentsprint MCP 按任务 ID 加载上下文，不要依赖这段静态文本获取需求详情。");
         builder.AppendLine();
-        builder.AppendLine($"项目：{project.Code} / {project.Name}");
+        builder.AppendLine("任务标识：");
+        builder.AppendLine($"项目编码：{project.Code}");
+        builder.AppendLine($"任务 ID：{task.Id}");
         builder.AppendLine($"仓库引用：{workspacePath}");
-        builder.AppendLine($"需求：{requirement.Title}");
-        builder.AppendLine($"任务：{task.Title}");
-        builder.AppendLine($"任务说明：{task.Description}");
+        builder.AppendLine();
+        builder.AppendLine("执行顺序：");
+        builder.AppendLine($"1. 调用 agentsprint.register_session，参数包含 project_code = \"{project.Code}\"。");
+        builder.AppendLine("2. 调用 agentsprint.get_mcp_tool_guide，参数包含 format = \"full\"，读取工具用途、参数、返回结构和推荐流程。");
+        builder.AppendLine($"3. 调用 agentsprint.get_agent_skill_pack，参数包含 project_code = \"{project.Code}\"，获取 Skill、后端规则、前端规则和验证命令。");
+        builder.AppendLine($"4. 调用 agentsprint.get_task_prompt，参数包含 task_id = \"{task.Id}\"，加载 task_detail、requirement_detail 和任务提示上下文。");
+        builder.AppendLine("5. 按 MCP 返回的任务、需求、Skill 包和验证命令完成实现，不从这段静态提示词解析需求正文。");
+        builder.AppendLine($"6. 完成后运行相关后端测试和前端类型检查，并调用 agentsprint.complete_my_task，参数包含 task_id = \"{task.Id}\" 回写任务状态。");
+        builder.AppendLine("7. 必须读取 complete_my_task 返回的 next_work；如果 next_work.kind = bug 或 task，继续处理，或调用 agentsprint.claim_next_work 领取。");
+        builder.AppendLine("8. 如果 next_work.kind = none，不要把会话视为结束；读取 next_work.polling.next_interval_seconds，等待后再次调用 agentsprint.get_next_work。");
+        builder.AppendLine("9. 连续空闲轮询时将 idle_round 加 1 后传回 get_next_work 或 heartbeat；发现工作项后将 idle_round 重置为 0。");
+        builder.AppendLine("10. 如果 session.offline_requested = true 或 polling.should_continue = false，调用 agentsprint.close_session 并停止轮询。");
         builder.AppendLine("约束：不要在提示词、代码、日志或 MCP 响应中写入 SSH 私钥、数据库密码等敏感明文。");
 
         return new SprintTaskPromptSectionResult(
@@ -1395,13 +1559,14 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             builder.ToString().Trim(),
             [
                 "日常推进任务时复制这一段。",
-                "Codex 已配置 agentsprint MCP 后，应优先通过 MCP 拉取完整项目上下文。",
-                "任务完成且验证通过后，再调用 complete_my_task。"
+                "Codex 已配置 agentsprint MCP 后，应使用任务 ID 通过 MCP 拉取完整任务和需求上下文。",
+                "任务完成且验证通过后，再调用 complete_my_task 并按 next_work 继续处理后续缺陷或任务。"
             ],
             [
-                "这段提示词只保留任务摘要，需求详情、Skill 包和验证命令以 MCP 返回为准。",
+                "这段提示词只保留任务 ID 和项目编码，需求详情、任务说明、Skill 包和验证命令以 MCP 返回为准。",
                 "没有 MCP 时不要继续推进任务，先完成 MCP 接入配置。",
-                "如果任务跨前后端，后端测试和前端类型检查都需要执行。"
+                "如果任务跨前后端，后端测试和前端类型检查都需要执行。",
+                "当 next_work.kind = none 时会话仍可继续轮询，只有 session.offline_requested 或 polling.should_continue 要求停止时才调用 close_session。"
             ]);
     }
 
@@ -1422,13 +1587,78 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             ProjectId = projectId,
             TargetType = targetType,
             TargetId = targetId,
+            ActiveTargetKey = BuildActiveTargetKey(targetType, targetId),
             OwnerId = userId,
             OwnerDevice = NormalizeOptional(ownerDevice),
             ExpiresAt = DateTime.UtcNow.AddHours(8)
         };
 
-        await _leaseDomain.CreateAsync(lease);
+        try
+        {
+            await _leaseDomain.CreateAsync(lease);
+        }
+        catch (Exception ex) when (IsUniqueConstraintViolation(ex))
+        {
+            var now = DateTime.UtcNow;
+            var existing = await _leaseDomain.ListAsync(entity =>
+                entity.TargetType == targetType &&
+                entity.TargetId == targetId &&
+                entity.Status == SprintTaskLeaseStatuses.Active &&
+                entity.ExpiresAt > now &&
+                entity.OwnerId == userId &&
+                entity.OwnerDevice == lease.OwnerDevice);
+            if (existing.Count > 0)
+            {
+                return ToResult(existing[0]);
+            }
+
+            throw new InvalidOperationException("Target already has an active lease.", ex);
+        }
+
         return ToResult(lease);
+    }
+
+    private async Task<SprintTaskLeaseResult> CreateTargetLeaseAsync(
+        string projectId,
+        string targetType,
+        string targetId,
+        string userId,
+        string? ownerDevice)
+    {
+        var now = DateTime.UtcNow;
+        var normalizedOwnerDevice = NormalizeOptional(ownerDevice);
+        await ReleaseExpiredTargetLeasesAsync(targetType, targetId, now);
+
+        var activeLeases = await _leaseDomain.ListAsync(entity =>
+            entity.TargetType == targetType &&
+            entity.TargetId == targetId &&
+            entity.Status == SprintTaskLeaseStatuses.Active &&
+            entity.ExpiresAt > now);
+        var currentSessionLease = activeLeases.FirstOrDefault(entity =>
+            entity.OwnerId == userId &&
+            string.Equals(entity.OwnerDevice, normalizedOwnerDevice, StringComparison.Ordinal));
+        if (currentSessionLease is not null)
+        {
+            return ToResult(currentSessionLease);
+        }
+
+        if (activeLeases.Count > 0)
+        {
+            throw new InvalidOperationException("Target already has an active lease.");
+        }
+
+        return await CreateLeaseAsync(projectId, targetType, targetId, userId, normalizedOwnerDevice);
+    }
+
+    private async Task<bool> HasActiveTargetLeaseAsync(string targetType, string targetId)
+    {
+        var now = DateTime.UtcNow;
+        var activeLeases = await _leaseDomain.ListAsync(entity =>
+            entity.TargetType == targetType &&
+            entity.TargetId == targetId &&
+            entity.Status == SprintTaskLeaseStatuses.Active &&
+            entity.ExpiresAt > now);
+        return activeLeases.Count > 0;
     }
 
     private async Task CompleteActiveLeasesAsync(string targetType, string targetId)
@@ -1442,8 +1672,49 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         {
             lease.Status = SprintTaskLeaseStatuses.Completed;
             lease.CompletedAt = DateTime.UtcNow;
+            lease.ActiveTargetKey = null;
             await _leaseDomain.UpdateAsync(lease);
         }
+    }
+
+    private async Task ReleaseExpiredTargetLeasesAsync(string targetType, string targetId, DateTime now)
+    {
+        var leases = await _leaseDomain.ListAsync(entity =>
+            entity.TargetType == targetType &&
+            entity.TargetId == targetId &&
+            entity.Status == SprintTaskLeaseStatuses.Active &&
+            entity.ExpiresAt <= now);
+
+        foreach (var lease in leases)
+        {
+            lease.Status = SprintTaskLeaseStatuses.Released;
+            lease.CompletedAt ??= now;
+            lease.ActiveTargetKey = null;
+            await _leaseDomain.UpdateAsync(lease);
+        }
+    }
+
+    private static string BuildActiveTargetKey(string targetType, string targetId)
+    {
+        return $"{targetType}:{targetId}";
+    }
+
+    private static bool IsUniqueConstraintViolation(Exception ex)
+    {
+        var current = ex;
+        while (current is not null)
+        {
+            var message = current.Message;
+            if (message.Contains("IX_sprint_task_lease_ActiveTargetKey", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("ActiveTargetKey", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            current = current.InnerException;
+        }
+
+        return false;
     }
 
     private async Task EnsureProjectMemberAsync(string projectId, string userId, string role)
@@ -1800,6 +2071,18 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("Feedback does not exist.");
     }
 
+    private async Task<SprintFeatureSuggestionEntity> GetFeatureSuggestionOrThrowAsync(string id)
+    {
+        return await _suggestionDomain.GetAsync(id) ??
+            throw new InvalidOperationException("Suggestion does not exist.");
+    }
+
+    private async Task<RuntimeEnvironmentEntity> GetRuntimeEnvironmentOrThrowAsync(string id)
+    {
+        return await _runtimeEnvironmentDomain.GetAsync(id) ??
+            throw new InvalidOperationException("Runtime environment does not exist.");
+    }
+
     private async Task<SprintDevelopmentTaskEntity> GetDevelopmentTaskOrThrowAsync(string id)
     {
         return await _taskDomain.GetAsync(id) ??
@@ -1860,6 +2143,20 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? BuildConvertedRequirementDescription(string? description, string? remark)
+    {
+        var normalizedDescription = NormalizeOptional(description);
+        var normalizedRemark = NormalizeOptional(remark);
+        if (normalizedRemark is null)
+        {
+            return normalizedDescription;
+        }
+
+        return string.IsNullOrWhiteSpace(normalizedDescription)
+            ? $"追加备注: {normalizedRemark}"
+            : $"{normalizedDescription}{Environment.NewLine}{Environment.NewLine}追加备注: {normalizedRemark}";
     }
 
     private static ProjectProfile NormalizeProjectProfile(
@@ -2068,7 +2365,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Status,
             entity.CreatedBy,
             entity.CreateTime,
-            DeserializeIds(entity.TesterIds));
+            DeserializeIds(entity.TesterIds),
+            entity.TestEnvironmentId);
     }
 
     private static SprintSkillResult ToResult(SprintSkillEntity entity)
@@ -2160,6 +2458,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Content,
             entity.Status,
             entity.CreatedBy,
+            entity.ConvertedRequirementId,
+            entity.ConvertedAt,
             entity.CreateTime);
     }
 
@@ -2186,6 +2486,53 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         return "primary";
+    }
+
+    private async Task SyncRequirementTestEnvironmentAsync(
+        SprintRequirementEntity requirement,
+        string? explicitTestUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitTestUrl))
+        {
+            return;
+        }
+
+        var enabled = await _configurationService.GetValueAsync(
+            SyncTestEnvironmentOnCompletionKey,
+            "false");
+        if (!bool.TryParse(enabled, out var shouldSync) || !shouldSync)
+        {
+            return;
+        }
+
+        var project = await GetProjectOrThrowAsync(requirement.ProjectId);
+        var environmentUrl = ResolveProjectTestEnvironmentUrl(project);
+        if (!string.IsNullOrWhiteSpace(environmentUrl))
+        {
+            requirement.TestUrl = environmentUrl;
+        }
+    }
+
+    private static string? ResolveProjectTestEnvironmentUrl(SprintProjectEntity project)
+    {
+        return NormalizeOptional(project.TestEnvironmentUrl);
+    }
+
+    private async Task<string?> ResolveProjectTestEnvironmentUrlAsync(
+        string? runtimeEnvironmentId,
+        string? fallbackUrl)
+    {
+        var normalizedEnvironmentId = NormalizeOptional(runtimeEnvironmentId);
+        if (normalizedEnvironmentId is null)
+        {
+            return NormalizeOptional(fallbackUrl);
+        }
+
+        var environment = await GetRuntimeEnvironmentOrThrowAsync(normalizedEnvironmentId);
+        return NormalizeOptional(environment.FrontendUrl) ??
+            NormalizeOptional(environment.ApiBaseUrl) ??
+            NormalizeOptional(environment.McpEndpoint) ??
+            NormalizeOptional(fallbackUrl);
     }
 
     private static SprintRequirementReviewResult ToResult(SprintRequirementReviewEntity entity)
@@ -2262,6 +2609,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Id,
             entity.ProjectId,
             entity.RequirementId,
+            entity.DevelopmentTaskId,
             entity.Title,
             entity.Content,
             entity.Status,

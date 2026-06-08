@@ -298,6 +298,171 @@ public sealed class SystemController : ControllerBase
         return ApiResponse<bool>.Ok(await _systemService.DeleteAssignmentAsync(id));
     }
 
+    /// <summary>
+    /// <para>zh-cn:查询系统字典类型列表，用于维护业务枚举分类以及驱动字典项过滤。</para>
+    /// <para>en-us:Lists system dictionary types used to maintain business enum categories and drive dictionary-item filtering.</para>
+    /// </summary>
+    [HttpGet("dictionary-types")]
+    public async Task<ApiResponse<IReadOnlyList<DictionaryTypeManagementResult>>> ListDictionaryTypes()
+    {
+        return ApiResponse<IReadOnlyList<DictionaryTypeManagementResult>>.Ok(
+            await _systemService.ListDictionaryTypesAsync());
+    }
+
+    /// <summary>
+    /// <para>zh-cn:新增或更新字典类型；编码唯一，排序和状态用于控制管理端展示与业务可用性。</para>
+    /// <para>en-us:Creates or updates a dictionary type; the unique code, sort value, and status control management display and business availability.</para>
+    /// </summary>
+    [HttpPost("dictionary-types")]
+    public async Task<ActionResult<ApiResponse<DictionaryTypeManagementResult>>> UpsertDictionaryType(
+        UpsertDictionaryTypeRequest request)
+    {
+        return await ExecuteAsync(() => _systemService.UpsertDictionaryTypeAsync(request));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:软删除字典类型，同时由服务层清理其下字典项，避免留下无父级的字典值。</para>
+    /// <para>en-us:Soft-deletes a dictionary type while the service layer cleans its items to avoid dictionary values without a parent type.</para>
+    /// </summary>
+    [HttpDelete("dictionary-types/{id}")]
+    public async Task<ApiResponse<bool>> DeleteDictionaryType(string id)
+    {
+        return ApiResponse<bool>.Ok(await _systemService.DeleteDictionaryTypeAsync(id));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:查询字典项列表；可通过 dictionaryTypeId 查询参数限定到某个字典类型。</para>
+    /// <para>en-us:Lists dictionary items; the dictionaryTypeId query parameter can restrict results to one dictionary type.</para>
+    /// </summary>
+    [HttpGet("dictionary-items")]
+    public async Task<ApiResponse<IReadOnlyList<DictionaryItemManagementResult>>> ListDictionaryItems(
+        [FromQuery] string? dictionaryTypeId)
+    {
+        return ApiResponse<IReadOnlyList<DictionaryItemManagementResult>>.Ok(
+            await _systemService.ListDictionaryItemsAsync(dictionaryTypeId));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:新增或更新字典项；字典项必须归属到有效字典类型，且同一类型下编码唯一。</para>
+    /// <para>en-us:Creates or updates a dictionary item; the item must belong to a valid dictionary type and have a unique code within that type.</para>
+    /// </summary>
+    [HttpPost("dictionary-items")]
+    public async Task<ActionResult<ApiResponse<DictionaryItemManagementResult>>> UpsertDictionaryItem(
+        UpsertDictionaryItemRequest request)
+    {
+        return await ExecuteAsync(() => _systemService.UpsertDictionaryItemAsync(request));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:软删除指定字典项，不影响字典类型和其他条目。</para>
+    /// <para>en-us:Soft-deletes the specified dictionary item without affecting the dictionary type or sibling entries.</para>
+    /// </summary>
+    [HttpDelete("dictionary-items/{id}")]
+    public async Task<ApiResponse<bool>> DeleteDictionaryItem(string id)
+    {
+        return ApiResponse<bool>.Ok(await _systemService.DeleteDictionaryItemAsync(id));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:查询运行环境列表，可按项目、端和模块过滤，供系统管理维护测试环境与部署信息。</para>
+    /// <para>en-us:Lists runtime environments, optionally filtered by project, endpoint, and module for maintaining test-environment and deployment information.</para>
+    /// </summary>
+    [HttpGet("runtime-environments")]
+    public async Task<ApiResponse<IReadOnlyList<RuntimeEnvironmentManagementResult>>> ListRuntimeEnvironments(
+        [FromQuery] string? projectId,
+        [FromQuery] string? endpointId,
+        [FromQuery] string? moduleId)
+    {
+        return ApiResponse<IReadOnlyList<RuntimeEnvironmentManagementResult>>.Ok(
+            await _systemService.ListRuntimeEnvironmentsAsync(projectId, endpointId, moduleId));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:新增或更新运行环境主数据，包含地址、部署路径、Compose 文件和本地发布包路径等拆分字段。</para>
+    /// <para>en-us:Creates or updates runtime environment master data including separated URL, deployment path, compose file, and local package fields.</para>
+    /// </summary>
+    [HttpPost("runtime-environments")]
+    public async Task<ActionResult<ApiResponse<RuntimeEnvironmentManagementResult>>> UpsertRuntimeEnvironment(
+        UpsertRuntimeEnvironmentRequest request)
+    {
+        return await ExecuteAsync(() => _systemService.UpsertRuntimeEnvironmentAsync(request));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:软删除运行环境，并由服务层同步清理该环境下容器映射。</para>
+    /// <para>en-us:Soft-deletes a runtime environment while the service layer cleans container mappings under it.</para>
+    /// </summary>
+    [HttpDelete("runtime-environments/{id}")]
+    public async Task<ApiResponse<bool>> DeleteRuntimeEnvironment(string id)
+    {
+        return ApiResponse<bool>.Ok(await _systemService.DeleteRuntimeEnvironmentAsync(id));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:查询指定运行环境下的容器端口映射。</para>
+    /// <para>en-us:Lists container port mappings under the specified runtime environment.</para>
+    /// </summary>
+    [HttpGet("runtime-environment-containers")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RuntimeEnvironmentContainerManagementResult>>>> ListRuntimeEnvironmentContainers(
+        [FromQuery] string runtimeEnvironmentId)
+    {
+        return await ExecuteAsync(() => _systemService.ListRuntimeEnvironmentContainersAsync(runtimeEnvironmentId));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:新增或更新运行环境容器映射，维护容器名称、宿主端口、容器端口和协议。</para>
+    /// <para>en-us:Creates or updates a runtime-environment container mapping with container name, host port, container port, and protocol.</para>
+    /// </summary>
+    [HttpPost("runtime-environment-containers")]
+    public async Task<ActionResult<ApiResponse<RuntimeEnvironmentContainerManagementResult>>> UpsertRuntimeEnvironmentContainer(
+        UpsertRuntimeEnvironmentContainerRequest request)
+    {
+        return await ExecuteAsync(() => _systemService.UpsertRuntimeEnvironmentContainerAsync(request));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:软删除指定运行环境容器映射。</para>
+    /// <para>en-us:Soft-deletes the specified runtime-environment container mapping.</para>
+    /// </summary>
+    [HttpDelete("runtime-environment-containers/{id}")]
+    public async Task<ApiResponse<bool>> DeleteRuntimeEnvironmentContainer(string id)
+    {
+        return ApiResponse<bool>.Ok(await _systemService.DeleteRuntimeEnvironmentContainerAsync(id));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:查询提示词模板；当前 Codex 可维护，其他环境用于前端展示正在开发。</para>
+    /// <para>en-us:Lists prompt templates; Codex is maintainable currently while other environments are used by the frontend as in-development entries.</para>
+    /// </summary>
+    [HttpGet("prompt-templates")]
+    public async Task<ApiResponse<IReadOnlyList<PromptTemplateManagementResult>>> ListPromptTemplates(
+        [FromQuery] string? agentEnvironment)
+    {
+        return ApiResponse<IReadOnlyList<PromptTemplateManagementResult>>.Ok(
+            await _systemService.ListPromptTemplatesAsync(agentEnvironment));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:新增或更新 Codex 提示词模板，服务层会拒绝尚未支持的 Agent 环境。</para>
+    /// <para>en-us:Creates or updates a Codex prompt template; unsupported agent environments are rejected by the service layer.</para>
+    /// </summary>
+    [HttpPost("prompt-templates")]
+    public async Task<ActionResult<ApiResponse<PromptTemplateManagementResult>>> UpsertPromptTemplate(
+        UpsertPromptTemplateRequest request)
+    {
+        return await ExecuteAsync(() => _systemService.UpsertPromptTemplateAsync(request));
+    }
+
+    /// <summary>
+    /// <para>zh-cn:软删除提示词模板。</para>
+    /// <para>en-us:Soft-deletes a prompt template.</para>
+    /// </summary>
+    [HttpDelete("prompt-templates/{id}")]
+    public async Task<ApiResponse<bool>> DeletePromptTemplate(string id)
+    {
+        return ApiResponse<bool>.Ok(await _systemService.DeletePromptTemplateAsync(id));
+    }
+
     [HttpGet("associations")]
     public async Task<ApiResponse<IReadOnlyList<SecurityAssociationResult>>> ListAssociations()
     {

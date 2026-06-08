@@ -25,7 +25,9 @@ import {
 
 import '../_shared/table-layout.css';
 
+const approving = ref(false);
 const loading = ref(false);
+const rejecting = ref(false);
 const previewVisible = ref(false);
 const reviewVisible = ref(false);
 const current = ref<SprintMvpApi.RequirementReviewItem>();
@@ -153,23 +155,35 @@ function resolveCurrentReviewStatus(item: SprintMvpApi.RequirementReviewItem) {
 }
 
 async function approve() {
+  if (approving.value) return;
   if (!current.value) return;
-  await approveRequirementReviewApi(current.value.requirement.id, {
-    comment: reviewForm.comment,
-  });
-  MessagePlugin.success('评审已通过');
-  reviewVisible.value = false;
-  await loadReviews();
+  approving.value = true;
+  try {
+    await approveRequirementReviewApi(current.value.requirement.id, {
+      comment: reviewForm.comment,
+    });
+    MessagePlugin.success('评审已通过');
+    reviewVisible.value = false;
+    await loadReviews();
+  } finally {
+    approving.value = false;
+  }
 }
 
 async function reject() {
+  if (rejecting.value) return;
   if (!current.value) return;
-  await rejectRequirementReviewApi(current.value.requirement.id, {
-    comment: reviewForm.comment,
-  });
-  MessagePlugin.success('评审已驳回');
-  reviewVisible.value = false;
-  await loadReviews();
+  rejecting.value = true;
+  try {
+    await rejectRequirementReviewApi(current.value.requirement.id, {
+      comment: reviewForm.comment,
+    });
+    MessagePlugin.success('评审已驳回');
+    reviewVisible.value = false;
+    await loadReviews();
+  } finally {
+    rejecting.value = false;
+  }
 }
 
 onMounted(loadReviews);
@@ -215,8 +229,8 @@ onMounted(loadReviews);
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryReviews">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :disabled="loading" @click="queryReviews">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
@@ -225,7 +239,7 @@ onMounted(loadReviews);
       <div class="sprint-table-header">
         <h3>评审列表</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" @click="loadReviews">↻</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadReviews">↻</TButton>
         </div>
       </div>
 

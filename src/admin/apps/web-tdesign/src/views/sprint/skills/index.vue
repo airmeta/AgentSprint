@@ -28,6 +28,7 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import '../_shared/table-layout.css';
 
 const loading = ref(false);
+const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const rows = ref<SprintMvpApi.Skill[]>([]);
@@ -110,32 +111,38 @@ async function loadRows() {
 }
 
 async function save() {
+  if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
   if (!form.code.trim() || !form.name.trim() || !form.content.trim()) {
     MessagePlugin.warning('Skill 编码、名称和内容不能为空');
     return;
   }
 
-  if (selected.value) {
-    await updateSkillApi(selected.value.id, {
-      content: form.content.trim(),
-      description: form.description.trim() || undefined,
-      name: form.name.trim(),
-      status: form.status,
-    });
-    MessagePlugin.success('Skill 已保存');
-  } else {
-    await createSkillApi({
-      code: form.code.trim(),
-      content: form.content.trim(),
-      description: form.description.trim() || undefined,
-      name: form.name.trim(),
-    });
-    MessagePlugin.success('Skill 已创建');
-  }
+  saving.value = true;
+  try {
+    if (selected.value) {
+      await updateSkillApi(selected.value.id, {
+        content: form.content.trim(),
+        description: form.description.trim() || undefined,
+        name: form.name.trim(),
+        status: form.status,
+      });
+      MessagePlugin.success('Skill 已保存');
+    } else {
+      await createSkillApi({
+        code: form.code.trim(),
+        content: form.content.trim(),
+        description: form.description.trim() || undefined,
+        name: form.name.trim(),
+      });
+      MessagePlugin.success('Skill 已创建');
+    }
 
-  visible.value = false;
-  await loadRows();
+    visible.value = false;
+    await loadRows();
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function switchStatus(row: SprintMvpApi.Skill) {
@@ -178,7 +185,7 @@ onMounted(loadRows);
         </label>
         <div class="sprint-filter-actions">
           <TButton theme="primary" @click="openCreate">新增Skill</TButton>
-          <TButton variant="outline" @click="loadRows">刷新</TButton>
+          <TButton variant="outline" :loading="loading" @click="loadRows">刷新</TButton>
         </div>
       </div>
     </section>
@@ -220,7 +227,7 @@ onMounted(loadRows);
       v-model:visible="visible"
       :header="selected ? '编辑Skill' : '新增Skill'"
       :size="'56%'"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: saving }"
       @confirm="save"
     >
       <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">

@@ -13,6 +13,7 @@ export namespace SprintMvpApi {
     projectManagerId: string;
     repositoryUrl?: string;
     testerIds: string[];
+    testEnvironmentId?: string;
     testEnvironmentUrl?: string;
   }
 
@@ -27,6 +28,7 @@ export namespace SprintMvpApi {
     projectManagerId: string;
     repositoryUrl?: string;
     testerIds: string[];
+    testEnvironmentId?: string;
     testEnvironmentUrl?: string;
   }
 
@@ -43,6 +45,7 @@ export namespace SprintMvpApi {
     projectManagerId?: string;
     repositoryUrl?: string;
     testerIds: string[];
+    testEnvironmentId?: string;
     testEnvironmentUrl?: string;
     status: string;
     createdBy: string;
@@ -104,6 +107,7 @@ export namespace SprintMvpApi {
   export interface DecomposeRequirementRequest {
     assignmentMode?: 'auto' | 'manual';
     instruction?: string;
+    taskCount?: number;
   }
 
   export interface ProjectEndpoint {
@@ -270,13 +274,25 @@ export namespace SprintMvpApi {
 
   export interface CreateFeedbackRequest {
     content?: string;
+    developmentTaskId?: string;
     title: string;
   }
 
   export interface ConvertFeedbackRequest {
     description?: string;
     priority?: number;
+    remark?: string;
     stakeholders?: string;
+    title: string;
+  }
+
+  export interface ConvertRequirementSourcesRequest {
+    description?: string;
+    feedbackIds?: string[];
+    priority?: number;
+    remark?: string;
+    stakeholders?: string;
+    suggestionIds?: string[];
     title: string;
   }
 
@@ -287,6 +303,7 @@ export namespace SprintMvpApi {
     convertedRequirementId?: string;
     createTime: string;
     createdBy: string;
+    developmentTaskId?: string;
     id: string;
     projectId: string;
     requirementId: string;
@@ -319,6 +336,8 @@ export namespace SprintMvpApi {
 
   export interface FeatureSuggestion {
     content: string;
+    convertedAt?: string;
+    convertedRequirementId?: string;
     createTime: string;
     createdBy: string;
     endpointId?: string;
@@ -587,6 +606,16 @@ export function convertRequirementFeedbackApi(
 ) {
   return requestClient.post<SprintMvpApi.Requirement>(
     `/mvp/requirements/${id}/feedback/${feedbackId}/convert`,
+    data,
+  );
+}
+
+export function convertRequirementSourcesApi(
+  id: string,
+  data: SprintMvpApi.ConvertRequirementSourcesRequest,
+) {
+  return requestClient.post<SprintMvpApi.Requirement>(
+    `/mvp/requirements/${id}/convert-sources`,
     data,
   );
 }

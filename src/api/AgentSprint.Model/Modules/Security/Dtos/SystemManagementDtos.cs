@@ -194,3 +194,121 @@ public sealed record AssignmentManagementResult(
     string Name,
     string? Description,
     int Status);
+
+public sealed record UpsertDictionaryTypeRequest(
+    string? Id,
+    string Code,
+    string Name,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record DictionaryTypeManagementResult(
+    string Id,
+    string Code,
+    string Name,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record UpsertDictionaryItemRequest(
+    string? Id,
+    string DictionaryTypeId,
+    string Code,
+    string Name,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record DictionaryItemManagementResult(
+    string Id,
+    string DictionaryTypeId,
+    string Code,
+    string Name,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record UpsertRuntimeEnvironmentRequest(
+    string? Id,
+    string? ProjectId,
+    string? EndpointId,
+    string? ModuleId,
+    string Code,
+    string Name,
+    string EnvironmentType,
+    string? Description,
+    string? FrontendUrl,
+    string? ApiBaseUrl,
+    string? FrontendProxyApiUrl,
+    string? McpEndpoint,
+    string? DeployRoot,
+    string? DockerDirectory,
+    string? RemotePackagePath,
+    string? ComposeFilePath,
+    string? LocalPackagePaths,
+    int Sort,
+    int Status);
+
+public sealed record RuntimeEnvironmentManagementResult(
+    string Id,
+    string? ProjectId,
+    string? EndpointId,
+    string? ModuleId,
+    string Code,
+    string Name,
+    string EnvironmentType,
+    string? Description,
+    string? FrontendUrl,
+    string? ApiBaseUrl,
+    string? FrontendProxyApiUrl,
+    string? McpEndpoint,
+    string? DeployRoot,
+    string? DockerDirectory,
+    string? RemotePackagePath,
+    string? ComposeFilePath,
+    string? LocalPackagePaths,
+    int Sort,
+    int Status);
+
+public sealed record UpsertRuntimeEnvironmentContainerRequest(
+    string? Id,
+    string RuntimeEnvironmentId,
+    string Name,
+    int HostPort,
+    int ContainerPort,
+    string? Protocol,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record RuntimeEnvironmentContainerManagementResult(
+    string Id,
+    string RuntimeEnvironmentId,
+    string Name,
+    int HostPort,
+    int ContainerPort,
+    string Protocol,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record UpsertPromptTemplateRequest(
+    string? Id,
+    string AgentEnvironment,
+    string Code,
+    string Name,
+    string Content,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record PromptTemplateManagementResult(
+    string Id,
+    string AgentEnvironment,
+    string Code,
+    string Name,
+    string Content,
+    string? Description,
+    int Sort,
+    int Status);

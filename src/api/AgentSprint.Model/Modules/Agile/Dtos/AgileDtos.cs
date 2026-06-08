@@ -12,7 +12,8 @@ public sealed record CreateSprintProjectRequest(
     IReadOnlyList<string>? ProductManagerIds = null,
     IReadOnlyList<string>? DeveloperIds = null,
     IReadOnlyList<string>? TesterIds = null,
-    string? ArchitectId = null);
+    string? ArchitectId = null,
+    string? TestEnvironmentId = null);
 
 public sealed record UpdateSprintProjectRequest(
     string Name,
@@ -25,7 +26,8 @@ public sealed record UpdateSprintProjectRequest(
     IReadOnlyList<string>? ProductManagerIds = null,
     IReadOnlyList<string>? DeveloperIds = null,
     IReadOnlyList<string>? TesterIds = null,
-    string? ArchitectId = null);
+    string? ArchitectId = null,
+    string? TestEnvironmentId = null);
 
 public sealed record CreateSprintProjectEndpointRequest(
     string ProjectId,
@@ -105,7 +107,7 @@ public sealed record UpdateSprintSkillRequest(
     string? Description = null,
     string? Status = null);
 
-public sealed record DecomposeSprintRequirementRequest(string? Instruction, string? AssignmentMode = null);
+public sealed record DecomposeSprintRequirementRequest(string? Instruction, string? AssignmentMode = null, int? TaskCount = null);
 
 public sealed record AssignSprintDevelopmentTaskRequest(string AssigneeId);
 
@@ -125,13 +127,24 @@ public sealed record CreateSprintBugRequest(
 
 public sealed record CreateSprintRequirementFeedbackRequest(
     string Title,
-    string? Content);
+    string? Content,
+    string? DevelopmentTaskId = null);
 
 public sealed record ConvertSprintRequirementFeedbackRequest(
     string Title,
     string? Description,
     int? Priority,
-    string? Stakeholders);
+    string? Stakeholders,
+    string? Remark = null);
+
+public sealed record ConvertSprintRequirementSourcesRequest(
+    string Title,
+    string? Description,
+    int? Priority,
+    string? Stakeholders,
+    IReadOnlyList<string>? FeedbackIds,
+    IReadOnlyList<string>? SuggestionIds,
+    string? Remark);
 
 public sealed record CreateSprintFeatureSuggestionRequest(
     string ProjectId,
@@ -156,7 +169,8 @@ public sealed record SprintProjectResult(
     string Status,
     string CreatedBy,
     DateTime CreateTime,
-    IReadOnlyList<string>? TesterIds = null);
+    IReadOnlyList<string>? TesterIds = null,
+    string? TestEnvironmentId = null);
 
 public sealed record SprintSkillResult(
     string Id,
@@ -233,6 +247,8 @@ public sealed record SprintFeatureSuggestionResult(
     string Content,
     string Status,
     string CreatedBy,
+    string? ConvertedRequirementId,
+    DateTime? ConvertedAt,
     DateTime CreateTime);
 
 public sealed record SprintRequirementReviewResult(
@@ -302,6 +318,7 @@ public sealed record SprintRequirementFeedbackResult(
     string Id,
     string ProjectId,
     string RequirementId,
+    string? DevelopmentTaskId,
     string Title,
     string? Content,
     string Status,

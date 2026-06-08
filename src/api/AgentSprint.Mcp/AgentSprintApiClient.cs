@@ -25,6 +25,7 @@ public sealed class AgentSprintApiClient
         _httpClient = httpClient;
         _username = options.Username;
         _password = options.Password;
+        _accessToken = options.AccessToken;
         _agentToken = options.AgentToken;
     }
 
@@ -48,7 +49,13 @@ public sealed class AgentSprintApiClient
             _password = password;
         }
 
-        _accessToken = null;
+        if (!string.IsNullOrWhiteSpace(username) ||
+            !string.IsNullOrWhiteSpace(password) ||
+            (!_options.RequireRequestAuthentication && string.IsNullOrWhiteSpace(_agentToken)))
+        {
+            _accessToken = null;
+        }
+
         var user = await GetCurrentUserAsync(cancellationToken);
         return new JsonObject
         {
@@ -139,6 +146,19 @@ public sealed class AgentSprintApiClient
             cancellationToken);
     }
 
+    public async Task<JsonNode?> ClaimDevelopmentTaskAsync(
+        string taskId,
+        string? ownerDevice,
+        CancellationToken cancellationToken)
+    {
+        return await SendAsync(
+            HttpMethod.Post,
+            $"/mvp/tasks/{Uri.EscapeDataString(taskId)}/claim",
+            new JsonObject { ["ownerDevice"] = ownerDevice },
+            true,
+            cancellationToken);
+    }
+
     public async Task<JsonNode?> ListBugsAsync(
         string? projectId,
         string? requirementId,
@@ -149,6 +169,83 @@ public sealed class AgentSprintApiClient
         AddQuery(query, "requirementId", requirementId);
         var path = query.Count == 0 ? "/mvp/bugs" : $"/mvp/bugs?{string.Join("&", query)}";
         return await SendAsync(HttpMethod.Get, path, null, true, cancellationToken);
+    }
+
+    public async Task<JsonNode?> ListRuntimeEnvironmentsAsync(
+        string? projectId,
+        string? endpointId,
+        string? moduleId,
+        CancellationToken cancellationToken)
+    {
+        var query = BuildQuery(
+            ("projectId", projectId),
+            ("endpointId", endpointId),
+            ("moduleId", moduleId));
+        return await SendAsync(
+            HttpMethod.Get,
+            $"/system/runtime-environments{query}",
+            null,
+            true,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// zh-cn: 通过 AgentSprint API 领取指定缺陷并创建缺陷修复租约，设备标识会透传给平台用于恢复本地 Codex 工作状态。
+    /// en-us: Claims a specific bug through the AgentSprint API and creates a bug-fix lease; the optional device id is forwarded so the platform can recover local Codex work state.
+    /// </summary>
+    /// <param name="bugId">
+    /// zh-cn: 要领取的缺陷标识。
+    /// en-us: Bug identifier to claim.
+    /// </param>
+    /// <param name="ownerDevice">
+    /// zh-cn: 可选的本地设备或会话标识。
+    /// en-us: Optional local device or session identifier.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// zh-cn: 请求取消令牌。
+    /// en-us: Request cancellation token.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 平台返回的缺陷修复租约。
+    /// en-us: Bug-fix lease returned by the platform.
+    /// </returns>
+    public async Task<JsonNode?> ClaimBugAsync(
+        string bugId,
+        string? ownerDevice,
+        CancellationToken cancellationToken)
+    {
+        return await SendAsync(
+            HttpMethod.Post,
+            $"/mvp/bugs/{Uri.EscapeDataString(bugId)}/claim",
+            new JsonObject { ["ownerDevice"] = ownerDevice },
+            true,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// zh-cn: 通过 AgentSprint API 将当前缺陷标记为已修复，并由平台关闭对应的活跃缺陷租约。
+    /// en-us: Marks the current bug as fixed through the AgentSprint API and lets the platform close the related active bug lease.
+    /// </summary>
+    /// <param name="bugId">
+    /// zh-cn: 要标记已修复的缺陷标识。
+    /// en-us: Bug identifier to mark fixed.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// zh-cn: 请求取消令牌。
+    /// en-us: Request cancellation token.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 更新后的缺陷信息。
+    /// en-us: Updated bug information.
+    /// </returns>
+    public async Task<JsonNode?> FixBugAsync(string bugId, CancellationToken cancellationToken)
+    {
+        return await SendAsync(
+            HttpMethod.Post,
+            $"/mvp/bugs/{Uri.EscapeDataString(bugId)}/fix",
+            new JsonObject(),
+            true,
+            cancellationToken);
     }
 
     public async Task<JsonNode?> ListTestPlansAsync(
@@ -210,6 +307,14 @@ public sealed class AgentSprintApiClient
         {
             await AuthenticateWithAgentTokenAsync(cancellationToken);
             return;
+        }
+
+        if (_options.RequireRequestAuthentication)
+        {
+            var headerNames = _options.RequestHeaderNames is { Count: > 0 }
+                ? string.Join(", ", _options.RequestHeaderNames)
+                : "none";
+            throw new InvalidOperationException($"Remote MCP request is missing Authorization Bearer, X-AgentSprint-Access-Token, or X-AgentSprint-Agent-Token. Received header names: {headerNames}.");
         }
 
         await AuthenticateWithPasswordAsync(cancellationToken);
@@ -277,5 +382,16 @@ public sealed class AgentSprintApiClient
         {
             query.Add($"{Uri.EscapeDataString(name)}={Uri.EscapeDataString(value)}");
         }
+    }
+
+    private static string BuildQuery(params (string Name, string? Value)[] values)
+    {
+        var query = new List<string>();
+        foreach (var (name, value) in values)
+        {
+            AddQuery(query, name, value);
+        }
+
+        return query.Count == 0 ? string.Empty : $"?{string.Join("&", query)}";
     }
 }

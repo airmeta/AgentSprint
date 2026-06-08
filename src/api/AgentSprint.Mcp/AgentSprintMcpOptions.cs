@@ -4,14 +4,20 @@ public sealed record AgentSprintMcpOptions(
     Uri ApiBaseUrl,
     string Username,
     string Password,
+    string? AccessToken,
     string? AgentToken,
-    string DefaultWorkspacePath)
+    string DefaultWorkspacePath,
+    bool RequireRequestAuthentication,
+    IReadOnlyList<string>? RequestHeaderNames = null)
 {
+    private const int AgentTokenLength = 64;
+
     public static AgentSprintMcpOptions FromEnvironment()
     {
         var apiBaseUrl = Environment.GetEnvironmentVariable("AGENTSPRINT_API_BASE_URL");
         var username = Environment.GetEnvironmentVariable("AGENTSPRINT_MCP_USERNAME");
         var password = Environment.GetEnvironmentVariable("AGENTSPRINT_MCP_PASSWORD");
+        var accessToken = Environment.GetEnvironmentVariable("AGENTSPRINT_MCP_ACCESS_TOKEN");
         var agentToken = Environment.GetEnvironmentVariable("AGENTSPRINT_MCP_AGENT_TOKEN");
         var workspacePath = Environment.GetEnvironmentVariable("AGENTSPRINT_WORKSPACE_PATH");
 
@@ -19,8 +25,11 @@ public sealed record AgentSprintMcpOptions(
             new Uri(string.IsNullOrWhiteSpace(apiBaseUrl) ? "http://localhost:5000" : apiBaseUrl),
             string.IsNullOrWhiteSpace(username) ? "developer" : username,
             string.IsNullOrWhiteSpace(password) ? "123456" : password,
+            string.IsNullOrWhiteSpace(accessToken) ? null : accessToken,
             string.IsNullOrWhiteSpace(agentToken) ? null : agentToken,
-            string.IsNullOrWhiteSpace(workspacePath) ? "F:\\AI\\AgentSprint" : workspacePath);
+            string.IsNullOrWhiteSpace(workspacePath) ? "F:\\AI\\AgentSprint" : workspacePath,
+            false,
+            null);
     }
 
     /// <summary>
@@ -41,20 +50,25 @@ public sealed record AgentSprintMcpOptions(
         var apiBaseUrl = ReadHeader(httpContext, "X-AgentSprint-Api-Base-Url");
         var username = ReadHeader(httpContext, "X-AgentSprint-Username");
         var password = ReadHeader(httpContext, "X-AgentSprint-Password");
-        var agentToken = ReadHeader(httpContext, "X-AgentSprint-Agent-Token") ?? ReadBearerToken(httpContext);
+        var accessToken = ReadHeader(httpContext, "X-AgentSprint-Access-Token");
+        var agentToken = ReadHeader(httpContext, "X-AgentSprint-Agent-Token");
+        ApplyBearerToken(ReadBearerToken(httpContext), ref accessToken, ref agentToken);
         var workspacePath = ReadHeader(httpContext, "X-AgentSprint-Workspace-Path");
 
         return new AgentSprintMcpOptions(
             new Uri(string.IsNullOrWhiteSpace(apiBaseUrl) ? fallback.ApiBaseUrl.ToString() : apiBaseUrl),
             string.IsNullOrWhiteSpace(username) ? fallback.Username : username,
             string.IsNullOrWhiteSpace(password) ? fallback.Password : password,
-            string.IsNullOrWhiteSpace(agentToken) ? fallback.AgentToken : agentToken,
-            string.IsNullOrWhiteSpace(workspacePath) ? fallback.DefaultWorkspacePath : workspacePath);
+            string.IsNullOrWhiteSpace(accessToken) ? null : accessToken,
+            string.IsNullOrWhiteSpace(agentToken) ? null : agentToken,
+            string.IsNullOrWhiteSpace(workspacePath) ? fallback.DefaultWorkspacePath : workspacePath,
+            true,
+            httpContext.Request.Headers.Keys.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
     private static string? ReadHeader(HttpContext httpContext, string name)
     {
-        return httpContext.Request.Headers.TryGetValue(name, out var values) ? values.FirstOrDefault() : null;
+        return httpContext.Request.Headers.TryGetValue(name, out var values) ? values.ToString() : null;
     }
 
     private static string? ReadBearerToken(HttpContext httpContext)
@@ -65,4 +79,29 @@ public sealed record AgentSprintMcpOptions(
             ? authorization[bearerPrefix.Length..].Trim()
             : null;
     }
+
+    private static void ApplyBearerToken(string? bearerToken, ref string? accessToken, ref string? agentToken)
+    {
+        if (string.IsNullOrWhiteSpace(bearerToken))
+        {
+            return;
+        }
+
+        if (bearerToken.Contains('.', StringComparison.Ordinal) ||
+            !string.IsNullOrWhiteSpace(accessToken))
+        {
+            accessToken ??= bearerToken;
+            return;
+        }
+
+        if (bearerToken.Length == AgentTokenLength ||
+            !string.IsNullOrWhiteSpace(agentToken))
+        {
+            agentToken ??= bearerToken;
+            return;
+        }
+
+        accessToken = bearerToken;
+    }
+
 }

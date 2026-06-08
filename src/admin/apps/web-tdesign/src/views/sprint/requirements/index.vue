@@ -1,8 +1,9 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   Button as TButton,
@@ -10,7 +11,6 @@ import {
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  InputNumber as TInputNumber,
   Link as TLink,
   MessagePlugin,
   Select as TSelect,
@@ -24,9 +24,12 @@ import {
   closeRequirementApi,
   completeRequirementDevelopmentApi,
   convertRequirementFeedbackApi,
+  convertRequirementSourcesApi,
   createRequirementFeedbackApi,
   createRequirementApi,
   decomposeRequirementApi,
+  listDevelopmentTasksApi,
+  listFeatureSuggestionsApi,
   listFeatureModulesApi,
   listProjectEndpointsApi,
   listRequirementFeedbackApi,
@@ -49,7 +52,13 @@ import MarkdownEditor from '../_shared/markdown-editor.vue';
 import { renderMarkdown } from '../_shared/markdown';
 import '../_shared/table-layout.css';
 
+const convertingFeedback = ref(false);
+const decomposing = ref(false);
+const feedbackSaving = ref(false);
 const loading = ref(false);
+const requirementSaving = ref(false);
+const reviewSubmitting = ref(false);
+const router = useRouter();
 const selectedProjectId = ref('');
 const selectedRequirement = ref<SprintMvpApi.Requirement>();
 const editorVisible = ref(false);
@@ -67,11 +76,14 @@ const endpoints = ref<SprintMvpApi.ProjectEndpoint[]>([]);
 const modules = ref<SprintMvpApi.FeatureModule[]>([]);
 const skills = ref<SprintMvpApi.Skill[]>([]);
 const requirements = ref<SprintMvpApi.Requirement[]>([]);
+const developmentTasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
 const requirementFeedback = ref<SprintMvpApi.RequirementFeedback[]>([]);
 const requirementFeedbackMap = ref<Record<string, SprintMvpApi.RequirementFeedback[]>>({});
+const requirementSuggestionMap = ref<Record<string, SprintMvpApi.FeatureSuggestion[]>>({});
 const requirementReviews = ref<SprintMvpApi.RequirementReview[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const selectedFeedback = ref<SprintMvpApi.RequirementFeedback>();
+const selectedFeedbackTaskId = ref('');
 const expandedRequirementIds = ref<Array<number | string>>([]);
 
 const filters = reactive({
@@ -86,7 +98,7 @@ const requirementForm = reactive({
   priority: 3,
   projectId: '',
   skillIds: [] as string[],
-  stakeholders: '',
+  stakeholderIds: [] as string[],
   title: '',
 });
 const reviewForm = reactive({
@@ -102,8 +114,11 @@ const feedbackForm = reactive({
 });
 const convertFeedbackForm = reactive({
   description: '',
+  feedbackIds: [] as string[],
   priority: 3,
-  stakeholders: '',
+  remark: '',
+  stakeholderIds: [] as string[],
+  suggestionIds: [] as string[],
   title: '',
 });
 const requirementRules: FormRules<typeof requirementForm> = {
@@ -130,7 +145,7 @@ const pagination = reactive({
 
 const projectOptions = computed(() =>
   projects.value.map((project) => ({
-    label: `${project.code} · ${project.name}`,
+    label: `${project.code} 路 ${project.name}`,
     value: project.id,
   })),
 );
@@ -143,6 +158,11 @@ const userOptions = computed(() =>
 const skillOptions = computed(() =>
   skills.value.map((skill) => ({ label: `${skill.code} - ${skill.name}`, value: skill.id })),
 );
+const priorityOptions = [
+  { label: '加急', value: 1 },
+  { label: '正常', value: 2 },
+  { label: '可延后', value: 3 },
+];
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const endpointOptions = computed(() =>
   endpoints.value
@@ -167,6 +187,19 @@ const moduleOptions = computed(() =>
 const selectedProjectName = computed(
   () => projects.value.find((item) => item.id === selectedProjectId.value)?.name,
 );
+const convertFeedbackOptions = computed(() =>
+  (selectedRequirement.value ? getRequirementFeedback(selectedRequirement.value.id) : [])
+    .filter((feedback) => feedback.status === 'open')
+    .map((feedback) => ({ label: feedback.title, value: feedback.id })),
+);
+const convertSuggestionOptions = computed(() =>
+  (selectedRequirement.value ? requirementSuggestionMap.value[selectedRequirement.value.id] || [] : [])
+    .filter((suggestion) => suggestion.status === 'open')
+    .map((suggestion) => ({
+      label: suggestion.content.length > 48 ? `${suggestion.content.slice(0, 48)}...` : suggestion.content,
+      value: suggestion.id,
+    })),
+);
 const childRequirementsBySource = computed(() => {
   const map: Record<string, SprintMvpApi.Requirement[]> = {};
   for (const requirement of requirements.value) {
@@ -175,6 +208,23 @@ const childRequirementsBySource = computed(() => {
     children.push(requirement);
     map[requirement.sourceRequirementId] = children;
   }
+  return map;
+});
+const developmentTasksByRequirement = computed(() => {
+  const map: Record<string, SprintMvpApi.DevelopmentTask[]> = {};
+  for (const task of developmentTasks.value) {
+    const tasks = map[task.requirementId] || [];
+    tasks.push(task);
+    map[task.requirementId] = tasks;
+  }
+
+  for (const tasks of Object.values(map)) {
+    tasks.sort(
+      (left, right) =>
+        left.priority - right.priority || right.createTime.localeCompare(left.createTime),
+    );
+  }
+
   return map;
 });
 const visibleRequirementIds = computed(() =>
@@ -218,6 +268,12 @@ const feedbackStatusText: Record<string, string> = {
   closed: '已关闭',
   converted: '已转需求',
   open: '待处理',
+};
+const taskStatusText: Record<string, string> = {
+  assigned: '已指派',
+  completed: '已完成',
+  in_progress: '推进中',
+  pending_assign: '待指派',
 };
 const decomposeAllowedStatuses = new Set(['approved', 'ready_development', 'decomposed']);
 const feedbackAllowedStatuses = new Set(['tested', 'completed']);
@@ -290,9 +346,44 @@ function getRequirementFeedback(requirementId: string) {
   return requirementFeedbackMap.value[requirementId] || [];
 }
 
+function getRequirementTasks(requirementId: string) {
+  return developmentTasksByRequirement.value[requirementId] || [];
+}
+
+function deserializeStakeholders(value?: string) {
+  if (!value) return [];
+  const userByUsername = Object.fromEntries(users.value.map((user) => [user.username, user.id]));
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => userByUsername[item] || item)
+    .filter((item, index, all) => all.indexOf(item) === index);
+}
+
+function serializeStakeholders(userIds: string[]) {
+  const userById = userMap.value;
+  return userIds
+    .map((id) => userById[id]?.username || id)
+    .filter(Boolean)
+    .join(',');
+}
+
+function resolveStakeholderNames(value?: string) {
+  const ids = deserializeStakeholders(value);
+  if (ids.length === 0) return '未填写';
+  return ids
+    .map((id) => userMap.value[id]?.displayName || userMap.value[id]?.username || id)
+    .join('、');
+}
+
+function resolvePriorityText(priority: number) {
+  return priorityOptions.find((item) => item.value === priority)?.label || `浼樺厛绾?${priority}`;
+}
+
 function getRequirementFollowUpItems(requirement: SprintMvpApi.Requirement) {
   const feedbackItems = getRequirementFeedback(requirement.id).map((feedback) => ({
-    content: feedback.content || '暂无内容',
+    content: feedback.content || '鏆傛棤鍐呭',
     createdAt: feedback.createTime,
     feedback,
     id: `feedback:${feedback.id}`,
@@ -302,7 +393,7 @@ function getRequirementFollowUpItems(requirement: SprintMvpApi.Requirement) {
   }));
   const childItems = (childRequirementsBySource.value[requirement.id] || []).map((child) => ({
     child,
-    content: child.description || '暂无内容',
+    content: child.description || '鏆傛棤鍐呭',
     createdAt: child.createTime,
     id: `requirement:${child.id}`,
     status: child.status,
@@ -320,6 +411,18 @@ async function ensureRequirementFeedback(requirementId: string) {
   requirementFeedbackMap.value = {
     ...requirementFeedbackMap.value,
     [requirementId]: feedback,
+  };
+}
+
+async function ensureRequirementSuggestions(requirement: SprintMvpApi.Requirement) {
+  if (requirementSuggestionMap.value[requirement.id]) return;
+  const suggestions = await listFeatureSuggestionsApi({
+    projectId: requirement.projectId,
+    requirementId: requirement.id,
+  });
+  requirementSuggestionMap.value = {
+    ...requirementSuggestionMap.value,
+    [requirement.id]: suggestions,
   };
 }
 
@@ -343,7 +446,7 @@ function resetForm() {
     priority: 3,
     projectId,
     skillIds: [...(endpoint?.skillIds || [])],
-    stakeholders: '',
+    stakeholderIds: [],
     title: '',
   });
 }
@@ -367,7 +470,7 @@ function openEdit(requirement: SprintMvpApi.Requirement) {
     priority: requirement.priority,
     projectId: requirement.projectId,
     skillIds: [...(requirement.skillIds || [])],
-    stakeholders: requirement.stakeholders || '',
+    stakeholderIds: deserializeStakeholders(requirement.stakeholders),
     title: requirement.title,
   });
   editorVisible.value = true;
@@ -407,25 +510,36 @@ function openDecompose(requirement: SprintMvpApi.Requirement) {
   decomposeVisible.value = true;
 }
 
-function openFeedback(requirement: SprintMvpApi.Requirement) {
+function openFeedback(requirement: SprintMvpApi.Requirement, task?: SprintMvpApi.DevelopmentTask) {
   if (!canCreateFeedback(requirement)) {
-    MessagePlugin.warning('回馈转换出的后续需求不支持再次回馈');
+    MessagePlugin.warning('鍥為杞崲鍑虹殑鍚庣画闇€姹備笉鏀寔鍐嶆鍥為');
+    return;
+  }
+  if (task && task.status !== 'completed') {
+    MessagePlugin.warning('浠呭凡瀹屾垚浠诲姟鏀寔璁板綍鍥為');
     return;
   }
   selectedRequirement.value = requirement;
+  selectedFeedbackTaskId.value = task?.id || '';
   Object.assign(feedbackForm, {
-    content: '',
-    title: '',
+    content: task?.description || '',
+    title: task ? `浠诲姟鍥為 - ${task.title}` : '',
   });
   feedbackVisible.value = true;
 }
 
-function openConvertFeedback(feedback: SprintMvpApi.RequirementFeedback) {
+async function openConvertFeedback(feedback: SprintMvpApi.RequirementFeedback) {
   selectedFeedback.value = feedback;
+  if (selectedRequirement.value) {
+    await ensureRequirementSuggestions(selectedRequirement.value);
+  }
   Object.assign(convertFeedbackForm, {
     description: feedback.content || '',
+    feedbackIds: [feedback.id],
     priority: selectedRequirement.value?.priority || 3,
-    stakeholders: selectedRequirement.value?.stakeholders || '',
+    remark: '',
+    stakeholderIds: deserializeStakeholders(selectedRequirement.value?.stakeholders),
+    suggestionIds: [] as string[],
     title: feedback.title,
   });
   convertFeedbackVisible.value = true;
@@ -437,7 +551,7 @@ async function openConvertFeedbackFromRequirement(
 ) {
   selectedRequirement.value = requirement;
   await ensureRequirementFeedback(requirement.id);
-  openConvertFeedback(feedback);
+  await openConvertFeedback(feedback);
 }
 
 async function loadProjects() {
@@ -453,7 +567,12 @@ async function loadProjects() {
 async function loadRequirements() {
   loading.value = true;
   try {
-    requirements.value = await listRequirementsApi(selectedProjectId.value || undefined);
+    const [nextRequirements, nextTasks] = await Promise.all([
+      listRequirementsApi(selectedProjectId.value || undefined),
+      listDevelopmentTasksApi({ projectId: selectedProjectId.value || undefined }),
+    ]);
+    requirements.value = nextRequirements;
+    developmentTasks.value = nextTasks;
     pagination.current = 1;
     const feedbackEntries = await Promise.all(
       requirements.value
@@ -464,6 +583,18 @@ async function loadRequirements() {
         ] as const),
     );
     requirementFeedbackMap.value = Object.fromEntries(feedbackEntries);
+    const suggestionEntries = await Promise.all(
+      requirements.value
+        .filter((requirement) => feedbackAllowedStatuses.has(requirement.status))
+        .map(async (requirement) => [
+          requirement.id,
+          await listFeatureSuggestionsApi({
+            projectId: requirement.projectId,
+            requirementId: requirement.id,
+          }),
+        ] as const),
+    );
+    requirementSuggestionMap.value = Object.fromEntries(suggestionEntries);
     syncExpandedRequirementIds();
     if (selectedRequirement.value) {
       selectedRequirement.value = requirements.value.find(
@@ -473,6 +604,10 @@ async function loadRequirements() {
   } finally {
     loading.value = false;
   }
+}
+
+function goTaskAdvance(task: SprintMvpApi.DevelopmentTask) {
+  router.push(`/sprint/tasks/detail/${task.id}`);
 }
 
 async function queryRequirements() {
@@ -494,6 +629,7 @@ function handleLocalFilterChange() {
 }
 
 async function saveRequirement() {
+  if (requirementSaving.value) return;
   if (!(await validateForm(requirementFormRef.value))) return;
   if (!requirementForm.projectId) {
     MessagePlugin.warning('请先选择项目');
@@ -508,41 +644,46 @@ async function saveRequirement() {
     return;
   }
 
-  if (selectedRequirement.value) {
-    if (!canEditRequirement(selectedRequirement.value)) {
-      MessagePlugin.warning('需求提交评审后不支持编辑');
-      editorVisible.value = false;
-      return;
+  requirementSaving.value = true;
+  try {
+    if (selectedRequirement.value) {
+      if (!canEditRequirement(selectedRequirement.value)) {
+        MessagePlugin.warning('需求提交评审后不支持编辑');
+        editorVisible.value = false;
+        return;
+      }
+      await updateRequirementApi(selectedRequirement.value.id, {
+        description: requirementForm.description,
+        priority: requirementForm.priority,
+        stakeholders: serializeStakeholders(requirementForm.stakeholderIds),
+        skillIds: [...requirementForm.skillIds],
+        title: requirementForm.title,
+      });
+    } else {
+      await createRequirementApi({
+        description: requirementForm.description,
+        endpointId: requirementForm.endpointId,
+        moduleId: requirementForm.moduleId,
+        priority: requirementForm.priority,
+        projectId: requirementForm.projectId,
+        skillIds: [...requirementForm.skillIds],
+        stakeholders: serializeStakeholders(requirementForm.stakeholderIds),
+        title: requirementForm.title,
+      });
     }
-    await updateRequirementApi(selectedRequirement.value.id, {
-      description: requirementForm.description,
-      priority: requirementForm.priority,
-      stakeholders: requirementForm.stakeholders,
-      skillIds: [...requirementForm.skillIds],
-      title: requirementForm.title,
-    });
-  } else {
-    await createRequirementApi({
-      description: requirementForm.description,
-      endpointId: requirementForm.endpointId,
-      moduleId: requirementForm.moduleId,
-      priority: requirementForm.priority,
-      projectId: requirementForm.projectId,
-      skillIds: [...requirementForm.skillIds],
-      stakeholders: requirementForm.stakeholders,
-      title: requirementForm.title,
-    });
-  }
 
-  MessagePlugin.success('需求已保存');
-  editorVisible.value = false;
-  if (!selectedRequirement.value && selectedProjectId.value !== requirementForm.projectId) {
-    selectedProjectId.value = requirementForm.projectId;
+    MessagePlugin.success('需求已保存');
+    editorVisible.value = false;
+    if (!selectedRequirement.value && selectedProjectId.value !== requirementForm.projectId) {
+      selectedProjectId.value = requirementForm.projectId;
+    }
+    await loadRequirements();
+  } finally {
+    requirementSaving.value = false;
   }
-  await loadRequirements();
 }
-
 async function submitReview() {
+  if (reviewSubmitting.value) return;
   if (!selectedRequirement.value) return;
   if (!(await validateForm(reviewFormRef.value))) return;
   const reviewerIds = [...reviewForm.reviewerIds];
@@ -551,33 +692,42 @@ async function submitReview() {
     return;
   }
 
-  await submitRequirementReviewApi(selectedRequirement.value.id, { reviewerIds });
-  MessagePlugin.success('已提交需求评审');
-  reviewVisible.value = false;
-  await loadRequirements();
+  reviewSubmitting.value = true;
+  try {
+    await submitRequirementReviewApi(selectedRequirement.value.id, { reviewerIds });
+    MessagePlugin.success('已提交需求评审');
+    reviewVisible.value = false;
+    await loadRequirements();
+  } finally {
+    reviewSubmitting.value = false;
+  }
 }
-
 async function decomposeRequirement() {
+  if (decomposing.value) return;
   if (!selectedRequirement.value) return;
-  await decomposeRequirementApi(selectedRequirement.value.id, {
-    assignmentMode: decomposeForm.assignmentMode,
-    instruction: decomposeForm.instruction,
-  });
-  MessagePlugin.success('任务拆解已生成');
-  decomposeVisible.value = false;
-  await loadRequirements();
+  decomposing.value = true;
+  try {
+    await decomposeRequirementApi(selectedRequirement.value.id, {
+      assignmentMode: decomposeForm.assignmentMode,
+      instruction: decomposeForm.instruction,
+    });
+    MessagePlugin.success('任务拆解已生成');
+    decomposeVisible.value = false;
+    await loadRequirements();
+  } finally {
+    decomposing.value = false;
+  }
 }
-
 async function voidRequirement(requirement: SprintMvpApi.Requirement) {
   await voidRequirementApi(requirement.id);
-  MessagePlugin.success('需求已作废');
+  MessagePlugin.success('闇€姹傚凡浣滃簾');
   detailVisible.value = false;
   await loadRequirements();
 }
 
 async function closeRequirement(requirement: SprintMvpApi.Requirement) {
   await closeRequirementApi(requirement.id);
-  MessagePlugin.success('需求已验收关闭');
+  MessagePlugin.success('闇€姹傚凡楠屾敹鍏抽棴');
   detailVisible.value = false;
   await loadRequirements();
 }
@@ -590,6 +740,7 @@ async function completeRequirementDevelopment(requirement: SprintMvpApi.Requirem
 }
 
 async function saveFeedback() {
+  if (feedbackSaving.value) return;
   if (!selectedRequirement.value) return;
   if (!(await validateForm(feedbackFormRef.value))) return;
   if (!feedbackForm.title.trim()) {
@@ -597,47 +748,89 @@ async function saveFeedback() {
     return;
   }
 
-  await createRequirementFeedbackApi(selectedRequirement.value.id, {
-    content: feedbackForm.content,
-    title: feedbackForm.title,
-  });
-  MessagePlugin.success('回馈已记录');
-  feedbackVisible.value = false;
-  requirementFeedback.value = await listRequirementFeedbackApi(selectedRequirement.value.id);
-  requirementFeedbackMap.value = {
-    ...requirementFeedbackMap.value,
-    [selectedRequirement.value.id]: requirementFeedback.value,
-  };
+  feedbackSaving.value = true;
+  try {
+    await createRequirementFeedbackApi(selectedRequirement.value.id, {
+      content: feedbackForm.content,
+      developmentTaskId: selectedFeedbackTaskId.value || undefined,
+      title: feedbackForm.title,
+    });
+    MessagePlugin.success('回馈已记录');
+    feedbackVisible.value = false;
+    requirementFeedback.value = await listRequirementFeedbackApi(selectedRequirement.value.id);
+    requirementFeedbackMap.value = {
+      ...requirementFeedbackMap.value,
+      [selectedRequirement.value.id]: requirementFeedback.value,
+    };
+  } finally {
+    feedbackSaving.value = false;
+  }
 }
-
 async function convertFeedback() {
-  if (!selectedRequirement.value || !selectedFeedback.value) return;
+  if (convertingFeedback.value) return;
+  if (!selectedRequirement.value) return;
   if (!(await validateForm(convertFeedbackFormRef.value))) return;
   if (!convertFeedbackForm.title.trim()) {
     MessagePlugin.warning('后续需求标题不能为空');
     return;
   }
 
-  await convertRequirementFeedbackApi(
-    selectedRequirement.value.id,
-    selectedFeedback.value.id,
-    {
-      description: convertFeedbackForm.description,
-      priority: convertFeedbackForm.priority,
-      stakeholders: convertFeedbackForm.stakeholders,
-      title: convertFeedbackForm.title,
-    },
-  );
-  MessagePlugin.success('回馈已转为后续需求');
-  convertFeedbackVisible.value = false;
-  requirementFeedback.value = await listRequirementFeedbackApi(selectedRequirement.value.id);
-  requirementFeedbackMap.value = {
-    ...requirementFeedbackMap.value,
-    [selectedRequirement.value.id]: requirementFeedback.value,
-  };
-  await loadRequirements();
-}
+  if (convertFeedbackForm.feedbackIds.length === 0 && convertFeedbackForm.suggestionIds.length === 0) {
+    MessagePlugin.warning('请选择至少一个回馈或优化建议');
+    return;
+  }
 
+  convertingFeedback.value = true;
+  try {
+    const feedback = selectedFeedback.value;
+    if (
+      feedback &&
+      convertFeedbackForm.feedbackIds.length === 1 &&
+      convertFeedbackForm.suggestionIds.length === 0 &&
+      feedback.id === convertFeedbackForm.feedbackIds[0]
+    ) {
+      await convertRequirementFeedbackApi(
+        selectedRequirement.value.id,
+        feedback.id,
+        {
+          description: convertFeedbackForm.description,
+          priority: convertFeedbackForm.priority,
+          remark: convertFeedbackForm.remark,
+          stakeholders: serializeStakeholders(convertFeedbackForm.stakeholderIds),
+          title: convertFeedbackForm.title,
+        },
+      );
+    } else {
+      await convertRequirementSourcesApi(selectedRequirement.value.id, {
+        description: convertFeedbackForm.description,
+        feedbackIds: [...convertFeedbackForm.feedbackIds],
+        priority: convertFeedbackForm.priority,
+        remark: convertFeedbackForm.remark,
+        stakeholders: serializeStakeholders(convertFeedbackForm.stakeholderIds),
+        suggestionIds: [...convertFeedbackForm.suggestionIds],
+        title: convertFeedbackForm.title,
+      });
+    }
+    MessagePlugin.success('回馈已转为后续需求');
+    convertFeedbackVisible.value = false;
+    requirementFeedback.value = await listRequirementFeedbackApi(selectedRequirement.value.id);
+    const suggestions = await listFeatureSuggestionsApi({
+      projectId: selectedRequirement.value.projectId,
+      requirementId: selectedRequirement.value.id,
+    });
+    requirementFeedbackMap.value = {
+      ...requirementFeedbackMap.value,
+      [selectedRequirement.value.id]: requirementFeedback.value,
+    };
+    requirementSuggestionMap.value = {
+      ...requirementSuggestionMap.value,
+      [selectedRequirement.value.id]: suggestions,
+    };
+    await loadRequirements();
+  } finally {
+    convertingFeedback.value = false;
+  }
+}
 onMounted(async () => {
   users.value = await listUserOptionsApi();
   await loadProjects();
@@ -682,63 +875,63 @@ onActivated(async () => {
 <template>
   <div class="requirements-page sprint-list-page">
     <section class="sprint-page-title">
-      <h2>需求管理</h2>
-      <p>维护需求、评审、拆解、测试闭环和验收后的产品回馈。</p>
+      <h2>闇€姹傜鐞?/h2>
+      <p>缁存姢闇€姹傘€佽瘎瀹°€佹媶瑙ｃ€佹祴璇曢棴鐜拰楠屾敹鍚庣殑浜у搧鍥為銆?/p>
     </section>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
         <label class="sprint-filter-field">
-          <span>当前项目</span>
+          <span>褰撳墠椤圭洰</span>
           <TSelect
             v-model="selectedProjectId"
             :options="projectOptions"
             clearable
-            placeholder="全部项目"
+            placeholder="鍏ㄩ儴椤圭洰"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>状态</span>
+          <span>鐘舵€?/span>
           <TSelect
             v-model="filters.status"
             :options="statusOptions"
             clearable
-            placeholder="全部状态"
+            placeholder="鍏ㄩ儴鐘舵€?
             @change="handleLocalFilterChange"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>健康</span>
+          <span>鍋ュ悍</span>
           <TSelect
             v-model="filters.health"
             :options="healthOptions"
             clearable
-            placeholder="全部健康状态"
+            placeholder="鍏ㄩ儴鍋ュ悍鐘舵€?
             @change="handleLocalFilterChange"
           />
         </label>
         <label class="sprint-filter-field">
-          <span>需求信息</span>
+          <span>闇€姹備俊鎭?/span>
           <TInput
             v-model="filters.requirementInfo"
             clearable
-            placeholder="需求名、内容、干系人"
+            placeholder="闇€姹傚悕銆佸唴瀹广€佸共绯讳汉"
             @change="handleLocalFilterChange"
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryRequirements">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryRequirements">鏌ヨ</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">閲嶇疆</TButton>
         </div>
       </div>
     </section>
 
     <section class="sprint-table-panel">
       <div class="sprint-table-header">
-        <h3>{{ selectedProjectName || '需求列表' }}</h3>
+        <h3>{{ selectedProjectName || '闇€姹傚垪琛? }}</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" @click="loadRequirements">↻</TButton>
-          <TButton theme="primary" @click="openCreate">新增需求</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">鈫?/TButton>
+          <TButton theme="primary" @click="openCreate">鏂板闇€姹?/TButton>
         </div>
       </div>
 
@@ -758,76 +951,103 @@ onActivated(async () => {
       >
         <template #expandedRow="{ row }">
           <div class="requirement-expanded">
-            <h4>回馈与子需求</h4>
-            <div v-if="getRequirementFollowUpItems(row).length === 0" class="expanded-empty">
-              暂无回馈与子需求
-            </div>
-            <div
-              v-for="item in getRequirementFollowUpItems(row)"
-              :key="item.id"
-              class="expanded-item"
-            >
-              <TTag :theme="item.type === 'feedback' ? 'warning' : 'primary'" variant="light">
-                {{ item.type === 'feedback' ? '回馈' : '需求' }}
-              </TTag>
-              <TTag variant="light">
-                {{
-                  item.type === 'feedback'
-                    ? feedbackStatusText[item.status] || item.status
-                    : statusText[item.status] || item.status
-                }}
-              </TTag>
-              <strong>{{ item.title }}</strong>
-              <span>{{ item.createdAt }}</span>
-              <TSpace class="sprint-row-actions expanded-actions">
-                <TLink
-                  v-if="item.type === 'feedback' && item.feedback.status === 'open'"
-                  theme="primary"
-                  @click="openConvertFeedbackFromRequirement(row, item.feedback)"
-                >
-                  转需求
-                </TLink>
-                <TLink
-                  v-if="item.type === 'requirement' && canSubmitReview(item.child)"
-                  theme="primary"
-                  @click="openReview(item.child)"
-                >
-                  提交评审
-                </TLink>
-                <TLink
-                  v-if="item.type === 'requirement' && decomposeAllowedStatuses.has(item.child.status)"
-                  theme="primary"
-                  @click="openDecompose(item.child)"
-                >
-                  任务拆解
-                </TLink>
-                <TLink
-                  v-if="
-                    item.type === 'requirement' &&
-                    (item.child.status === 'developing' || item.child.status === 'pending_fix')
-                  "
-                  theme="success"
-                  @click="completeRequirementDevelopment(item.child)"
-                >
-                  完成开发
-                </TLink>
-                <TLink
-                  v-if="item.type === 'requirement' && item.child.status === 'tested'"
-                  theme="success"
-                  @click="closeRequirement(item.child)"
-                >
-                  验收关闭
-                </TLink>
-                <TLink
-                  v-if="item.type === 'requirement'"
-                  theme="primary"
-                  @click="openDetail(item.child)"
-                >
-                  详情
-                </TLink>
-              </TSpace>
-              <p>{{ item.content }}</p>
-            </div>
+            <section class="expanded-section">
+              <h4>浠诲姟鍒嗚В</h4>
+              <div v-if="getRequirementTasks(row.id).length === 0" class="expanded-empty">
+                鏆傛棤鎷嗚В浠诲姟
+              </div>
+              <div
+                v-for="task in getRequirementTasks(row.id)"
+                :key="task.id"
+                class="expanded-task-row"
+              >
+                <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
+                <strong>{{ task.title }}</strong>
+                <span>{{ task.assigneeId || '鏈寚娲? }}</span>
+                <span>浼樺厛绾?{{ task.priority }}</span>
+                <TSpace class="sprint-row-actions expanded-actions">
+                  <TLink theme="primary" @click="goTaskAdvance(task)">浠诲姟鎺ㄨ繘</TLink>
+                  <TLink
+                    v-if="task.status === 'completed' && canCreateFeedback(row)"
+                    theme="warning"
+                    @click="openFeedback(row, task)"
+                  >
+                    璁板綍鍥為
+                  </TLink>
+                </TSpace>
+                <p>{{ task.description || '鏆傛棤浠诲姟璇存槑' }}</p>
+              </div>
+            </section>
+
+            <section class="expanded-section">
+              <h4>鍥為涓庡瓙闇€姹?/h4>
+              <div v-if="getRequirementFollowUpItems(row).length === 0" class="expanded-empty">
+                鏆傛棤鍥為涓庡瓙闇€姹?              </div>
+              <div
+                v-for="item in getRequirementFollowUpItems(row)"
+                :key="item.id"
+                class="expanded-item"
+              >
+                <TTag :theme="item.type === 'feedback' ? 'warning' : 'primary'" variant="light">
+                  {{ item.type === 'feedback' ? '鍥為' : '闇€姹? }}
+                </TTag>
+                <TTag variant="light">
+                  {{
+                    item.type === 'feedback'
+                      ? feedbackStatusText[item.status] || item.status
+                      : statusText[item.status] || item.status
+                  }}
+                </TTag>
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.createdAt }}</span>
+                <TSpace class="sprint-row-actions expanded-actions">
+                  <TLink
+                    v-if="item.type === 'feedback' && item.feedback.status === 'open'"
+                    theme="primary"
+                    @click="openConvertFeedbackFromRequirement(row, item.feedback)"
+                  >
+                    杞渶姹?                  </TLink>
+                  <TLink
+                    v-if="item.type === 'requirement' && canSubmitReview(item.child)"
+                    theme="primary"
+                    @click="openReview(item.child)"
+                  >
+                    鎻愪氦璇勫
+                  </TLink>
+                  <TLink
+                    v-if="item.type === 'requirement' && decomposeAllowedStatuses.has(item.child.status)"
+                    theme="primary"
+                    @click="openDecompose(item.child)"
+                  >
+                    浠诲姟鎷嗚В
+                  </TLink>
+                  <TLink
+                    v-if="
+                      item.type === 'requirement' &&
+                      (item.child.status === 'developing' || item.child.status === 'pending_fix')
+                    "
+                    theme="success"
+                    @click="completeRequirementDevelopment(item.child)"
+                  >
+                    瀹屾垚寮€鍙?                  </TLink>
+                  <TLink
+                    v-if="item.type === 'requirement' && item.child.status === 'tested'"
+                    theme="success"
+                    @click="closeRequirement(item.child)"
+                  >
+                    楠屾敹鍏抽棴
+                  </TLink>
+                  <TLink
+                    v-if="item.type === 'requirement'"
+                    theme="primary"
+                    @click="openDetail(item.child)"
+                  >
+                    璇︽儏
+                  </TLink>
+                </TSpace>
+                <p>{{ item.content }}</p>
+              </div>
+            </section>
           </div>
         </template>
         <template #status="{ row }">
@@ -838,30 +1058,36 @@ onActivated(async () => {
             {{ healthText[row.health] || row.health }}
           </TTag>
         </template>
+        <template #priority="{ row }">
+          <TTag variant="light">{{ resolvePriorityText(row.priority) }}</TTag>
+        </template>
+        <template #stakeholders="{ row }">
+          {{ resolveStakeholderNames(row.stakeholders) }}
+        </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
             <TLink v-if="canEditRequirement(row)" theme="primary" @click="openEdit(row)">
-              编辑
+              缂栬緫
             </TLink>
-            <TLink v-else theme="primary" @click="openDetail(row)">详情</TLink>
+            <TLink v-else theme="primary" @click="openDetail(row)">璇︽儏</TLink>
             <TLink
               v-if="decomposeAllowedStatuses.has(row.status)"
               theme="primary"
               @click="openDecompose(row)"
             >
-              任务拆解
+              浠诲姟鎷嗚В
             </TLink>
             <TLink v-if="canSubmitReview(row)" theme="primary" @click="openReview(row)">
-              立项推进
+              绔嬮」鎺ㄨ繘
             </TLink>
             <TLink v-if="row.status === 'rejected'" theme="danger" @click="voidRequirement(row)">
-              作废
+              浣滃簾
             </TLink>
             <TLink v-if="row.status === 'tested'" theme="success" @click="closeRequirement(row)">
-              验收关闭
+              楠屾敹鍏抽棴
             </TLink>
             <TLink v-if="canCreateFeedback(row)" theme="primary" @click="openFeedback(row)">
-              记录回馈
+              璁板綍鍥為
             </TLink>
           </TSpace>
         </template>
@@ -872,49 +1098,66 @@ onActivated(async () => {
       v-model:visible="editorVisible"
       :size="'60%'"
       :header="selectedRequirement ? '编辑需求' : '新增需求'"
+      :confirm-btn="{ content: '保存', loading: requirementSaving }"
       @confirm="saveRequirement"
     >
       <TForm ref="requirementFormRef" :data="requirementForm" :rules="requirementRules" label-width="90px">
-        <TFormItem label="Skill">
-          <TSelect v-model="requirementForm.skillIds" multiple filterable :options="skillOptions" />
-        </TFormItem>
-        <TFormItem label="所属项目" name="projectId">
+        <TFormItem label="鎵€灞為」鐩? name="projectId">
           <TSelect
             v-model="requirementForm.projectId"
             :disabled="!!selectedRequirement"
             :options="projectOptions"
           />
         </TFormItem>
-        <TFormItem label="端" name="endpointId">
+        <TFormItem label="绔? name="endpointId">
           <TSelect
             v-model="requirementForm.endpointId"
             :disabled="!!selectedRequirement"
             :options="endpointOptions"
-            placeholder="请选择端"
+            placeholder="璇烽€夋嫨绔?
           />
         </TFormItem>
-        <TFormItem label="功能模块" name="moduleId">
+        <TFormItem label="鍔熻兘妯″潡" name="moduleId">
           <TSelect
             v-model="requirementForm.moduleId"
             :disabled="!!selectedRequirement"
             :options="moduleOptions"
-            placeholder="请选择功能模块"
+            placeholder="璇烽€夋嫨鍔熻兘妯″潡"
           />
         </TFormItem>
-        <TFormItem label="需求标题" name="title">
+        <TFormItem label="闇€姹傛爣棰? name="title">
           <TInput v-model="requirementForm.title" />
         </TFormItem>
-        <TFormItem label="优先级" name="priority">
-          <TInputNumber v-model="requirementForm.priority" :min="1" :max="5" />
+        <TFormItem label="浼樺厛绾? name="priority">
+          <div class="priority-options">
+            <TButton
+              v-for="item in priorityOptions"
+              :key="item.value"
+              :theme="requirementForm.priority === item.value ? 'primary' : 'default'"
+              :variant="requirementForm.priority === item.value ? 'base' : 'outline'"
+              @click="requirementForm.priority = item.value"
+            >
+              {{ item.label }}
+            </TButton>
+          </div>
         </TFormItem>
-        <TFormItem label="干系人">
-          <TInput v-model="requirementForm.stakeholders" placeholder="admin,pm-1,arch-1" />
+        <TFormItem label="骞茬郴浜?>
+          <TSelect
+            v-model="requirementForm.stakeholderIds"
+            multiple
+            filterable
+            :options="userOptions"
+            placeholder="閫夋嫨骞茬郴浜?
+          />
         </TFormItem>
-        <TFormItem label="需求内容" class="markdown-form-item">
+        <TFormItem label="Skill">
+          <TSelect v-model="requirementForm.skillIds" multiple filterable :options="skillOptions" />
+        </TFormItem>
+        <TFormItem label="闇€姹傚唴瀹? class="markdown-form-item">
           <MarkdownEditor
             v-model="requirementForm.description"
             :height="420"
-            placeholder="使用 Markdown 编写需求背景、目标、验收标准。"
+            placeholder="浣跨敤 Markdown 缂栧啓闇€姹傝儗鏅€佺洰鏍囥€侀獙鏀舵爣鍑嗐€?
           />
         </TFormItem>
       </TForm>
@@ -924,7 +1167,7 @@ onActivated(async () => {
       v-model:visible="detailVisible"
       :footer="false"
       :size="'60%'"
-      :header="selectedRequirement?.title || '需求详情'"
+      :header="selectedRequirement?.title || '闇€姹傝鎯?"
     >
       <article v-if="selectedRequirement" class="detail">
         <TTag :theme="healthTheme[selectedRequirement.health] || 'primary'" variant="light">
@@ -933,18 +1176,18 @@ onActivated(async () => {
         <h3>{{ selectedRequirement.title }}</h3>
         <article
           class="markdown-preview detail-markdown"
-          v-html="renderMarkdown(selectedRequirement.description || '暂无需求内容')"
+          v-html="renderMarkdown(selectedRequirement.description || '鏆傛棤闇€姹傚唴瀹?)"
         ></article>
         <dl>
-          <dt>状态</dt>
+          <dt>鐘舵€?/dt>
           <dd>{{ statusText[selectedRequirement.status] || selectedRequirement.status }}</dd>
-          <dt>产品经理</dt>
+          <dt>浜у搧缁忕悊</dt>
           <dd>{{ selectedRequirement.createdBy }}</dd>
-          <dt>干系人</dt>
-          <dd>{{ selectedRequirement.stakeholders || '未填写' }}</dd>
+          <dt>骞茬郴浜?/dt>
+          <dd>{{ resolveStakeholderNames(selectedRequirement.stakeholders) }}</dd>
         </dl>
         <section v-if="requirementReviews.length > 0" class="review-history">
-          <h4>评审记录</h4>
+          <h4>璇勫璁板綍</h4>
           <div
             v-for="review in requirementReviews"
             :key="review.id"
@@ -955,13 +1198,13 @@ onActivated(async () => {
               {{ userMap[review.reviewerId]?.displayName || review.reviewerId }}
             </strong>
             <span>{{ review.reviewedAt || review.createTime }}</span>
-            <p>{{ review.comment || '暂无意见' }}</p>
+            <p>{{ review.comment || '鏆傛棤鎰忚' }}</p>
           </div>
         </section>
         <section class="feedback-history">
-          <h4>产品回馈</h4>
+          <h4>浜у搧鍥為</h4>
           <div v-if="requirementFeedback.length === 0" class="feedback-empty">
-            暂无回馈
+            鏆傛棤鍥為
           </div>
           <div
             v-for="feedback in requirementFeedback"
@@ -973,7 +1216,7 @@ onActivated(async () => {
             </TTag>
             <strong>{{ feedback.title }}</strong>
             <span>{{ feedback.createTime }}</span>
-            <p>{{ feedback.content || '暂无内容' }}</p>
+            <p>{{ feedback.content || '鏆傛棤鍐呭' }}</p>
             <TButton
               v-if="feedback.status === 'open'"
               size="small"
@@ -981,8 +1224,7 @@ onActivated(async () => {
               variant="outline"
               @click="openConvertFeedback(feedback)"
             >
-              转后续需求
-            </TButton>
+              杞悗缁渶姹?            </TButton>
           </div>
         </section>
         <div class="detail-actions">
@@ -992,35 +1234,34 @@ onActivated(async () => {
               theme="primary"
               @click="openEdit(selectedRequirement)"
             >
-              编辑
+              缂栬緫
             </TButton>
             <TButton
               v-if="decomposeAllowedStatuses.has(selectedRequirement.status)"
               theme="primary"
               @click="openDecompose(selectedRequirement)"
             >
-              任务拆解
+              浠诲姟鎷嗚В
             </TButton>
             <TButton
               v-if="canSubmitReview(selectedRequirement)"
               theme="primary"
               @click="openReview(selectedRequirement)"
             >
-              立项推进
+              绔嬮」鎺ㄨ繘
             </TButton>
             <TButton
               v-if="selectedRequirement.status === 'rejected'"
               theme="danger"
               @click="voidRequirement(selectedRequirement)"
             >
-              作废需求
-            </TButton>
+              浣滃簾闇€姹?            </TButton>
             <TButton
               v-if="selectedRequirement.status === 'tested'"
               theme="success"
               @click="closeRequirement(selectedRequirement)"
             >
-              验收关闭
+              楠屾敹鍏抽棴
             </TButton>
             <TButton
               v-if="canCreateFeedback(selectedRequirement)"
@@ -1028,7 +1269,7 @@ onActivated(async () => {
               variant="outline"
               @click="openFeedback(selectedRequirement)"
             >
-              记录回馈
+              璁板綍鍥為
             </TButton>
           </TSpace>
         </div>
@@ -1039,7 +1280,7 @@ onActivated(async () => {
       v-model:visible="reviewVisible"
       :size="'40%'"
       header="提交需求评审"
-      confirm-btn="提交"
+      :confirm-btn="{ content: '提交', loading: reviewSubmitting }"
       @confirm="submitReview"
     >
       <TForm ref="reviewFormRef" :data="reviewForm" :rules="reviewRules" label-width="90px">
@@ -1057,17 +1298,17 @@ onActivated(async () => {
     <TDrawer
       v-model:visible="decomposeVisible"
       :size="'40%'"
-      header="AI 任务拆解"
-      confirm-btn="生成任务"
+      header="AI 浠诲姟鎷嗚В"
+      :confirm-btn="{ content: '生成任务', loading: decomposing }"
       @confirm="decomposeRequirement"
     >
       <TForm :data="decomposeForm" label-width="90px">
-        <TFormItem label="任务分派">
+        <TFormItem label="浠诲姟鍒嗘淳">
           <TSelect
             v-model="decomposeForm.assignmentMode"
             :options="[
-              { label: '自动分派', value: 'auto' },
-              { label: '手动指派', value: 'manual' },
+              { label: '鑷姩鍒嗘淳', value: 'auto' },
+              { label: '鎵嬪姩鎸囨淳', value: 'manual' },
             ]"
           />
         </TFormItem>
@@ -1075,7 +1316,7 @@ onActivated(async () => {
       <TTextarea
         v-model="decomposeForm.instruction"
         class="drawer-textarea"
-        placeholder="填写拆解补充要求，留空则按需求内容生成默认任务。"
+        placeholder="濉啓鎷嗚В琛ュ厖瑕佹眰锛岀暀绌哄垯鎸夐渶姹傚唴瀹圭敓鎴愰粯璁や换鍔°€?
       />
     </TDrawer>
 
@@ -1083,18 +1324,18 @@ onActivated(async () => {
       v-model:visible="feedbackVisible"
       :size="'40%'"
       header="记录产品回馈"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: feedbackSaving }"
       @confirm="saveFeedback"
     >
       <TForm ref="feedbackFormRef" :data="feedbackForm" :rules="feedbackRules" label-width="90px">
-        <TFormItem label="标题" name="title">
+        <TFormItem label="鏍囬" name="title">
           <TInput v-model="feedbackForm.title" />
         </TFormItem>
-        <TFormItem label="内容">
+        <TFormItem label="鍐呭">
           <TTextarea
             v-model="feedbackForm.content"
             class="drawer-textarea"
-            placeholder="记录验收后的新想法、补充范围或优化建议"
+            placeholder="璁板綍楠屾敹鍚庣殑鏂版兂娉曘€佽ˉ鍏呰寖鍥存垨浼樺寲寤鸿"
           />
         </TFormItem>
       </TForm>
@@ -1104,7 +1345,7 @@ onActivated(async () => {
       v-model:visible="convertFeedbackVisible"
       :size="'60%'"
       header="转为后续需求"
-      confirm-btn="创建草稿"
+      :confirm-btn="{ content: '创建草稿', loading: convertingFeedback }"
       @confirm="convertFeedback"
     >
       <TForm
@@ -1113,20 +1354,59 @@ onActivated(async () => {
         :rules="convertFeedbackRules"
         label-width="90px"
       >
-        <TFormItem label="标题" name="title">
+        <TFormItem label="鏍囬" name="title">
           <TInput v-model="convertFeedbackForm.title" />
         </TFormItem>
-        <TFormItem label="优先级" name="priority">
-          <TInputNumber v-model="convertFeedbackForm.priority" :min="1" :max="5" />
+        <TFormItem label="鍥為鏉ユ簮">
+          <TSelect
+            v-model="convertFeedbackForm.feedbackIds"
+            :options="convertFeedbackOptions"
+            clearable
+            multiple
+          />
         </TFormItem>
-        <TFormItem label="干系人">
-          <TInput v-model="convertFeedbackForm.stakeholders" placeholder="admin,pm-1,arch-1" />
+        <TFormItem label="寤鸿鏉ユ簮">
+          <TSelect
+            v-model="convertFeedbackForm.suggestionIds"
+            :options="convertSuggestionOptions"
+            clearable
+            multiple
+          />
         </TFormItem>
-        <TFormItem label="需求内容" class="markdown-form-item">
+        <TFormItem label="浼樺厛绾? name="priority">
+          <div class="priority-options">
+            <TButton
+              v-for="item in priorityOptions"
+              :key="item.value"
+              :theme="convertFeedbackForm.priority === item.value ? 'primary' : 'default'"
+              :variant="convertFeedbackForm.priority === item.value ? 'base' : 'outline'"
+              @click="convertFeedbackForm.priority = item.value"
+            >
+              {{ item.label }}
+            </TButton>
+          </div>
+        </TFormItem>
+        <TFormItem label="骞茬郴浜?>
+          <TSelect
+            v-model="convertFeedbackForm.stakeholderIds"
+            multiple
+            filterable
+            :options="userOptions"
+            placeholder="閫夋嫨骞茬郴浜?
+          />
+        </TFormItem>
+        <TFormItem label="鏉╄棄濮炴径鍥ㄦ暈">
+          <TTextarea
+            v-model="convertFeedbackForm.remark"
+            class="drawer-textarea drawer-textarea--short"
+            placeholder="閺堝秴濮熺粩顖欑窗鏉╄棄濮炴稉鐚寸窗鏉╄棄濮炴径鍥ㄦ暈: xxxx"
+          />
+        </TFormItem>
+        <TFormItem label="闇€姹傚唴瀹? class="markdown-form-item">
           <MarkdownEditor
             v-model="convertFeedbackForm.description"
             :height="360"
-            placeholder="后续需求会保留来源需求和来源回馈"
+            placeholder="鍚庣画闇€姹備細淇濈暀鏉ユ簮闇€姹傚拰鏉ユ簮鍥為"
           />
         </TFormItem>
       </TForm>
@@ -1142,18 +1422,19 @@ onActivated(async () => {
 
 .requirement-expanded {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   padding: 12px 16px;
   background: var(--td-bg-color-page);
 }
 
-.requirement-expanded h4 {
+.expanded-section h4 {
   margin: 0 0 10px;
   font-size: 14px;
   line-height: 20px;
 }
 
-.expanded-item {
+.expanded-item,
+.expanded-task-row {
   display: grid;
   grid-template-columns: auto auto minmax(180px, 1fr) auto auto;
   gap: 8px 10px;
@@ -1162,7 +1443,12 @@ onActivated(async () => {
   border-top: 1px solid var(--td-component-border);
 }
 
-.expanded-item p {
+.expanded-task-row {
+  grid-template-columns: auto minmax(220px, 1fr) 120px 90px auto;
+}
+
+.expanded-item p,
+.expanded-task-row p {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--td-text-color-secondary);
@@ -1187,6 +1473,10 @@ onActivated(async () => {
 
 .drawer-textarea {
   min-height: 180px;
+}
+
+.drawer-textarea--short {
+  min-height: 88px;
 }
 
 .markdown-preview {
@@ -1280,6 +1570,10 @@ onActivated(async () => {
 
 @media (max-width: 960px) {
   .expanded-item {
+    grid-template-columns: 1fr;
+  }
+
+  .expanded-task-row {
     grid-template-columns: 1fr;
   }
 

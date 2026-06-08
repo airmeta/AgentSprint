@@ -25,13 +25,21 @@ import {
   updateProjectApi,
 } from '#/api/sprint/mvp';
 import {
+  listDictionaryItemsApi,
+  listDictionaryTypesApi,
+  listRuntimeEnvironmentsApi,
+  type SystemApi,
+} from '#/api/system/management';
+import {
   requiredArrayRule,
   requiredHttpUrlRule,
   requiredRule,
   validateForm,
 } from '#/views/_shared/form-rules';
 
+const creating = ref(false);
 const loading = ref(false);
+const saving = ref(false);
 const drawerVisible = ref(false);
 const drawerMode = ref<'detail' | 'edit' | 'stats'>('detail');
 const createVisible = ref(false);
@@ -41,44 +49,48 @@ const createCodeSeed = ref('');
 const selectedProject = ref<SprintMvpApi.Project>();
 const projects = ref<SprintMvpApi.Project[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
+const runtimeEnvironments = ref<SystemApi.RuntimeEnvironment[]>([]);
+const frontendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
+const backendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
 
 const form = reactive({
   architectId: '',
-  backendTechStack: '',
+  backendTechStack: [] as string[],
   code: '',
   description: '',
   developerIds: [] as string[],
-  frontendTechStack: '',
+  frontendTechStack: [] as string[],
   name: '',
   productManagerIds: [] as string[],
   projectManagerId: '',
   repositoryUrl: '',
   testerIds: [] as string[],
-  testEnvironmentUrl: '',
+  testEnvironmentId: '',
 });
 const editForm = reactive({
   architectId: '',
-  backendTechStack: '',
+  backendTechStack: [] as string[],
   description: '',
   developerIds: [] as string[],
-  frontendTechStack: '',
+  frontendTechStack: [] as string[],
   name: '',
   productManagerIds: [] as string[],
   projectManagerId: '',
   repositoryUrl: '',
   testerIds: [] as string[],
-  testEnvironmentUrl: '',
+  testEnvironmentId: '',
 });
 const projectRules: FormRules<typeof form> = {
   architectId: requiredRule('请选择架构师', 'change'),
-  backendTechStack: requiredRule('请输入后端技术栈'),
+  backendTechStack: requiredArrayRule('请选择后端技术栈'),
   developerIds: requiredArrayRule('请选择至少一名开发人员'),
-  frontendTechStack: requiredRule('请输入前端技术栈'),
+  frontendTechStack: requiredArrayRule('请选择前端技术栈'),
   name: requiredRule('请输入项目名称'),
   productManagerIds: requiredArrayRule('请选择至少一名产品经理'),
   projectManagerId: requiredRule('请选择项目经理', 'change'),
   repositoryUrl: requiredHttpUrlRule('请输入 http 或 https 仓库地址'),
   testerIds: requiredArrayRule('请选择至少一名测试人员'),
+  testEnvironmentId: requiredRule('请选择测试环境', 'change'),
 };
 const activeProjects = computed(
   () => projects.value.filter((item) => item.status === 'active').length,
@@ -88,21 +100,31 @@ const userOptions = computed(() =>
 );
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const generatedProjectCode = computed(() => generateProjectCode(form.name));
+const runtimeEnvironmentOptions = computed(() =>
+  runtimeEnvironments.value
+    .filter((environment) => environment.status === 1 && environment.environmentType === 'test')
+    .map((environment) => ({
+      label: `${environment.name} (${environment.code})`,
+      value: environment.id,
+    })),
+);
+const frontendTechSelectOptions = computed(() => dictionaryOptions(frontendTechOptions.value));
+const backendTechSelectOptions = computed(() => dictionaryOptions(backendTechOptions.value));
 
 function resetCreateForm() {
   Object.assign(form, {
     architectId: '',
-    backendTechStack: '',
+    backendTechStack: [],
     code: '',
     description: '',
     developerIds: [],
-    frontendTechStack: '',
+    frontendTechStack: [],
     name: '',
     productManagerIds: [],
     projectManagerId: '',
     repositoryUrl: '',
     testerIds: [],
-    testEnvironmentUrl: '',
+    testEnvironmentId: '',
   });
 }
 
@@ -118,16 +140,16 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
   if (mode === 'edit') {
     Object.assign(editForm, {
       architectId: project.architectId || '',
-      backendTechStack: project.backendTechStack || '',
+      backendTechStack: deserializeValues(project.backendTechStack),
       description: project.description || '',
       developerIds: [...(project.developerIds || [])],
-      frontendTechStack: project.frontendTechStack || '',
+      frontendTechStack: deserializeValues(project.frontendTechStack),
       name: project.name,
       productManagerIds: [...(project.productManagerIds || [])],
       projectManagerId: project.projectManagerId || '',
       repositoryUrl: project.repositoryUrl || '',
       testerIds: [...(project.testerIds || [])],
-      testEnvironmentUrl: project.testEnvironmentUrl || '',
+      testEnvironmentId: project.testEnvironmentId || '',
     });
   }
   drawerVisible.value = true;
@@ -136,10 +158,26 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
 async function loadProjects() {
   loading.value = true;
   try {
-    [projects.value, users.value] = await Promise.all([listProjectsApi(), listUserOptionsApi()]);
+    [projects.value, users.value, runtimeEnvironments.value] = await Promise.all([
+      listProjectsApi(),
+      listUserOptionsApi(),
+      listRuntimeEnvironmentsApi(),
+    ]);
   } finally {
     loading.value = false;
   }
+}
+
+async function loadDictionaries() {
+  const types = await listDictionaryTypesApi();
+  const frontendType = types.find((item) => item.code === 'frontend_tech_stack');
+  const backendType = types.find((item) => item.code === 'backend_tech_stack');
+  const [frontendItems, backendItems] = await Promise.all([
+    frontendType ? listDictionaryItemsApi(frontendType.id) : Promise.resolve([]),
+    backendType ? listDictionaryItemsApi(backendType.id) : Promise.resolve([]),
+  ]);
+  frontendTechOptions.value = frontendItems;
+  backendTechOptions.value = backendItems;
 }
 
 function resolveUserName(userId?: string) {
@@ -148,6 +186,38 @@ function resolveUserName(userId?: string) {
 
 function resolveUserNames(userIds?: string[]) {
   return userIds && userIds.length > 0 ? userIds.map((id) => resolveUserName(id)).join('、') : '未指定';
+}
+
+function resolveRuntimeEnvironmentName(id?: string) {
+  if (!id) return '未配置';
+  const environment = runtimeEnvironments.value.find((item) => item.id === id);
+  return environment ? `${environment.name} (${environment.code})` : id;
+}
+
+function dictionaryOptions(items: SystemApi.DictionaryItem[]) {
+  return items
+    .filter((item) => item.status === 1)
+    .sort((left, right) => left.sort - right.sort || left.code.localeCompare(right.code))
+    .map((item) => ({ label: item.name, value: item.code }));
+}
+
+function deserializeValues(value?: string) {
+  return value?.split(',').map((item) => item.trim()).filter(Boolean) || [];
+}
+
+function serializeValues(values: string[]) {
+  return values.join(',');
+}
+
+function resolveDictionaryNames(value: string | undefined, items: SystemApi.DictionaryItem[]) {
+  const map = Object.fromEntries(items.map((item) => [item.code, item.name]));
+  const values = deserializeValues(value);
+  return values.length > 0 ? values.map((item) => map[item] || item).join('、') : '未填写';
+}
+
+function resolveRuntimeEnvironmentUrl(id?: string) {
+  const environment = runtimeEnvironments.value.find((item) => item.id === id);
+  return environment?.frontendUrl || environment?.apiBaseUrl || environment?.mcpEndpoint || undefined;
 }
 
 function generateProjectCode(name: string) {
@@ -168,8 +238,8 @@ function normalizeProjectPayload(source: typeof form | typeof editForm) {
 
   if (
     !source.name.trim() ||
-    !source.frontendTechStack.trim() ||
-    !source.backendTechStack.trim() ||
+    source.frontendTechStack.length === 0 ||
+    source.backendTechStack.length === 0 ||
     !source.projectManagerId ||
     source.productManagerIds.length === 0 ||
     source.developerIds.length === 0 ||
@@ -182,47 +252,62 @@ function normalizeProjectPayload(source: typeof form | typeof editForm) {
 
   return {
     architectId: source.architectId,
-    backendTechStack: source.backendTechStack.trim(),
+    backendTechStack: serializeValues(source.backendTechStack),
     description: source.description.trim() || undefined,
     developerIds: [...source.developerIds],
-    frontendTechStack: source.frontendTechStack.trim(),
+    frontendTechStack: serializeValues(source.frontendTechStack),
     name: source.name.trim(),
     productManagerIds: [...source.productManagerIds],
     projectManagerId: source.projectManagerId,
     repositoryUrl,
     testerIds: [...source.testerIds],
-    testEnvironmentUrl: source.testEnvironmentUrl.trim() || undefined,
+    testEnvironmentId: source.testEnvironmentId || undefined,
+    testEnvironmentUrl: resolveRuntimeEnvironmentUrl(source.testEnvironmentId),
   };
 }
 
 async function createProject() {
+  if (creating.value) return;
   if (!(await validateForm(createFormRef.value))) return;
   const payload = normalizeProjectPayload(form);
   if (!payload) return;
 
-  await createProjectApi({
-    ...payload,
-    code: generatedProjectCode.value,
-  });
-  MessagePlugin.success('项目已创建');
-  resetCreateForm();
-  createVisible.value = false;
-  await loadProjects();
+  creating.value = true;
+  try {
+    await createProjectApi({
+      ...payload,
+      code: generatedProjectCode.value,
+    });
+    MessagePlugin.success('项目已创建');
+    resetCreateForm();
+    createVisible.value = false;
+    await loadProjects();
+  } finally {
+    creating.value = false;
+  }
 }
 
 async function saveProject() {
+  if (saving.value) return;
   if (!selectedProject.value) return;
   if (!(await validateForm(editFormRef.value))) return;
   const payload = normalizeProjectPayload(editForm);
   if (!payload) return;
 
-  selectedProject.value = await updateProjectApi(selectedProject.value.id, payload);
-  MessagePlugin.success('项目已保存');
-  drawerVisible.value = false;
-  await loadProjects();
+  saving.value = true;
+  try {
+    selectedProject.value = await updateProjectApi(selectedProject.value.id, payload);
+    MessagePlugin.success('项目已保存');
+    drawerVisible.value = false;
+    await loadProjects();
+  } finally {
+    saving.value = false;
+  }
 }
 
-onMounted(loadProjects);
+onMounted(async () => {
+  await Promise.all([loadProjects(), loadDictionaries()]);
+});
 </script>
 
 <template>
@@ -241,7 +326,7 @@ onMounted(loadProjects);
           <span>推进中</span>
           <strong>{{ activeProjects }}</strong>
         </div>
-        <TButton theme="primary" @click="openCreate">新增项目</TButton>
+        <TButton theme="primary" :disabled="loading" @click="openCreate">新增项目</TButton>
       </div>
     </section>
 
@@ -249,7 +334,7 @@ onMounted(loadProjects);
       <div v-if="!loading && projects.length === 0" class="project-empty">
         <h3>暂无项目数据</h3>
         <p>先新建项目，再维护端、功能模块、需求和任务闭环。</p>
-        <TButton theme="primary" @click="openCreate">新建项目</TButton>
+        <TButton theme="primary" :disabled="loading" @click="openCreate">新建项目</TButton>
       </div>
       <TCard
         v-for="project in projects"
@@ -278,7 +363,7 @@ onMounted(loadProjects);
       :footer="drawerMode === 'edit'"
       :size="'60%'"
       :header="selectedProject?.name || '项目详情'"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: saving }"
       @confirm="saveProject"
     >
       <div v-if="selectedProject" class="drawer-content">
@@ -312,14 +397,29 @@ onMounted(loadProjects);
             <TFormItem label="仓库地址" name="repositoryUrl">
               <TInput v-model="editForm.repositoryUrl" placeholder="https://github.com/org/repo.git" />
             </TFormItem>
-            <TFormItem label="测试环境">
-              <TInput v-model="editForm.testEnvironmentUrl" />
+            <TFormItem label="测试环境" name="testEnvironmentId">
+              <TSelect
+                v-model="editForm.testEnvironmentId"
+                clearable
+                filterable
+                :options="runtimeEnvironmentOptions"
+              />
             </TFormItem>
             <TFormItem label="前端技术栈" name="frontendTechStack">
-              <TInput v-model="editForm.frontendTechStack" placeholder="Vue 3 / Vite / TDesign" />
+              <TSelect
+                v-model="editForm.frontendTechStack"
+                multiple
+                filterable
+                :options="frontendTechSelectOptions"
+              />
             </TFormItem>
             <TFormItem label="后端技术栈" name="backendTechStack">
-              <TInput v-model="editForm.backendTechStack" placeholder=".NET 10 / EF Core / MySQL" />
+              <TSelect
+                v-model="editForm.backendTechStack"
+                multiple
+                filterable
+                :options="backendTechSelectOptions"
+              />
             </TFormItem>
             <TFormItem label="项目经理" name="projectManagerId">
               <TSelect v-model="editForm.projectManagerId" filterable :options="userOptions" />
@@ -347,11 +447,16 @@ onMounted(loadProjects);
             <dt>仓库地址</dt>
             <dd>{{ selectedProject.repositoryUrl || '未配置' }}</dd>
             <dt>测试环境</dt>
-            <dd>{{ selectedProject.testEnvironmentUrl || '未配置' }}</dd>
+            <dd>
+              {{ resolveRuntimeEnvironmentName(selectedProject.testEnvironmentId) }}
+              <span v-if="selectedProject.testEnvironmentUrl">
+                / {{ selectedProject.testEnvironmentUrl }}
+              </span>
+            </dd>
             <dt>前端技术栈</dt>
-            <dd>{{ selectedProject.frontendTechStack || '未填写' }}</dd>
+            <dd>{{ resolveDictionaryNames(selectedProject.frontendTechStack, frontendTechOptions) }}</dd>
             <dt>后端技术栈</dt>
-            <dd>{{ selectedProject.backendTechStack || '未填写' }}</dd>
+            <dd>{{ resolveDictionaryNames(selectedProject.backendTechStack, backendTechOptions) }}</dd>
             <dt>项目经理</dt>
             <dd>{{ resolveUserName(selectedProject.projectManagerId) }}</dd>
             <dt>产品经理</dt>
@@ -373,7 +478,7 @@ onMounted(loadProjects);
       v-model:visible="createVisible"
       :size="'60%'"
       header="新增项目"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: creating }"
       @confirm="createProject"
     >
       <TForm ref="createFormRef" :data="form" :rules="projectRules" label-width="100px">
@@ -393,14 +498,29 @@ onMounted(loadProjects);
         <TFormItem label="仓库地址" name="repositoryUrl">
           <TInput v-model="form.repositoryUrl" placeholder="https://github.com/org/repo.git" />
         </TFormItem>
-        <TFormItem label="测试环境">
-          <TInput v-model="form.testEnvironmentUrl" placeholder="http://localhost:5999" />
+        <TFormItem label="测试环境" name="testEnvironmentId">
+          <TSelect
+            v-model="form.testEnvironmentId"
+            clearable
+            filterable
+            :options="runtimeEnvironmentOptions"
+          />
         </TFormItem>
         <TFormItem label="前端技术栈" name="frontendTechStack">
-          <TInput v-model="form.frontendTechStack" placeholder="Vue 3 / Vite / TDesign" />
+          <TSelect
+            v-model="form.frontendTechStack"
+            multiple
+            filterable
+            :options="frontendTechSelectOptions"
+          />
         </TFormItem>
         <TFormItem label="后端技术栈" name="backendTechStack">
-          <TInput v-model="form.backendTechStack" placeholder=".NET 10 / EF Core / MySQL" />
+          <TSelect
+            v-model="form.backendTechStack"
+            multiple
+            filterable
+            :options="backendTechSelectOptions"
+          />
         </TFormItem>
         <TFormItem label="项目经理" name="projectManagerId">
           <TSelect v-model="form.projectManagerId" filterable :options="userOptions" />

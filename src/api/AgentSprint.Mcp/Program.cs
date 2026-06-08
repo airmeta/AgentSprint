@@ -1,5 +1,6 @@
 using AgentSprint.Mcp;
 
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -33,7 +34,20 @@ app.MapMethods("/mcp", ["GET"], () => Results.Ok(new
 
 app.MapPost("/mcp", async (HttpContext httpContext, CancellationToken cancellationToken) =>
 {
-    var request = await JsonNode.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+    JsonNode? request;
+    try
+    {
+        request = await JsonNode.ParseAsync(httpContext.Request.Body, cancellationToken: cancellationToken);
+    }
+    catch (JsonException)
+    {
+        return Results.Json(new
+        {
+            jsonrpc = "2.0",
+            error = new { code = -32700, message = "Parse error: invalid JSON request body." }
+        });
+    }
+
     if (request is null)
     {
         return Results.BadRequest(new

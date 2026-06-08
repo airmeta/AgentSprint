@@ -20,6 +20,10 @@ public interface IRequirementDecompositionService
     /// zh-cn: 发起拆解的用户标识，将写入任务创建人。
     /// en-us: User identifier initiating decomposition, written as task creator.
     /// </param>
+    /// <param name="taskCount">
+    /// zh-cn: 期望生成的任务数量；为空或小于 1 时默认只生成 1 条，避免未配置时过度拆分。
+    /// en-us: Requested task count; null or values below 1 default to one task to avoid over-splitting when no count is configured.
+    /// </param>
     /// <returns>
     /// zh-cn: 待创建的开发任务集合。
     /// en-us: Development tasks to create.
@@ -27,5 +31,6 @@ public interface IRequirementDecompositionService
     Task<IReadOnlyList<SprintDevelopmentTaskEntity>> DecomposeAsync(
         SprintRequirementEntity requirement,
         string? instruction,
-        string userId);
+        string userId,
+        int? taskCount = null);
 }

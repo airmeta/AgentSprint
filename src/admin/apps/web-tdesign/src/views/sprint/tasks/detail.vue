@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { SprintMvpApi } from '#/api/sprint/mvp';
 
-import { CircleAlert } from '@vben/icons';
+import { CircleAlert, RotateCw } from '@vben/icons';
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -85,6 +85,7 @@ async function loadDetail() {
     project.value = projects.find((item) => item.id === task.value?.projectId);
     requirement.value = requirements.find((item) => item.id === task.value?.requirementId);
     agentTokens.value = await listAgentTokensApi();
+    await loadPrompt();
   } finally {
     loading.value = false;
   }
@@ -226,10 +227,19 @@ onMounted(loadDetail);
 
       <section class="panel">
         <div class="prompt-header">
-          <h3>任务推进提示词</h3>
           <div>
-            <TButton :disabled="!canGeneratePrompt" :loading="promptLoading" @click="loadPrompt">
-              生成提示词
+            <h3>任务推进提示词</h3>
+            <p v-if="promptResult">任务 ID：{{ promptResult.taskId }}</p>
+          </div>
+          <div>
+            <TButton
+              shape="circle"
+              title="Refresh prompt"
+              :disabled="!canGeneratePrompt"
+              :loading="promptLoading"
+              @click="loadPrompt"
+            >
+              <RotateCw class="prompt-refresh-icon" />
             </TButton>
           </div>
         </div>
@@ -275,8 +285,9 @@ onMounted(loadDetail);
               </TButton>
             </div>
             <p class="prompt-usage">
-              <strong>日常推进</strong>只复制此段，Codex 会通过
-              <strong>MCP</strong> 拉取任务、需求和 Skill 上下文。
+              <strong>日常推进</strong>只复制此段，Codex 会按
+              <strong>任务 ID</strong> 通过 <strong>MCP</strong> 拉取任务、需求和 Skill 上下文，并按
+              <strong>next_work</strong> 继续接取后续缺陷或任务。
             </p>
             <div class="prompt-content">
               {{ promptResult.taskExecutionPrompt.content }}
@@ -288,7 +299,7 @@ onMounted(loadDetail);
       <TDialog
         v-model:visible="mcpCopyVisible"
         header="初次接入配置"
-        width="620px"
+        width="min(960px, 92vw)"
         confirm-btn="写入剪切板"
         @confirm="copyMcpSetupPrompt"
       >
@@ -310,7 +321,12 @@ onMounted(loadDetail);
               />
             </TFormItem>
           </TForm>
-          <TTextarea :model-value="mcpSetupContent" readonly autosize />
+          <TTextarea
+            class="mcp-copy-textarea"
+            :model-value="mcpSetupContent"
+            readonly
+            :autosize="{ minRows: 20, maxRows: 20 }"
+          />
         </section>
       </TDialog>
     </template>
@@ -399,6 +415,11 @@ onMounted(loadDetail);
   cursor: help;
 }
 
+.prompt-refresh-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .prompt-note-list {
   max-width: 320px;
   padding-left: 18px;
@@ -439,6 +460,12 @@ onMounted(loadDetail);
 .mcp-copy-dialog p {
   margin: 0;
   color: var(--td-text-color-secondary);
+  line-height: 1.7;
+}
+
+.mcp-copy-textarea :deep(textarea) {
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   line-height: 1.7;
 }
 </style>

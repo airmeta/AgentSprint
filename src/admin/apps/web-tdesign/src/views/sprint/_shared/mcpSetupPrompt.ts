@@ -26,30 +26,32 @@ export function buildAgentsprintMcpSetupPrompt(content?: string) {
 5. 默认只配置 MCP endpoint 和 Authorization，不要默认写入 \`X-AgentSprint-Api-Base-Url\`。
 6. 只有在用户明确提供“远程 MCP 服务可访问的 AgentSprint API 地址”时，才写入 \`X-AgentSprint-Api-Base-Url\`。
 7. 不要把 \`http://localhost:5000\` 固定写入 \`X-AgentSprint-Api-Base-Url\`。因为这里的 localhost 对远程 MCP 服务来说通常表示 MCP 服务所在机器，不一定是当前 Codex 开发机。
-8. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确告诉我。
+8. Codex HTTP MCP 请求头必须使用 \`http_headers\` 字段，不要使用 \`[mcp_servers.agentsprint.headers]\` 子表。
+9. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确告诉我。
 
 需要写入的 Codex TOML 配置为：
 
 \`\`\`toml
 [mcp_servers.agentsprint]
 url = "${mcpEndpoint}"
-
-[mcp_servers.agentsprint.headers]
-Authorization = "${TOKEN_PLACEHOLDER}"
+http_headers = { Authorization = "${TOKEN_PLACEHOLDER}" }
 \`\`\`
 
 可选覆盖配置：
-仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加：
+仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加到 \`http_headers\`：
 
 \`\`\`toml
-"X-AgentSprint-Api-Base-Url" = "<远程 MCP 服务可访问的 AgentSprint API 地址>"
+http_headers = {
+  Authorization = "${TOKEN_PLACEHOLDER}",
+  "X-AgentSprint-Api-Base-Url" = "<远程 MCP 服务可访问的 AgentSprint API 地址>"
+}
 \`\`\`
 
-如果当前 Codex 版本不支持 HTTP MCP 的 headers 字段，请不要继续猜测配置方式，直接说明阻塞点。`;
+如果当前 Codex 版本不支持 HTTP MCP 的 \`http_headers\` 字段，请不要继续猜测配置方式，直接说明阻塞点。`;
 }
 
 export function buildAgentsprintMcpSetupPromptWithToken(content: string, bearerToken: string) {
   return buildAgentsprintMcpSetupPrompt(content)
-    .replace(TOKEN_PLACEHOLDER, bearerToken)
+    .replaceAll(TOKEN_PLACEHOLDER, bearerToken)
     .replace('Bearer <AgentSprint Agent Token>', bearerToken);
 }

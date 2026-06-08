@@ -58,6 +58,16 @@ public interface IDepartmentDomain : IEntityDomainBase<DepartmentEntity>;
 
 public interface IAssignmentDomain : IEntityDomainBase<AssignmentEntity>;
 
+public interface IDictionaryTypeDomain : IEntityDomainBase<DictionaryTypeEntity>;
+
+public interface IDictionaryItemDomain : IEntityDomainBase<DictionaryItemEntity>;
+
+public interface IRuntimeEnvironmentDomain : IEntityDomainBase<RuntimeEnvironmentEntity>;
+
+public interface IRuntimeEnvironmentContainerDomain : IEntityDomainBase<RuntimeEnvironmentContainerEntity>;
+
+public interface IPromptTemplateDomain : IEntityDomainBase<PromptTemplateEntity>;
+
 public interface IEntityAssociationDomain : IEntityDomainBase<EntityAssociationEntity>;
 
 public interface IUserRoleDomain : IEntityDomainBase<UserRoleEntity>;

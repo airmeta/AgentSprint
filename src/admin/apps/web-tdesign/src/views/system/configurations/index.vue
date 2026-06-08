@@ -25,6 +25,7 @@ import {
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
+const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const rows = ref<SystemApi.Configuration[]>([]);
@@ -105,16 +106,22 @@ function openEdit(row: SystemApi.Configuration) {
 }
 
 async function save() {
+  if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
   if (!form.key?.trim() || !form.value?.trim()) {
     MessagePlugin.warning('配置键和配置值不能为空');
     return;
   }
 
-  await saveSystemConfigurationApi(form);
-  MessagePlugin.success('配置已保存');
-  visible.value = false;
-  await loadRows();
+  saving.value = true;
+  try {
+    await saveSystemConfigurationApi(form);
+    MessagePlugin.success('配置已保存');
+    visible.value = false;
+    await loadRows();
+  } finally {
+    saving.value = false;
+  }
 }
 
 function remove(row: SystemApi.Configuration) {
@@ -158,7 +165,7 @@ onMounted(async () => {
         ]"
       />
       <TSpace>
-        <TButton theme="primary" @click="applyFilters">查询</TButton>
+        <TButton theme="primary" :disabled="loading" @click="applyFilters">查询</TButton>
         <TButton @click="resetFilters">重置</TButton>
       </TSpace>
     </template>
@@ -173,7 +180,7 @@ onMounted(async () => {
     </template>
   </SystemPage>
 
-  <TDialog v-model:visible="visible" header="系统配置" width="620" :confirm-on-enter="true" @confirm="save">
+  <TDialog v-model:visible="visible" header="系统配置" width="620" :confirm-on-enter="true" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="配置键" name="key">
         <TInput v-model="form.key" placeholder="Mcp:Endpoint" />

@@ -634,6 +634,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             "feedback-1",
             "project-1",
             requirementId,
+            request.DevelopmentTaskId,
             request.Title,
             request.Content,
             SprintRequirementFeedbackStatuses.Open,
@@ -678,6 +679,8 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             request.Content,
             SprintFeatureSuggestionStatuses.Open,
             userId,
+            null,
+            null,
             DateTime.UtcNow));
     }
 
@@ -690,6 +693,16 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         LastRequirementId = requirementId;
         IReadOnlyList<SprintFeatureSuggestionResult> suggestions = [];
         return Task.FromResult(suggestions);
+    }
+
+    public Task<SprintRequirementResult> ConvertRequirementSourcesAsync(
+        string requirementId,
+        ConvertSprintRequirementSourcesRequest request,
+        string userId)
+    {
+        LastRequirementId = requirementId;
+        LastUserId = userId;
+        return Task.FromResult(CreateRequirementResult("req-follow-up", "project-1", request.Title));
     }
 
     public Task<SprintRequirementResult> ApproveRequirementReviewAsync(
@@ -819,6 +832,15 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
     {
         LastUserId = userId;
         return Task.FromResult(CreateTaskResult(id, "req-1", userId, "pm-1", SprintDevelopmentTaskStatuses.Completed));
+    }
+
+    public Task<SprintTaskLeaseResult> ClaimDevelopmentTaskAsync(
+        string id,
+        ClaimSprintTaskRequest request,
+        string userId)
+    {
+        LastUserId = userId;
+        return Task.FromResult(CreateLeaseResult(id, SprintTaskTargetTypes.DevelopmentTask, userId, request.OwnerDevice));
     }
 
     public Task<SprintTaskLeaseResult> ClaimRequirementAsync(

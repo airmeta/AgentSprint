@@ -8,8 +8,6 @@ import { useRouter } from 'vue-router';
 
 import {
   Button as TButton,
-  Descriptions as TDescriptions,
-  DescriptionsItem as TDescriptionsItem,
   Dialog as TDialog,
   Drawer as TDrawer,
   Form as TForm,
@@ -44,7 +42,6 @@ const loading = ref(false);
 const router = useRouter();
 const promptVisible = ref(false);
 const mcpCopyVisible = ref(false);
-const detailVisible = ref(false);
 const promptResult = ref<SprintMvpApi.TaskPrompt>();
 const mcpSetupContent = ref('');
 const agentTokens = ref<SystemApi.AgentToken[]>([]);
@@ -189,8 +186,7 @@ async function advanceTask(task: SprintMvpApi.DevelopmentTask) {
 }
 
 function openDetail(task: SprintMvpApi.DevelopmentTask) {
-  currentTask.value = task;
-  detailVisible.value = true;
+  router.push(`/sprint/tasks/detail/${task.id}`);
 }
 
 async function completeTask(task: SprintMvpApi.DevelopmentTask) {
@@ -323,8 +319,8 @@ onMounted(loadTasks);
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryTasks">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :disabled="loading" @click="queryTasks">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
@@ -334,7 +330,7 @@ onMounted(loadTasks);
         <h3>任务列表</h3>
         <div class="sprint-table-actions">
           <TButton theme="primary" @click="goTaskHall">接取任务</TButton>
-          <TButton shape="circle" variant="outline" title="刷新" @click="loadTasks">↻</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadTasks">↻</TButton>
         </div>
       </div>
 
@@ -381,7 +377,10 @@ onMounted(loadTasks);
         <header class="prompt-summary">
           <div>
             <h3>{{ currentTask?.title || '任务推进' }}</h3>
-            <p>{{ projectMap[currentTask?.projectId || '']?.name || currentTask?.projectId }}</p>
+            <p>
+              {{ projectMap[currentTask?.projectId || '']?.name || currentTask?.projectId }}
+              · 任务 ID：{{ promptResult.taskId }}
+            </p>
           </div>
         </header>
 
@@ -427,8 +426,9 @@ onMounted(loadTasks);
             </TButton>
           </div>
           <p class="prompt-usage">
-            <strong>日常推进</strong>只复制此段，Codex 会通过
-            <strong>MCP</strong> 拉取任务、需求和 Skill 上下文。
+            <strong>日常推进</strong>只复制此段，Codex 会按
+            <strong>任务 ID</strong> 通过 <strong>MCP</strong> 拉取任务、需求和 Skill 上下文，并按
+            <strong>next_work</strong> 继续接取后续缺陷或任务。
           </p>
           <div class="prompt-content">
             {{ promptResult.taskExecutionPrompt.content }}
@@ -466,64 +466,10 @@ onMounted(loadTasks);
       </section>
     </TDialog>
 
-    <TDrawer v-model:visible="detailVisible" :size="'60%'" header="任务详情" :footer="false">
-      <section v-if="currentTask" class="detail-content">
-        <TDescriptions bordered :column="2">
-          <TDescriptionsItem label="任务标题">{{ currentTask.title }}</TDescriptionsItem>
-          <TDescriptionsItem label="状态">
-            <TTag variant="light">{{ statusText[currentTask.status] || currentTask.status }}</TTag>
-          </TDescriptionsItem>
-          <TDescriptionsItem label="项目">
-            {{ projectMap[currentTask.projectId]?.name || currentTask.projectId }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="需求">
-            {{ requirementMap[currentTask.requirementId]?.title || currentTask.requirementId }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="优先级">{{ currentTask.priority }}</TDescriptionsItem>
-          <TDescriptionsItem label="指派人">
-            {{
-              currentTask.assignedBy
-                ? userMap[currentTask.assignedBy]?.displayName || currentTask.assignedBy
-                : '-'
-            }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="指派时间">{{ currentTask.assignedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="完成时间">{{ currentTask.completedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ currentTask.createTime }}</TDescriptionsItem>
-          <TDescriptionsItem label="更新时间">
-            {{ currentTask.updateTime || currentTask.createTime }}
-          </TDescriptionsItem>
-        </TDescriptions>
-        <section class="detail-section">
-          <h3>任务说明</h3>
-          <article>{{ currentTask.description || '暂无任务说明' }}</article>
-        </section>
-      </section>
-    </TDrawer>
   </div>
 </template>
 
 <style scoped>
-.detail-content {
-  display: grid;
-  gap: 16px;
-}
-
-.detail-section {
-  padding: 16px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.detail-section h3 {
-  margin: 0 0 12px;
-}
-
-.detail-section article {
-  min-height: 120px;
-  white-space: pre-wrap;
-}
-
 .prompt-drawer {
   display: grid;
   gap: 16px;

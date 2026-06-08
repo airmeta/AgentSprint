@@ -97,6 +97,70 @@ export namespace SystemApi {
     sort: number;
     status: number;
   }
+
+  export interface DictionaryType {
+    code: string;
+    description?: string;
+    id: string;
+    name: string;
+    sort: number;
+    status: number;
+  }
+
+  export interface DictionaryItem {
+    code: string;
+    description?: string;
+    dictionaryTypeId: string;
+    id: string;
+    name: string;
+    sort: number;
+    status: number;
+  }
+
+  export interface RuntimeEnvironment {
+    apiBaseUrl?: string;
+    code: string;
+    composeFilePath?: string;
+    deployRoot?: string;
+    description?: string;
+    dockerDirectory?: string;
+    endpointId?: string;
+    environmentType: string;
+    frontendProxyApiUrl?: string;
+    frontendUrl?: string;
+    id: string;
+    localPackagePaths?: string;
+    mcpEndpoint?: string;
+    moduleId?: string;
+    name: string;
+    projectId?: string;
+    remotePackagePath?: string;
+    sort: number;
+    status: number;
+  }
+
+  export interface RuntimeEnvironmentContainer {
+    containerPort: number;
+    description?: string;
+    hostPort: number;
+    id: string;
+    name: string;
+    protocol: string;
+    runtimeEnvironmentId: string;
+    sort: number;
+    status: number;
+  }
+
+  export interface PromptTemplate {
+    agentEnvironment: string;
+    code: string;
+    content: string;
+    description?: string;
+    id: string;
+    name: string;
+    sort: number;
+    status: number;
+  }
 }
 
 export function listSystemUsersApi() {
@@ -222,6 +286,78 @@ export function saveAssignmentApi(data: Partial<SystemApi.CodeName>) {
 
 export function deleteAssignmentApi(id: string) {
   return requestClient.delete<boolean>(`/system/assignments/${id}`);
+}
+
+export function listDictionaryTypesApi() {
+  return requestClient.get<SystemApi.DictionaryType[]>('/system/dictionary-types');
+}
+
+export function saveDictionaryTypeApi(data: Partial<SystemApi.DictionaryType>) {
+  return requestClient.post<SystemApi.DictionaryType>('/system/dictionary-types', data);
+}
+
+export function deleteDictionaryTypeApi(id: string) {
+  return requestClient.delete<boolean>(`/system/dictionary-types/${id}`);
+}
+
+export function listDictionaryItemsApi(dictionaryTypeId?: string) {
+  return requestClient.get<SystemApi.DictionaryItem[]>('/system/dictionary-items', {
+    params: dictionaryTypeId ? { dictionaryTypeId } : undefined,
+  });
+}
+
+export function saveDictionaryItemApi(data: Partial<SystemApi.DictionaryItem>) {
+  return requestClient.post<SystemApi.DictionaryItem>('/system/dictionary-items', data);
+}
+
+export function deleteDictionaryItemApi(id: string) {
+  return requestClient.delete<boolean>(`/system/dictionary-items/${id}`);
+}
+
+export function listRuntimeEnvironmentsApi(params?: {
+  endpointId?: string;
+  moduleId?: string;
+  projectId?: string;
+}) {
+  return requestClient.get<SystemApi.RuntimeEnvironment[]>('/system/runtime-environments', {
+    params,
+  });
+}
+
+export function saveRuntimeEnvironmentApi(data: Partial<SystemApi.RuntimeEnvironment>) {
+  return requestClient.post<SystemApi.RuntimeEnvironment>('/system/runtime-environments', data);
+}
+
+export function deleteRuntimeEnvironmentApi(id: string) {
+  return requestClient.delete<boolean>(`/system/runtime-environments/${id}`);
+}
+
+export function listRuntimeEnvironmentContainersApi(runtimeEnvironmentId: string) {
+  return requestClient.get<SystemApi.RuntimeEnvironmentContainer[]>('/system/runtime-environment-containers', {
+    params: { runtimeEnvironmentId },
+  });
+}
+
+export function saveRuntimeEnvironmentContainerApi(data: Partial<SystemApi.RuntimeEnvironmentContainer>) {
+  return requestClient.post<SystemApi.RuntimeEnvironmentContainer>('/system/runtime-environment-containers', data);
+}
+
+export function deleteRuntimeEnvironmentContainerApi(id: string) {
+  return requestClient.delete<boolean>(`/system/runtime-environment-containers/${id}`);
+}
+
+export function listPromptTemplatesApi(agentEnvironment = 'codex') {
+  return requestClient.get<SystemApi.PromptTemplate[]>('/system/prompt-templates', {
+    params: { agentEnvironment },
+  });
+}
+
+export function savePromptTemplateApi(data: Partial<SystemApi.PromptTemplate>) {
+  return requestClient.post<SystemApi.PromptTemplate>('/system/prompt-templates', data);
+}
+
+export function deletePromptTemplateApi(id: string) {
+  return requestClient.delete<boolean>(`/system/prompt-templates/${id}`);
 }
 
 export function listAssociationsApi() {

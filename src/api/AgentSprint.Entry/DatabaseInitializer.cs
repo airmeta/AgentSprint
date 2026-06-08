@@ -252,6 +252,40 @@ public sealed class DatabaseInitializer : IHostedService
             ) CHARACTER SET=utf8mb4;
             """;
 
+        const string dictionaryTypeSql = """
+            CREATE TABLE IF NOT EXISTS sys_dictionary_type (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Sort int NOT NULL,
+              Status int NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_sys_dictionary_type_Code (Code)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string dictionaryItemSql = """
+            CREATE TABLE IF NOT EXISTS sys_dictionary_item (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              DictionaryTypeId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Sort int NOT NULL,
+              Status int NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_sys_dictionary_item_Type_Code (DictionaryTypeId, Code),
+              INDEX IX_sys_dictionary_item_DictionaryTypeId (DictionaryTypeId)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
         const string associationSql = """
             CREATE TABLE IF NOT EXISTS sys_entity_association (
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
@@ -274,7 +308,87 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(roleGroupSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(departmentSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(assignmentSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(dictionaryTypeSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(dictionaryItemSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(associationSql, cancellationToken);
+        await EnsureRuntimeManagementTablesAsync(dbContext, cancellationToken);
+    }
+
+    private static async Task EnsureRuntimeManagementTablesAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        const string runtimeEnvironmentSql = """
+            CREATE TABLE IF NOT EXISTS sys_runtime_environment (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              ProjectId varchar(64) CHARACTER SET utf8mb4 NULL,
+              EndpointId varchar(64) CHARACTER SET utf8mb4 NULL,
+              ModuleId varchar(64) CHARACTER SET utf8mb4 NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              EnvironmentType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              Description varchar(1024) CHARACTER SET utf8mb4 NULL,
+              FrontendUrl varchar(512) CHARACTER SET utf8mb4 NULL,
+              ApiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL,
+              FrontendProxyApiUrl varchar(512) CHARACTER SET utf8mb4 NULL,
+              McpEndpoint varchar(512) CHARACTER SET utf8mb4 NULL,
+              DeployRoot varchar(512) CHARACTER SET utf8mb4 NULL,
+              DockerDirectory varchar(512) CHARACTER SET utf8mb4 NULL,
+              RemotePackagePath varchar(512) CHARACTER SET utf8mb4 NULL,
+              ComposeFilePath varchar(512) CHARACTER SET utf8mb4 NULL,
+              LocalPackagePaths varchar(2048) CHARACTER SET utf8mb4 NULL,
+              Sort int NOT NULL,
+              Status int NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_sys_runtime_environment_ProjectId_Code (ProjectId, Code),
+              INDEX IX_sys_runtime_environment_Project_Endpoint_Module (ProjectId, EndpointId, ModuleId)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string runtimeContainerSql = """
+            CREATE TABLE IF NOT EXISTS sys_runtime_environment_container (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              RuntimeEnvironmentId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              HostPort int NOT NULL,
+              ContainerPort int NOT NULL,
+              Protocol varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Sort int NOT NULL,
+              Status int NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_sys_runtime_environment_container_Environment_Name (RuntimeEnvironmentId, Name),
+              INDEX IX_sys_runtime_environment_container_RuntimeEnvironmentId (RuntimeEnvironmentId)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string promptTemplateSql = """
+            CREATE TABLE IF NOT EXISTS sys_prompt_template (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              AgentEnvironment varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              Content varchar(8192) CHARACTER SET utf8mb4 NOT NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Sort int NOT NULL,
+              Status int NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_sys_prompt_template_Environment_Code (AgentEnvironment, Code)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        await dbContext.Database.ExecuteSqlRawAsync(runtimeEnvironmentSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(runtimeContainerSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(promptTemplateSql, cancellationToken);
     }
 
     private static async Task EnsureAgileMvpTablesAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
@@ -286,6 +400,7 @@ public sealed class DatabaseInitializer : IHostedService
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
               RepositoryUrl varchar(512) CHARACTER SET utf8mb4 NULL,
               TestEnvironmentUrl varchar(512) CHARACTER SET utf8mb4 NULL,
+              TestEnvironmentId varchar(64) CHARACTER SET utf8mb4 NULL,
               Description varchar(2048) CHARACTER SET utf8mb4 NULL,
               FrontendTechStack varchar(512) CHARACTER SET utf8mb4 NULL,
               BackendTechStack varchar(512) CHARACTER SET utf8mb4 NULL,
@@ -406,6 +521,8 @@ public sealed class DatabaseInitializer : IHostedService
               Content varchar(2048) CHARACTER SET utf8mb4 NOT NULL,
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              ConvertedRequirementId varchar(64) CHARACTER SET utf8mb4 NULL,
+              ConvertedAt datetime(6) NULL,
               CreateTime datetime(6) NOT NULL,
               UpdateTime datetime(6) NULL,
               IsDelete int NOT NULL,
@@ -451,6 +568,7 @@ public sealed class DatabaseInitializer : IHostedService
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
               ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               RequirementId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              DevelopmentTaskId varchar(64) CHARACTER SET utf8mb4 NULL,
               Title varchar(128) CHARACTER SET utf8mb4 NOT NULL,
               Description varchar(2048) CHARACTER SET utf8mb4 NULL,
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
@@ -499,6 +617,7 @@ public sealed class DatabaseInitializer : IHostedService
               ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               TargetType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               TargetId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              ActiveTargetKey varchar(128) CHARACTER SET utf8mb4 NULL,
               OwnerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               OwnerDevice varchar(128) CHARACTER SET utf8mb4 NULL,
               LeaseToken varchar(64) CHARACTER SET utf8mb4 NOT NULL,
@@ -510,6 +629,7 @@ public sealed class DatabaseInitializer : IHostedService
               IsDelete int NOT NULL,
               PRIMARY KEY (Id),
               UNIQUE INDEX IX_sprint_task_lease_LeaseToken (LeaseToken),
+              UNIQUE INDEX IX_sprint_task_lease_ActiveTargetKey (ActiveTargetKey),
               INDEX IX_sprint_task_lease_ProjectId_OwnerId_Status (ProjectId, OwnerId, Status)
             ) CHARACTER SET=utf8mb4;
             """;
@@ -545,13 +665,16 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(requirementSql, cancellationToken);
         await EnsureRequirementColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(suggestionSql, cancellationToken);
+        await EnsureSuggestionColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(reviewSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(taskSql, cancellationToken);
         await EnsureTaskColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(bugSql, cancellationToken);
         await EnsureBugColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(leaseSql, cancellationToken);
+        await EnsureLeaseColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(feedbackSql, cancellationToken);
+        await EnsureFeedbackColumnsAsync(dbContext, cancellationToken);
         await BackfillProjectMembersAsync(dbContext, cancellationToken);
     }
 
@@ -790,6 +913,12 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsureColumnAsync(
             dbContext,
             "sprint_project",
+            "TestEnvironmentId",
+            "ALTER TABLE sprint_project ADD COLUMN TestEnvironmentId varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_project",
             "SkillIds",
             "ALTER TABLE sprint_project ADD COLUMN SkillIds varchar(1024) CHARACTER SET utf8mb4 NULL;",
             cancellationToken);
@@ -918,6 +1047,36 @@ public sealed class DatabaseInitializer : IHostedService
             cancellationToken);
     }
 
+    private static async Task EnsureSuggestionColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_feature_suggestion",
+            "ConvertedRequirementId",
+            "ALTER TABLE sprint_feature_suggestion ADD COLUMN ConvertedRequirementId varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_feature_suggestion",
+            "ConvertedAt",
+            "ALTER TABLE sprint_feature_suggestion ADD COLUMN ConvertedAt datetime(6) NULL;",
+            cancellationToken);
+    }
+
+    private static async Task EnsureFeedbackColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_requirement_feedback",
+            "DevelopmentTaskId",
+            "ALTER TABLE sprint_requirement_feedback ADD COLUMN DevelopmentTaskId varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+    }
+
     private static async Task EnsureTestPlanColumnsAsync(
         DefaultDbContext dbContext,
         CancellationToken cancellationToken)
@@ -939,6 +1098,72 @@ public sealed class DatabaseInitializer : IHostedService
             "sprint_bug",
             "Severity",
             "ALTER TABLE sprint_bug ADD COLUMN Severity varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'major';",
+            cancellationToken);
+    }
+
+    private static async Task EnsureLeaseColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_task_lease",
+            "ActiveTargetKey",
+            "ALTER TABLE sprint_task_lease ADD COLUMN ActiveTargetKey varchar(128) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE sprint_task_lease
+            SET Status = 'released',
+                CompletedAt = COALESCE(CompletedAt, UTC_TIMESTAMP(6)),
+                ActiveTargetKey = NULL
+            WHERE Status = 'active'
+              AND ExpiresAt <= UTC_TIMESTAMP(6);
+            """,
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE sprint_task_lease lease
+            JOIN (
+                SELECT TargetType, TargetId, MIN(Id) AS KeepId
+                FROM sprint_task_lease
+                WHERE Status = 'active'
+                  AND ExpiresAt > UTC_TIMESTAMP(6)
+                  AND IsDelete = 0
+                GROUP BY TargetType, TargetId
+                HAVING COUNT(*) > 1
+            ) duplicate_target
+              ON duplicate_target.TargetType = lease.TargetType
+             AND duplicate_target.TargetId = lease.TargetId
+            SET lease.Status = 'released',
+                lease.CompletedAt = COALESCE(lease.CompletedAt, UTC_TIMESTAMP(6)),
+                lease.ActiveTargetKey = NULL
+            WHERE lease.Id <> duplicate_target.KeepId;
+            """,
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE sprint_task_lease
+            SET ActiveTargetKey = NULL
+            WHERE Status <> 'active'
+               OR ExpiresAt <= UTC_TIMESTAMP(6)
+               OR IsDelete <> 0;
+            """,
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE sprint_task_lease
+            SET ActiveTargetKey = CONCAT(TargetType, ':', TargetId)
+            WHERE Status = 'active'
+              AND ExpiresAt > UTC_TIMESTAMP(6)
+              AND IsDelete = 0;
+            """,
+            cancellationToken);
+        await EnsureIndexAsync(
+            dbContext,
+            "sprint_task_lease",
+            "IX_sprint_task_lease_ActiveTargetKey",
+            "CREATE UNIQUE INDEX IX_sprint_task_lease_ActiveTargetKey ON sprint_task_lease (ActiveTargetKey);",
             cancellationToken);
     }
 
@@ -980,6 +1205,46 @@ public sealed class DatabaseInitializer : IHostedService
             await dbContext.Database.ExecuteSqlRawAsync(alterSql, cancellationToken);
         }
     }
+
+    private static async Task EnsureIndexAsync(
+        DefaultDbContext dbContext,
+        string tableName,
+        string indexName,
+        string createSql,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = @tableName
+              AND index_name = @indexName;
+            """;
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "@tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var indexParameter = command.CreateParameter();
+        indexParameter.ParameterName = "@indexName";
+        indexParameter.Value = indexName;
+        command.Parameters.Add(indexParameter);
+
+        var existingCount = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        if (existingCount == 0)
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(createSql, cancellationToken);
+        }
+    }
+
 
     private static async Task SeedAdminAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
     {
@@ -1329,8 +1594,127 @@ public sealed class DatabaseInitializer : IHostedService
     {
         await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
         await SeedSystemMenuAsync(dbContext, cancellationToken);
+        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
         await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task SeedRuntimeManagementSamplesAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var environment = await dbContext.RuntimeEnvironments.FirstOrDefaultAsync(
+            entity => entity.Code == "test" && entity.ProjectId == null,
+            cancellationToken);
+        if (environment is null)
+        {
+            environment = new RuntimeEnvironmentEntity
+            {
+                Code = "test"
+            };
+            dbContext.RuntimeEnvironments.Add(environment);
+        }
+
+        environment.Name = "测试环境";
+        environment.EnvironmentType = "test";
+        environment.Description = "AgentSprint 默认测试环境，按前端、API、MCP 与部署路径拆分维护。";
+        environment.FrontendUrl = "http://192.168.80.101:5999";
+        environment.ApiBaseUrl = "http://192.168.80.101:5000";
+        environment.FrontendProxyApiUrl = "http://192.168.80.101:5999/api";
+        environment.McpEndpoint = "http://192.168.80.101:5010/mcp";
+        environment.DeployRoot = "/opt/agentsprint-deploy";
+        environment.DockerDirectory = "/opt/agentsprint-deploy/docker";
+        environment.RemotePackagePath = "/opt/agentsprint-deploy/agentsprint-docker-deploy.tgz";
+        environment.ComposeFilePath = "/opt/agentsprint-deploy/docker/docker-compose.yml";
+        environment.LocalPackagePaths = string.Join(
+            Environment.NewLine,
+            @"F:\AI\AgentSprint\agentsprint-docker-deploy.tar",
+            @"F:\AI\AgentSprint\agentsprint-docker-deploy.tgz",
+            @"F:\AI\AgentSprint\agentsprint-docker-deploy.tar.zip");
+        environment.Sort = 10;
+        environment.Status = 1;
+        environment.IsDelete = 0;
+
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-admin", 5999, 80, 10, cancellationToken);
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-api", 5000, 5000, 20, cancellationToken);
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-mcp", 5010, 5010, 30, cancellationToken);
+
+        await EnsurePromptTemplateAsync(
+            dbContext,
+            "mcp_setup",
+            "MCP 接入提示词",
+            "请按 AgentSprint MCP 接入说明配置 Codex HTTP MCP，并确保请求头使用 http_headers。",
+            "Codex agentsprint MCP 接入配置提示词。",
+            10,
+            cancellationToken);
+        await EnsurePromptTemplateAsync(
+            dbContext,
+            "task_execution",
+            "任务推进提示词",
+            "请读取任务上下文、按项目规范实现变更、运行相关测试，并在完成后报告修改点与验证命令。",
+            "Codex 任务推进提示词。",
+            20,
+            cancellationToken);
+    }
+
+    private static async Task EnsurePromptTemplateAsync(
+        DefaultDbContext dbContext,
+        string code,
+        string name,
+        string content,
+        string description,
+        int sort,
+        CancellationToken cancellationToken)
+    {
+        var prompt = await dbContext.PromptTemplates.FirstOrDefaultAsync(
+            entity => entity.AgentEnvironment == "codex" && entity.Code == code,
+            cancellationToken);
+        if (prompt is null)
+        {
+            prompt = new PromptTemplateEntity
+            {
+                AgentEnvironment = "codex",
+                Code = code
+            };
+            dbContext.PromptTemplates.Add(prompt);
+        }
+
+        prompt.Name = name;
+        prompt.Content = content;
+        prompt.Description = description;
+        prompt.Sort = sort;
+        prompt.Status = 1;
+        prompt.IsDelete = 0;
+    }
+
+    private static async Task EnsureRuntimeContainerAsync(
+        DefaultDbContext dbContext,
+        string runtimeEnvironmentId,
+        string name,
+        int hostPort,
+        int containerPort,
+        int sort,
+        CancellationToken cancellationToken)
+    {
+        var container = await dbContext.RuntimeEnvironmentContainers.FirstOrDefaultAsync(
+            entity => entity.RuntimeEnvironmentId == runtimeEnvironmentId && entity.Name == name,
+            cancellationToken);
+        if (container is null)
+        {
+            container = new RuntimeEnvironmentContainerEntity
+            {
+                RuntimeEnvironmentId = runtimeEnvironmentId,
+                Name = name
+            };
+            dbContext.RuntimeEnvironmentContainers.Add(container);
+        }
+
+        container.HostPort = hostPort;
+        container.ContainerPort = containerPort;
+        container.Protocol = "tcp";
+        container.Sort = sort;
+        container.Status = 1;
+        container.IsDelete = 0;
     }
 
     private static async Task SeedSystemConfigurationsAsync(
@@ -1343,6 +1727,82 @@ public sealed class DatabaseInitializer : IHostedService
             "http://192.168.80.101:5010/mcp",
             "Streamable HTTP MCP service endpoint used in generated task prompts.",
             cancellationToken);
+        await EnsureConfigurationAsync(
+            dbContext,
+            "Sprint:Requirement:SyncTestEnvironmentOnCompletion",
+            "false",
+            "When true, completing requirement development fills the requirement test URL from the selected project runtime environment.",
+            cancellationToken);
+        await EnsureDictionaryTypeAsync(
+            dbContext,
+            "frontend_tech_stack",
+            "前端技术栈",
+            "Project frontend technology stack options.",
+            10,
+            cancellationToken,
+            ("vue3", "Vue 3", 10),
+            ("vite", "Vite", 20),
+            ("tdesign", "TDesign", 30),
+            ("typescript", "TypeScript", 40));
+        await EnsureDictionaryTypeAsync(
+            dbContext,
+            "backend_tech_stack",
+            "后端技术栈",
+            "Project backend technology stack options.",
+            20,
+            cancellationToken,
+            ("dotnet", ".NET", 10),
+            ("ef-core", "EF Core", 20),
+            ("mysql", "MySQL", 30),
+            ("mcp", "MCP", 40));
+    }
+
+    private static async Task<DictionaryTypeEntity> EnsureDictionaryTypeAsync(
+        DefaultDbContext dbContext,
+        string code,
+        string name,
+        string description,
+        int sort,
+        CancellationToken cancellationToken,
+        params (string Code, string Name, int Sort)[] items)
+    {
+        var type = await dbContext.DictionaryTypes.FirstOrDefaultAsync(
+            entity => entity.Code == code,
+            cancellationToken);
+        if (type is null)
+        {
+            type = new DictionaryTypeEntity { Code = code };
+            dbContext.DictionaryTypes.Add(type);
+        }
+
+        type.Name = name;
+        type.Description = description;
+        type.Sort = sort;
+        type.Status = 1;
+        type.IsDelete = 0;
+
+        foreach (var item in items)
+        {
+            var entity = await dbContext.DictionaryItems.FirstOrDefaultAsync(
+                dictionaryItem => dictionaryItem.DictionaryTypeId == type.Id && dictionaryItem.Code == item.Code,
+                cancellationToken);
+            if (entity is null)
+            {
+                entity = new DictionaryItemEntity
+                {
+                    DictionaryTypeId = type.Id,
+                    Code = item.Code
+                };
+                dbContext.DictionaryItems.Add(entity);
+            }
+
+            entity.Name = item.Name;
+            entity.Sort = item.Sort;
+            entity.Status = 1;
+            entity.IsDelete = 0;
+        }
+
+        return type;
     }
 
     private static async Task SeedSystemMenuAsync(
@@ -1381,9 +1841,36 @@ public sealed class DatabaseInitializer : IHostedService
         var rolesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/roles", "SystemRoles", "/system/roles/index", "lucide:shield-check", 20, cancellationToken);
         var menusMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/menus", "SystemMenus", "/system/menus/index", "lucide:menu", 30, cancellationToken);
         await DisableMenuAsync(dbContext, "/system/permissions", cancellationToken);
+        var dictionariesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/dictionaries", "SystemDictionaries", "/system/dictionaries/index", "lucide:book-open-text", 40, cancellationToken);
         var configurationsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/configurations", "SystemConfigurations", "/system/configurations/index", "lucide:sliders-horizontal", 45, cancellationToken);
         await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/departments", "SystemDepartments", "/system/departments/index", "lucide:network", 50, cancellationToken);
         await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/assignments", "SystemAssignments", "/system/assignments/index", "lucide:briefcase-business", 60, cancellationToken);
+        await DisableMenuAsync(dbContext, "/system/runtime-environments", cancellationToken);
+        await DisableMenuAsync(dbContext, "/system/prompt-templates", cancellationToken);
+
+        var globalConfig = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/global-config", cancellationToken);
+        if (globalConfig is null)
+        {
+            globalConfig = new MenuEntity { Path = "/global-config" };
+            dbContext.Menus.Add(globalConfig);
+        }
+
+        globalConfig.Name = "GlobalConfig";
+        globalConfig.Icon = "lucide:sliders-horizontal";
+        globalConfig.Sort = 92;
+        globalConfig.Type = 0;
+        globalConfig.Status = 1;
+
+        await EnsureRoleMenuAsync(dbContext, role.Id, globalConfig.Id, cancellationToken);
+        await EnsureAssociationAsync(
+            dbContext,
+            role.Id,
+            globalConfig.Id,
+            SecurityAssociationTypes.RoleMenu,
+            cancellationToken);
+
+        var runtimeEnvironmentsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/environments", "GlobalConfigEnvironments", "/system/runtime-environments/index", "lucide:server-cog", 10, cancellationToken);
+        var promptTemplatesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 20, cancellationToken);
 
         var security = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/security", cancellationToken);
         if (security is null)
@@ -1413,6 +1900,9 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsurePermissionAsync(dbContext, role.Id, "System:Role:Manage", "Role management", rolesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Menu:Manage", "Menu management", menusMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Permission:Manage", "Button permission management", menusMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "System:Dictionary:Manage", "Dictionary management", dictionariesMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "System:RuntimeEnvironment:Manage", "Runtime environment management", runtimeEnvironmentsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "System:PromptTemplate:Manage", "Prompt template management", promptTemplatesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Configuration:Manage", "System configuration management", configurationsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "Security:AgentToken:Manage", "Agent token management", agentTokensMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Organization:Manage", "Organization management", system.Id, cancellationToken);

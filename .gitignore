@@ -22,6 +22,8 @@
 /src/api/AgentSprint.Tests/bin/Debug/net10.0
 /src/api/AgentSprint.Tests/obj
 *.tgz
+/agentsprint-docker-deploy*.tar
+/agentsprint-docker-deploy*.tar.zip
 *.log
 *.pid
 *.prev

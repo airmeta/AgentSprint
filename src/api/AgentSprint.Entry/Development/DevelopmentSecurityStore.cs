@@ -219,9 +219,15 @@ public sealed class DevelopmentUserService : IUserService
                 CreateMenu("SystemUsers", "/system/users", "/system/users/index", "lucide:users", 10, "用户管理"),
                 CreateMenu("SystemRoles", "/system/roles", "/system/roles/index", "lucide:shield-check", 20, "角色管理"),
                 CreateMenu("SystemMenus", "/system/menus", "/system/menus/index", "lucide:menu", 30, "菜单管理"),
+                CreateMenu("SystemDictionaries", "/system/dictionaries", "/system/dictionaries/index", "lucide:book-open-text", 40, "字典管理"),
                 CreateMenu("SystemConfigurations", "/system/configurations", "/system/configurations/index", "lucide:sliders-horizontal", 45, "系统配置"),
                 CreateMenu("SystemDepartments", "/system/departments", "/system/departments/index", "lucide:network", 50, "部门管理"),
                 CreateMenu("SystemAssignments", "/system/assignments", "/system/assignments/index", "lucide:briefcase-business", 60, "岗位管理")
+            ]),
+            CreateGroupMenu("GlobalConfig", "/global-config", "全局配置", "lucide:sliders-horizontal", 92, "/global-config/environments",
+            [
+                CreateMenu("GlobalConfigEnvironments", "/global-config/environments", "/system/runtime-environments/index", "lucide:server-cog", 10, "环境管理"),
+                CreateMenu("GlobalConfigPromptTemplates", "/global-config/prompt-templates", "/system/prompt-templates/index", "lucide:message-square-code", 20, "提示词设置")
             ]),
             CreateGroupMenu("Security", "/security", "安全管理", "lucide:shield-check", 95, "/system/agent-tokens",
             [
@@ -415,6 +421,9 @@ public sealed class DevelopmentSystemManagementService : ISystemManagementServic
             new("permission-system-role", "System:Role:Manage", "Role management", "menu-system-roles"),
             new("permission-system-menu", "System:Menu:Manage", "Menu management", "menu-system-menus"),
             new("permission-system-permission", "System:Permission:Manage", "Button permission management", "menu-system-menus"),
+            new("permission-system-dictionary", "System:Dictionary:Manage", "Dictionary management", "menu-system-dictionaries"),
+            new("permission-system-runtime-environment", "System:RuntimeEnvironment:Manage", "Runtime environment management", "menu-global-config-environments"),
+            new("permission-system-prompt-template", "System:PromptTemplate:Manage", "Prompt template management", "menu-global-config-prompt-templates"),
             new("permission-system-configuration", "System:Configuration:Manage", "System configuration management", "menu-system-configurations"),
             new("permission-security-agent-token", "Security:AgentToken:Manage", "Agent token management", "menu-security-agent-tokens")
         ];
@@ -468,6 +477,189 @@ public sealed class DevelopmentSystemManagementService : ISystemManagementServic
 
     public Task<bool> DeleteAssignmentAsync(string id) => Task.FromResult(true);
 
+    public Task<IReadOnlyList<DictionaryTypeManagementResult>> ListDictionaryTypesAsync()
+    {
+        IReadOnlyList<DictionaryTypeManagementResult> dictionaryTypes =
+        [
+            new("dict-type-requirement-priority", "requirement_priority", "需求优先级", "需求排期与任务拆解使用的优先级字典。", 10, 1),
+            new("dict-type-common-status", "common_status", "通用状态", "系统主数据通用启停状态。", 20, 1)
+        ];
+        return Task.FromResult(dictionaryTypes);
+    }
+
+    public Task<DictionaryTypeManagementResult> UpsertDictionaryTypeAsync(UpsertDictionaryTypeRequest request)
+    {
+        return Task.FromResult(new DictionaryTypeManagementResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.Code,
+            request.Name,
+            request.Description,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeleteDictionaryTypeAsync(string id) => Task.FromResult(true);
+
+    public Task<IReadOnlyList<DictionaryItemManagementResult>> ListDictionaryItemsAsync(string? dictionaryTypeId = null)
+    {
+        IReadOnlyList<DictionaryItemManagementResult> dictionaryItems =
+        [
+            new("dict-item-priority-high", "dict-type-requirement-priority", "high", "高", "需要优先交付。", 10, 1),
+            new("dict-item-priority-medium", "dict-type-requirement-priority", "medium", "中", "正常排期交付。", 20, 1),
+            new("dict-item-status-enabled", "dict-type-common-status", "enabled", "启用", null, 10, 1),
+            new("dict-item-status-disabled", "dict-type-common-status", "disabled", "停用", null, 20, 1)
+        ];
+        if (!string.IsNullOrWhiteSpace(dictionaryTypeId))
+        {
+            dictionaryItems = dictionaryItems.Where(item => item.DictionaryTypeId == dictionaryTypeId).ToList();
+        }
+
+        return Task.FromResult(dictionaryItems);
+    }
+
+    public Task<DictionaryItemManagementResult> UpsertDictionaryItemAsync(UpsertDictionaryItemRequest request)
+    {
+        return Task.FromResult(new DictionaryItemManagementResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.DictionaryTypeId,
+            request.Code,
+            request.Name,
+            request.Description,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeleteDictionaryItemAsync(string id) => Task.FromResult(true);
+
+    public Task<IReadOnlyList<RuntimeEnvironmentManagementResult>> ListRuntimeEnvironmentsAsync(
+        string? projectId = null,
+        string? endpointId = null,
+        string? moduleId = null)
+    {
+        IReadOnlyList<RuntimeEnvironmentManagementResult> environments =
+        [
+            new(
+                "runtime-env-test",
+                projectId,
+                endpointId,
+                moduleId,
+                "test",
+                "测试环境",
+                "test",
+                "AgentSprint 默认测试环境",
+                "http://192.168.80.101:5999",
+                "http://192.168.80.101:5000",
+                "http://192.168.80.101:5999/api",
+                "http://192.168.80.101:5010/mcp",
+                "/opt/agentsprint-deploy",
+                "/opt/agentsprint-deploy/docker",
+                "/opt/agentsprint-deploy/agentsprint-docker-deploy.tgz",
+                "/opt/agentsprint-deploy/docker/docker-compose.yml",
+                string.Join(Environment.NewLine, @"F:\AI\AgentSprint\agentsprint-docker-deploy.tar", @"F:\AI\AgentSprint\agentsprint-docker-deploy.tgz", @"F:\AI\AgentSprint\agentsprint-docker-deploy.tar.zip"),
+                10,
+                1)
+        ];
+        return Task.FromResult(environments);
+    }
+
+    public Task<RuntimeEnvironmentManagementResult> UpsertRuntimeEnvironmentAsync(UpsertRuntimeEnvironmentRequest request)
+    {
+        return Task.FromResult(new RuntimeEnvironmentManagementResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.ProjectId,
+            request.EndpointId,
+            request.ModuleId,
+            request.Code,
+            request.Name,
+            request.EnvironmentType,
+            request.Description,
+            request.FrontendUrl,
+            request.ApiBaseUrl,
+            request.FrontendProxyApiUrl,
+            request.McpEndpoint,
+            request.DeployRoot,
+            request.DockerDirectory,
+            request.RemotePackagePath,
+            request.ComposeFilePath,
+            request.LocalPackagePaths,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeleteRuntimeEnvironmentAsync(string id) => Task.FromResult(true);
+
+    public Task<IReadOnlyList<RuntimeEnvironmentContainerManagementResult>> ListRuntimeEnvironmentContainersAsync(
+        string runtimeEnvironmentId)
+    {
+        IReadOnlyList<RuntimeEnvironmentContainerManagementResult> containers =
+        [
+            new("runtime-container-admin", runtimeEnvironmentId, "agentsprint-admin", 5999, 80, "tcp", null, 10, 1),
+            new("runtime-container-api", runtimeEnvironmentId, "agentsprint-api", 5000, 5000, "tcp", null, 20, 1),
+            new("runtime-container-mcp", runtimeEnvironmentId, "agentsprint-mcp", 5010, 5010, "tcp", null, 30, 1)
+        ];
+        return Task.FromResult(containers);
+    }
+
+    public Task<RuntimeEnvironmentContainerManagementResult> UpsertRuntimeEnvironmentContainerAsync(
+        UpsertRuntimeEnvironmentContainerRequest request)
+    {
+        return Task.FromResult(new RuntimeEnvironmentContainerManagementResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.RuntimeEnvironmentId,
+            request.Name,
+            request.HostPort,
+            request.ContainerPort,
+            request.Protocol ?? "tcp",
+            request.Description,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeleteRuntimeEnvironmentContainerAsync(string id) => Task.FromResult(true);
+
+    public Task<IReadOnlyList<PromptTemplateManagementResult>> ListPromptTemplatesAsync(string? agentEnvironment = null)
+    {
+        IReadOnlyList<PromptTemplateManagementResult> templates = string.Equals(agentEnvironment ?? "codex", "codex", StringComparison.OrdinalIgnoreCase)
+            ?
+            [
+                new(
+                    "prompt-codex-mcp-setup",
+                    "codex",
+                    "mcp_setup",
+                    "MCP 接入提示词",
+                    "请按 AgentSprint MCP 接入说明配置 Codex HTTP MCP，并确保请求头使用 http_headers。",
+                    "Codex agentsprint MCP 接入配置提示词。",
+                    10,
+                    1),
+                new(
+                    "prompt-codex-task-execution",
+                    "codex",
+                    "task_execution",
+                    "Codex 任务执行提示词",
+                    "请读取任务上下文、按项目规范实现变更、运行相关测试，并在完成后报告修改点与验证命令。",
+                    "Codex 环境默认任务执行提示词模板。",
+                    20,
+                    1)
+            ]
+            : [];
+        return Task.FromResult(templates);
+    }
+
+    public Task<PromptTemplateManagementResult> UpsertPromptTemplateAsync(UpsertPromptTemplateRequest request)
+    {
+        return Task.FromResult(new PromptTemplateManagementResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.AgentEnvironment,
+            request.Code,
+            request.Name,
+            request.Content,
+            request.Description,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeletePromptTemplateAsync(string id) => Task.FromResult(true);
+
     public Task<IReadOnlyList<SecurityAssociationResult>> ListAssociationsAsync() => Task.FromResult<IReadOnlyList<SecurityAssociationResult>>([]);
 
     public Task<SecurityAssociationResult> CreateAssociationAsync(SecurityAssociationRequest request)
@@ -504,9 +696,13 @@ internal static class DevelopmentMenus
         new("menu-system-users", "menu-system", "/system/users", "SystemUsers", "/system/users/index", "lucide:users", 10, 1, 1),
         new("menu-system-roles", "menu-system", "/system/roles", "SystemRoles", "/system/roles/index", "lucide:shield-check", 20, 1, 1),
         new("menu-system-menus", "menu-system", "/system/menus", "SystemMenus", "/system/menus/index", "lucide:menu", 30, 1, 1),
+        new("menu-system-dictionaries", "menu-system", "/system/dictionaries", "SystemDictionaries", "/system/dictionaries/index", "lucide:book-open-text", 40, 1, 1),
         new("menu-system-configurations", "menu-system", "/system/configurations", "SystemConfigurations", "/system/configurations/index", "lucide:sliders-horizontal", 45, 1, 1),
         new("menu-system-departments", "menu-system", "/system/departments", "SystemDepartments", "/system/departments/index", "lucide:network", 50, 1, 1),
         new("menu-system-assignments", "menu-system", "/system/assignments", "SystemAssignments", "/system/assignments/index", "lucide:briefcase-business", 60, 1, 1),
+        new("menu-global-config", null, "/global-config", "GlobalConfig", null, "lucide:sliders-horizontal", 92, 0, 1),
+        new("menu-global-config-environments", "menu-global-config", "/global-config/environments", "GlobalConfigEnvironments", "/system/runtime-environments/index", "lucide:server-cog", 10, 1, 1),
+        new("menu-global-config-prompt-templates", "menu-global-config", "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 20, 1, 1),
         new("menu-security", null, "/security", "Security", null, "lucide:shield-check", 95, 0, 1),
         new("menu-security-agent-tokens", "menu-security", "/system/agent-tokens", "SystemAgentTokens", "/system/agent-tokens/index", "lucide:key-square", 10, 1, 1)
     ];

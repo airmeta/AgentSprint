@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
@@ -45,7 +45,9 @@ type EndpointPager = {
   pageSize: number;
 };
 
+const endpointSaving = ref(false);
 const loading = ref(false);
+const moduleSaving = ref(false);
 const endpointVisible = ref(false);
 const endpointMode = ref<'create' | 'edit'>('create');
 const endpointFormRef = ref<FormInstanceFunctions>();
@@ -240,6 +242,7 @@ function openEndpointEdit(endpoint: SprintMvpApi.ProjectEndpoint) {
 }
 
 async function saveEndpoint() {
+  if (endpointSaving.value) return;
   if (!(await validateForm(endpointFormRef.value))) return;
   if (!endpointForm.projectId || !endpointForm.name.trim() || !endpointForm.type) {
     MessagePlugin.warning('端名称和端类型必填');
@@ -256,24 +259,29 @@ async function saveEndpoint() {
     testerIds: [...endpointForm.testerIds],
     type: endpointForm.type,
   };
-  if (endpointMode.value === 'create') {
-    if (!endpointForm.code.trim()) {
-      MessagePlugin.warning('端编码必填');
-      return;
+  endpointSaving.value = true;
+  try {
+    if (endpointMode.value === 'create') {
+      if (!endpointForm.code.trim()) {
+        MessagePlugin.warning('端编码必填');
+        return;
+      }
+
+      await createProjectEndpointApi({
+        ...payload,
+        code: endpointForm.code.trim().toUpperCase(),
+        projectId: endpointForm.projectId,
+      });
+    } else {
+      await updateProjectEndpointApi(endpointForm.id, payload);
     }
 
-    await createProjectEndpointApi({
-      ...payload,
-      code: endpointForm.code.trim().toUpperCase(),
-      projectId: endpointForm.projectId,
-    });
-  } else {
-    await updateProjectEndpointApi(endpointForm.id, payload);
+    MessagePlugin.success('端配置已保存');
+    endpointVisible.value = false;
+    await loadData();
+  } finally {
+    endpointSaving.value = false;
   }
-
-  MessagePlugin.success('端配置已保存');
-  endpointVisible.value = false;
-  await loadData();
 }
 
 function resetModuleForm(projectId = selectedProjectId.value, endpointId = '') {
@@ -317,6 +325,7 @@ function openModuleEdit(module: SprintMvpApi.FeatureModule) {
 }
 
 async function saveModule() {
+  if (moduleSaving.value) return;
   if (!(await validateForm(moduleFormRef.value))) return;
   if (!moduleForm.projectId || !moduleForm.endpointId || !moduleForm.name.trim()) {
     MessagePlugin.warning('模块名称和所属端必填');
@@ -332,26 +341,31 @@ async function saveModule() {
     status: moduleForm.status || undefined,
     testerIds: [...moduleForm.testerIds],
   };
-  if (moduleMode.value === 'create') {
-    if (!moduleForm.code.trim()) {
-      MessagePlugin.warning('模块编码必填');
-      return;
+  moduleSaving.value = true;
+  try {
+    if (moduleMode.value === 'create') {
+      if (!moduleForm.code.trim()) {
+        MessagePlugin.warning('模块编码必填');
+        return;
+      }
+
+      await createFeatureModuleApi({
+        ...payload,
+        code: moduleForm.code.trim().toUpperCase(),
+        endpointId: moduleForm.endpointId,
+        projectId: moduleForm.projectId,
+      });
+    } else {
+      await updateFeatureModuleApi(moduleForm.id, payload);
     }
 
-    await createFeatureModuleApi({
-      ...payload,
-      code: moduleForm.code.trim().toUpperCase(),
-      endpointId: moduleForm.endpointId,
-      projectId: moduleForm.projectId,
-    });
-  } else {
-    await updateFeatureModuleApi(moduleForm.id, payload);
+    MessagePlugin.success('模块配置已保存');
+    moduleVisible.value = false;
+    ensurePager(moduleForm.endpointId).current = 1;
+    await loadData();
+  } finally {
+    moduleSaving.value = false;
   }
-
-  MessagePlugin.success('模块配置已保存');
-  moduleVisible.value = false;
-  ensurePager(moduleForm.endpointId).current = 1;
-  await loadData();
 }
 
 async function loadData() {
@@ -529,7 +543,7 @@ onMounted(loadData);
       v-model:visible="endpointVisible"
       :size="'520px'"
       :header="endpointMode === 'create' ? '新增端' : '编辑端'"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: endpointSaving }"
       @confirm="saveEndpoint"
     >
       <TForm ref="endpointFormRef" :data="endpointForm" :rules="endpointRules" label-width="90px">
@@ -567,7 +581,7 @@ onMounted(loadData);
       v-model:visible="moduleVisible"
       :size="'520px'"
       :header="moduleMode === 'create' ? '新增模块' : '编辑模块'"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: moduleSaving }"
       @confirm="saveModule"
     >
       <TForm ref="moduleFormRef" :data="moduleForm" :rules="moduleRules" label-width="90px">

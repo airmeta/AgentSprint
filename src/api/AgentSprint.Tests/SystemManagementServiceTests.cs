@@ -202,6 +202,257 @@ public sealed class SystemManagementServiceTests
         Assert.Equal("Code already exists.", ex.Message);
     }
 
+    [Fact]
+    public async Task UpsertDictionaryItemAsync_RequiresExistingDictionaryType()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertDictionaryItemAsync(new UpsertDictionaryItemRequest(
+                null,
+                "dict-missing",
+                "enabled",
+                "Enabled",
+                null,
+                10,
+                1)));
+
+        Assert.Equal("Dictionary type does not exist.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertDictionaryItemAsync_RejectsDuplicateCodeWithinType()
+    {
+        var type = new DictionaryTypeEntity { Id = "dict-type-status", Code = "status", Name = "Status" };
+        var service = CreateService(
+            dictionaryTypes: [type],
+            dictionaryItems:
+            [
+                new DictionaryItemEntity
+                {
+                    Id = "dict-item-enabled",
+                    DictionaryTypeId = type.Id,
+                    Code = "enabled",
+                    Name = "Enabled"
+                }
+            ]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertDictionaryItemAsync(new UpsertDictionaryItemRequest(
+                null,
+                type.Id,
+                "ENABLED",
+                "Duplicate enabled",
+                null,
+                20,
+                1)));
+
+        Assert.Equal("Dictionary item code already exists.", ex.Message);
+    }
+
+    [Fact]
+    public async Task DeleteDictionaryTypeAsync_SoftDeletesChildItems()
+    {
+        var type = new DictionaryTypeEntity { Id = "dict-type-status", Code = "status", Name = "Status" };
+        var child = new DictionaryItemEntity
+        {
+            Id = "dict-item-enabled",
+            DictionaryTypeId = type.Id,
+            Code = "enabled",
+            Name = "Enabled"
+        };
+        var sibling = new DictionaryItemEntity
+        {
+            Id = "dict-item-priority-high",
+            DictionaryTypeId = "dict-type-priority",
+            Code = "high",
+            Name = "High"
+        };
+        var service = CreateService(dictionaryTypes: [type], dictionaryItems: [child, sibling]);
+
+        var deleted = await service.DeleteDictionaryTypeAsync(type.Id);
+
+        Assert.True(deleted);
+        Assert.Equal(1, type.IsDelete);
+        Assert.Equal(1, child.IsDelete);
+        Assert.Equal(0, sibling.IsDelete);
+    }
+
+    [Fact]
+    public async Task UpsertRuntimeEnvironmentAsync_RejectsDuplicateCodeWithinProject()
+    {
+        var service = CreateService(runtimeEnvironments:
+        [
+            new RuntimeEnvironmentEntity { Id = "env-1", ProjectId = "project-1", Code = "test", Name = "Test" }
+        ]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertRuntimeEnvironmentAsync(new UpsertRuntimeEnvironmentRequest(
+                null,
+                "project-1",
+                null,
+                null,
+                "TEST",
+                "Duplicate",
+                "test",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                20,
+                1)));
+
+        Assert.Equal("Runtime environment code already exists in the project.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertRuntimeEnvironmentContainerAsync_RequiresExistingEnvironmentAndUniqueContainerName()
+    {
+        var environment = new RuntimeEnvironmentEntity { Id = "env-1", Code = "test", Name = "Test" };
+        var service = CreateService(
+            runtimeEnvironments: [environment],
+            runtimeEnvironmentContainers:
+            [
+                new RuntimeEnvironmentContainerEntity
+                {
+                    Id = "container-admin",
+                    RuntimeEnvironmentId = environment.Id,
+                    Name = "agentsprint-admin",
+                    HostPort = 5999,
+                    ContainerPort = 80
+                }
+            ]);
+
+        var missing = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertRuntimeEnvironmentContainerAsync(new UpsertRuntimeEnvironmentContainerRequest(
+                null,
+                "missing-env",
+                "agentsprint-api",
+                5000,
+                5000,
+                "tcp",
+                null,
+                10,
+                1)));
+        Assert.Equal("Runtime environment does not exist.", missing.Message);
+
+        var duplicate = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertRuntimeEnvironmentContainerAsync(new UpsertRuntimeEnvironmentContainerRequest(
+                null,
+                environment.Id,
+                "AGENTSPRINT-ADMIN",
+                5999,
+                80,
+                "tcp",
+                null,
+                10,
+                1)));
+        Assert.Equal("Container name already exists in the runtime environment.", duplicate.Message);
+    }
+
+    [Fact]
+    public async Task DeleteRuntimeEnvironmentAsync_SoftDeletesChildContainers()
+    {
+        var environment = new RuntimeEnvironmentEntity { Id = "env-1", Code = "test", Name = "Test" };
+        var child = new RuntimeEnvironmentContainerEntity
+        {
+            Id = "container-admin",
+            RuntimeEnvironmentId = environment.Id,
+            Name = "agentsprint-admin",
+            HostPort = 5999,
+            ContainerPort = 80
+        };
+        var sibling = new RuntimeEnvironmentContainerEntity
+        {
+            Id = "container-other",
+            RuntimeEnvironmentId = "env-other",
+            Name = "agentsprint-api",
+            HostPort = 5000,
+            ContainerPort = 5000
+        };
+        var service = CreateService(runtimeEnvironments: [environment], runtimeEnvironmentContainers: [child, sibling]);
+
+        var deleted = await service.DeleteRuntimeEnvironmentAsync(environment.Id);
+
+        Assert.True(deleted);
+        Assert.Equal(1, environment.IsDelete);
+        Assert.Equal(1, child.IsDelete);
+        Assert.Equal(0, sibling.IsDelete);
+    }
+
+    [Fact]
+    public async Task UpsertPromptTemplateAsync_RejectsUnsupportedAgentEnvironment()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
+                null,
+                "claude_code",
+                "task_execution",
+                "Task execution",
+                "Prompt content",
+                null,
+                10,
+                1)));
+
+        Assert.Equal("Only Codex prompt templates are supported currently.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertPromptTemplateAsync_RejectsDuplicateCodeWithinEnvironment()
+    {
+        var service = CreateService(promptTemplates:
+        [
+            new PromptTemplateEntity
+            {
+                Id = "prompt-1",
+                AgentEnvironment = "codex",
+                Code = "task_execution",
+                Name = "Task execution",
+                Content = "Existing prompt"
+            }
+        ]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
+                null,
+                "codex",
+                "TASK_EXECUTION",
+                "Duplicate",
+                "Prompt content",
+                null,
+                20,
+                1)));
+
+        Assert.Equal("Prompt template code already exists in the agent environment.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertPromptTemplateAsync_RejectsNonFixedPromptTemplateCode()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
+                null,
+                "codex",
+                "custom_prompt",
+                "Custom prompt",
+                "Prompt content",
+                null,
+                30,
+                1)));
+
+        Assert.Equal("Only fixed Codex prompt templates can be maintained.", ex.Message);
+    }
+
     private static SystemManagementService CreateService(
         IList<UserEntity>? users = null,
         IList<RoleEntity>? roles = null,
@@ -211,6 +462,11 @@ public sealed class SystemManagementServiceTests
         IList<RoleGroupEntity>? roleGroups = null,
         IList<DepartmentEntity>? departments = null,
         IList<AssignmentEntity>? assignments = null,
+        IList<DictionaryTypeEntity>? dictionaryTypes = null,
+        IList<DictionaryItemEntity>? dictionaryItems = null,
+        IList<RuntimeEnvironmentEntity>? runtimeEnvironments = null,
+        IList<RuntimeEnvironmentContainerEntity>? runtimeEnvironmentContainers = null,
+        IList<PromptTemplateEntity>? promptTemplates = null,
         IList<UserRoleEntity>? userRoles = null,
         IList<RoleMenuEntity>? roleMenus = null,
         IList<RolePermissionEntity>? rolePermissions = null,
@@ -225,6 +481,11 @@ public sealed class SystemManagementServiceTests
             new InMemoryRoleGroupDomain(roleGroups ?? []),
             new InMemoryDepartmentDomain(departments ?? []),
             new InMemoryAssignmentDomain(assignments ?? []),
+            new InMemoryDictionaryTypeDomain(dictionaryTypes ?? []),
+            new InMemoryDictionaryItemDomain(dictionaryItems ?? []),
+            new InMemoryRuntimeEnvironmentDomain(runtimeEnvironments ?? []),
+            new InMemoryRuntimeEnvironmentContainerDomain(runtimeEnvironmentContainers ?? []),
+            new InMemoryPromptTemplateDomain(promptTemplates ?? []),
             new InMemoryUserRoleDomain(userRoles ?? []),
             new InMemoryRoleMenuDomain(roleMenus ?? []),
             new InMemoryRolePermissionDomain(rolePermissions ?? []),
@@ -243,3 +504,18 @@ internal sealed class InMemoryDepartmentDomain(IList<DepartmentEntity> entities)
 
 internal sealed class InMemoryAssignmentDomain(IList<AssignmentEntity> entities)
     : InMemorySecurityDomain<AssignmentEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IAssignmentDomain;
+
+internal sealed class InMemoryDictionaryTypeDomain(IList<DictionaryTypeEntity> entities)
+    : InMemorySecurityDomain<DictionaryTypeEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IDictionaryTypeDomain;
+
+internal sealed class InMemoryDictionaryItemDomain(IList<DictionaryItemEntity> entities)
+    : InMemorySecurityDomain<DictionaryItemEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IDictionaryItemDomain;
+
+internal sealed class InMemoryRuntimeEnvironmentDomain(IList<RuntimeEnvironmentEntity> entities)
+    : InMemorySecurityDomain<RuntimeEnvironmentEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IRuntimeEnvironmentDomain;
+
+internal sealed class InMemoryRuntimeEnvironmentContainerDomain(IList<RuntimeEnvironmentContainerEntity> entities)
+    : InMemorySecurityDomain<RuntimeEnvironmentContainerEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IRuntimeEnvironmentContainerDomain;
+
+internal sealed class InMemoryPromptTemplateDomain(IList<PromptTemplateEntity> entities)
+    : InMemorySecurityDomain<PromptTemplateEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IPromptTemplateDomain;

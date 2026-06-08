@@ -20,6 +20,9 @@ public sealed class SprintProjectEntity : EntityBase
     [MaxLength(512)]
     public string? TestEnvironmentUrl { get; set; }
 
+    [MaxLength(64)]
+    public string? TestEnvironmentId { get; set; }
+
     [MaxLength(2048)]
     public string? Description { get; set; }
 
@@ -244,6 +247,11 @@ public sealed class SprintFeatureSuggestionEntity : EntityBase
 
     [MaxLength(64)]
     public string CreatedBy { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? ConvertedRequirementId { get; set; }
+
+    public DateTime? ConvertedAt { get; set; }
 }
 
 [Table("sprint_requirement_feedback")]
@@ -254,6 +262,9 @@ public sealed class SprintRequirementFeedbackEntity : EntityBase
 
     [MaxLength(64)]
     public string RequirementId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? DevelopmentTaskId { get; set; }
 
     [MaxLength(128)]
     public string Title { get; set; } = string.Empty;
@@ -385,6 +396,9 @@ public sealed class SprintTaskLeaseEntity : EntityBase
 
     [MaxLength(64)]
     public string TargetId { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string? ActiveTargetKey { get; set; }
 
     [MaxLength(64)]
     public string OwnerId { get; set; } = string.Empty;
@@ -580,4 +594,6 @@ public static class SprintTaskTargetTypes
     public const string Requirement = "requirement";
 
     public const string Bug = "bug";
+
+    public const string DevelopmentTask = "development_task";
 }

@@ -41,6 +41,16 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<AssignmentEntity> Assignments => Set<AssignmentEntity>();
 
+    public DbSet<DictionaryTypeEntity> DictionaryTypes => Set<DictionaryTypeEntity>();
+
+    public DbSet<DictionaryItemEntity> DictionaryItems => Set<DictionaryItemEntity>();
+
+    public DbSet<RuntimeEnvironmentEntity> RuntimeEnvironments => Set<RuntimeEnvironmentEntity>();
+
+    public DbSet<RuntimeEnvironmentContainerEntity> RuntimeEnvironmentContainers => Set<RuntimeEnvironmentContainerEntity>();
+
+    public DbSet<PromptTemplateEntity> PromptTemplates => Set<PromptTemplateEntity>();
+
     public DbSet<EntityAssociationEntity> EntityAssociations => Set<EntityAssociationEntity>();
 
     public DbSet<UserRoleEntity> UserRoles => Set<UserRoleEntity>();
@@ -100,6 +110,14 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<RoleGroupEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<DepartmentEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<AssignmentEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<DictionaryTypeEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<DictionaryItemEntity>().HasIndex(entity => new { entity.DictionaryTypeId, entity.Code }).IsUnique();
+        modelBuilder.Entity<DictionaryItemEntity>().HasIndex(entity => entity.DictionaryTypeId);
+        modelBuilder.Entity<RuntimeEnvironmentEntity>().HasIndex(entity => new { entity.ProjectId, entity.Code }).IsUnique();
+        modelBuilder.Entity<RuntimeEnvironmentEntity>().HasIndex(entity => new { entity.ProjectId, entity.EndpointId, entity.ModuleId });
+        modelBuilder.Entity<RuntimeEnvironmentContainerEntity>().HasIndex(entity => new { entity.RuntimeEnvironmentId, entity.Name }).IsUnique();
+        modelBuilder.Entity<RuntimeEnvironmentContainerEntity>().HasIndex(entity => entity.RuntimeEnvironmentId);
+        modelBuilder.Entity<PromptTemplateEntity>().HasIndex(entity => new { entity.AgentEnvironment, entity.Code }).IsUnique();
         modelBuilder.Entity<EntityAssociationEntity>()
             .HasIndex(entity => new
             {
@@ -124,6 +142,7 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<SprintBugEntity>().HasIndex(entity => new { entity.ProjectId, entity.RequirementId });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => new { entity.ProjectId, entity.OwnerId, entity.Status });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.LeaseToken).IsUnique();
+        modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.ActiveTargetKey).IsUnique();
         modelBuilder.Entity<TestPlanEntity>().HasIndex(entity => new { entity.ProjectId, entity.RequirementId });
         modelBuilder.Entity<TestExecutionEntity>().HasIndex(entity => entity.TestPlanId);
     }

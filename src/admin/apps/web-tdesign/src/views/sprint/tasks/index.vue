@@ -3,13 +3,12 @@ import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { useUserStore } from '@vben/stores';
 
 import {
   Button as TButton,
-  Descriptions as TDescriptions,
-  DescriptionsItem as TDescriptionsItem,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -33,10 +32,10 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 import '../_shared/table-layout.css';
 
+const assigning = ref(false);
 const loading = ref(false);
 const assignVisible = ref(false);
 const assignFormRef = ref<FormInstanceFunctions>();
-const detailVisible = ref(false);
 const projects = ref<SprintMvpApi.Project[]>([]);
 const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const tasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
@@ -44,6 +43,7 @@ const users = ref<SprintUserApi.UserOption[]>([]);
 const currentTask = ref<SprintMvpApi.DevelopmentTask>();
 const initialized = ref(false);
 const userStore = useUserStore();
+const router = useRouter();
 
 const filters = reactive({
   assigneeId: '',
@@ -173,11 +173,11 @@ function openAssign(task: SprintMvpApi.DevelopmentTask) {
 }
 
 function openDetail(task: SprintMvpApi.DevelopmentTask) {
-  currentTask.value = task;
-  detailVisible.value = true;
+  router.push(`/sprint/tasks/detail/${task.id}`);
 }
 
 async function assignTask() {
+  if (assigning.value) return;
   if (!canAssignTask.value) {
     MessagePlugin.warning('当前角色不能指派任务');
     assignVisible.value = false;
@@ -190,12 +190,17 @@ async function assignTask() {
   }
   if (!(await validateForm(assignFormRef.value))) return;
 
-  await assignDevelopmentTaskApi(currentTask.value.id, {
-    assigneeId: assignForm.assigneeId.trim(),
-  });
-  MessagePlugin.success('任务已指派');
-  assignVisible.value = false;
-  await loadTasks();
+  assigning.value = true;
+  try {
+    await assignDevelopmentTaskApi(currentTask.value.id, {
+      assigneeId: assignForm.assigneeId.trim(),
+    });
+    MessagePlugin.success('任务已指派');
+    assignVisible.value = false;
+    await loadTasks();
+  } finally {
+    assigning.value = false;
+  }
 }
 
 async function refreshPage() {
@@ -261,8 +266,8 @@ onActivated(async () => {
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryTasks">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryTasks">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
@@ -271,7 +276,7 @@ onActivated(async () => {
       <div class="sprint-table-header">
         <h3>任务列表</h3>
         <div class="sprint-table-actions">
-          <TButton @click="loadTasks">刷新</TButton>
+          <TButton :loading="loading" @click="loadTasks">刷新</TButton>
         </div>
       </div>
 
@@ -314,7 +319,7 @@ onActivated(async () => {
       v-model:visible="assignVisible"
       :size="'40%'"
       header="任务指派"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: assigning }"
       @confirm="assignTask"
     >
       <TForm ref="assignFormRef" :data="assignForm" :rules="assignRules" label-width="80px">
@@ -329,66 +334,8 @@ onActivated(async () => {
       </TForm>
     </TDrawer>
 
-    <TDrawer v-model:visible="detailVisible" :size="'60%'" header="任务详情" :footer="false">
-      <section v-if="currentTask" class="detail-content">
-        <TDescriptions bordered :column="2">
-          <TDescriptionsItem label="任务标题">{{ currentTask.title }}</TDescriptionsItem>
-          <TDescriptionsItem label="状态">
-            <TTag variant="light">{{ statusText[currentTask.status] || currentTask.status }}</TTag>
-          </TDescriptionsItem>
-          <TDescriptionsItem label="项目">
-            {{ projectMap[currentTask.projectId]?.name || currentTask.projectId }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="需求">
-            {{ requirementMap[currentTask.requirementId]?.title || currentTask.requirementId }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="优先级">{{ currentTask.priority }}</TDescriptionsItem>
-          <TDescriptionsItem label="负责人">
-            {{
-              currentTask.assigneeId
-                ? userMap[currentTask.assigneeId]?.displayName || currentTask.assigneeId
-                : '未指派'
-            }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="指派人">
-            {{
-              currentTask.assignedBy
-                ? userMap[currentTask.assignedBy]?.displayName || currentTask.assignedBy
-                : '-'
-            }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="创建人">{{ currentTask.createdBy }}</TDescriptionsItem>
-          <TDescriptionsItem label="指派时间">{{ currentTask.assignedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="完成时间">{{ currentTask.completedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ currentTask.createTime }}</TDescriptionsItem>
-        </TDescriptions>
-        <section class="detail-section">
-          <h3>任务说明</h3>
-          <article>{{ currentTask.description || '暂无任务说明' }}</article>
-        </section>
-      </section>
-    </TDrawer>
   </div>
 </template>
 
 <style scoped>
-.detail-content {
-  display: grid;
-  gap: 16px;
-}
-
-.detail-section {
-  padding: 16px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.detail-section h3 {
-  margin: 0 0 12px;
-}
-
-.detail-section article {
-  min-height: 120px;
-  white-space: pre-wrap;
-}
 </style>

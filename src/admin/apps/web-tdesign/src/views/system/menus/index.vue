@@ -36,6 +36,8 @@ type MenuTreeNode = SystemApi.Menu & {
 };
 
 const loading = ref(false);
+const saving = ref(false);
+const permissionSaving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const permissionVisible = ref(false);
@@ -292,15 +294,21 @@ function openPermission(row?: SystemApi.Permission) {
 }
 
 async function savePermission() {
+  if (permissionSaving.value) return;
   if (!selectedMenu.value) {
     return;
   }
   if (!(await validateForm(permissionFormRef.value))) return;
 
-  await saveSystemPermissionApi({ ...permissionForm, menuId: selectedMenu.value.id });
-  MessagePlugin.success('按钮权限已保存');
-  Object.assign(permissionForm, { code: '', id: undefined, menuId: selectedMenu.value.id, name: '' });
-  await load();
+  permissionSaving.value = true;
+  try {
+    await saveSystemPermissionApi({ ...permissionForm, menuId: selectedMenu.value.id });
+    MessagePlugin.success('按钮权限已保存');
+    Object.assign(permissionForm, { code: '', id: undefined, menuId: selectedMenu.value.id, name: '' });
+    await load();
+  } finally {
+    permissionSaving.value = false;
+  }
 }
 
 function removePermission(row: SystemApi.Permission) {
@@ -317,11 +325,17 @@ function removePermission(row: SystemApi.Permission) {
 }
 
 async function save() {
+  if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
-  await saveSystemMenuApi(form);
-  MessagePlugin.success('菜单已保存');
-  visible.value = false;
-  await load();
+  saving.value = true;
+  try {
+    await saveSystemMenuApi(form);
+    MessagePlugin.success('菜单已保存');
+    visible.value = false;
+    await load();
+  } finally {
+    saving.value = false;
+  }
 }
 
 function remove(row: SystemApi.Menu) {
@@ -377,7 +391,7 @@ onMounted(load);
         class="filter-control"
       />
       <TSpace>
-        <TButton theme="primary" @click="search">查询</TButton>
+        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
         <TButton @click="reset">重置</TButton>
       </TSpace>
     </template>
@@ -391,7 +405,7 @@ onMounted(load);
     </template>
   </SystemPage>
 
-  <TDialog v-model:visible="visible" header="菜单维护" width="660px" confirm-btn="保存" @confirm="save">
+  <TDialog v-model:visible="visible" header="菜单维护" width="660px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="上级菜单">
         <TSelect v-model="form.parentId" clearable filterable :options="parentOptions" placeholder="顶级菜单可留空" />
@@ -440,7 +454,7 @@ onMounted(load);
       <TFormItem label="按钮名称" name="name"><TInput v-model="permissionForm.name" placeholder="新增用户" /></TFormItem>
       <TFormItem>
         <TSpace>
-          <TButton theme="primary" @click="savePermission">保存按钮权限</TButton>
+          <TButton theme="primary" :loading="permissionSaving" @click="savePermission">保存按钮权限</TButton>
           <TButton @click="openPermission()">清空</TButton>
         </TSpace>
       </TFormItem>

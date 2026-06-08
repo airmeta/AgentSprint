@@ -1,7 +1,12 @@
 using System.Text;
 
+using AgentSprint.Domain.Impls.Agile;
+using AgentSprint.Domain.Impls.Security;
+using AgentSprint.Domain.Impls.Tests;
 using AgentSprint.Entry.Development;
+using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Security.Domains;
+using AgentSprint.Model.Modules.Tests.Domains;
 using AgentSprint.Repository;
 using AgentSprint.Repository.DbContexts;
 using AgentSprint.Service.Security;
@@ -87,6 +92,42 @@ public sealed class Startup : AppStartup
                     new SqlCommandAuditInterceptor()
                 ]);
         }, "AgentSprint.Entry");
+
+        services.AddTransient<IUserDomain, UserDomain>();
+        services.AddTransient<IRoleDomain, RoleDomain>();
+        services.AddTransient<IMenuDomain, MenuDomain>();
+        services.AddTransient<IPermissionDomain, PermissionDomain>();
+        services.AddTransient<IAgentTokenDomain, AgentTokenDomain>();
+        services.AddTransient<ISystemConfigurationDomain, SystemConfigurationDomain>();
+        services.AddTransient<IUserGroupDomain, UserGroupDomain>();
+        services.AddTransient<IRoleGroupDomain, RoleGroupDomain>();
+        services.AddTransient<IDepartmentDomain, DepartmentDomain>();
+        services.AddTransient<IAssignmentDomain, AssignmentDomain>();
+        services.AddTransient<IDictionaryTypeDomain, DictionaryTypeDomain>();
+        services.AddTransient<IDictionaryItemDomain, DictionaryItemDomain>();
+        services.AddTransient<IRuntimeEnvironmentDomain, RuntimeEnvironmentDomain>();
+        services.AddTransient<IRuntimeEnvironmentContainerDomain, RuntimeEnvironmentContainerDomain>();
+        services.AddTransient<IPromptTemplateDomain, PromptTemplateDomain>();
+        services.AddTransient<IEntityAssociationDomain, EntityAssociationDomain>();
+        services.AddTransient<IUserRoleDomain, UserRoleDomain>();
+        services.AddTransient<IRoleMenuDomain, RoleMenuDomain>();
+        services.AddTransient<IRolePermissionDomain, RolePermissionDomain>();
+
+        services.AddTransient<ISprintProjectDomain, SprintProjectDomain>();
+        services.AddTransient<ISprintProjectMemberDomain, SprintProjectMemberDomain>();
+        services.AddTransient<ISprintProjectEndpointDomain, SprintProjectEndpointDomain>();
+        services.AddTransient<ISprintFeatureModuleDomain, SprintFeatureModuleDomain>();
+        services.AddTransient<ISprintRequirementDomain, SprintRequirementDomain>();
+        services.AddTransient<ISprintSkillDomain, SprintSkillDomain>();
+        services.AddTransient<ISprintFeatureSuggestionDomain, SprintFeatureSuggestionDomain>();
+        services.AddTransient<ISprintRequirementFeedbackDomain, SprintRequirementFeedbackDomain>();
+        services.AddTransient<ISprintRequirementReviewDomain, SprintRequirementReviewDomain>();
+        services.AddTransient<ISprintDevelopmentTaskDomain, SprintDevelopmentTaskDomain>();
+        services.AddTransient<ISprintBugDomain, SprintBugDomain>();
+        services.AddTransient<ISprintTaskLeaseDomain, SprintTaskLeaseDomain>();
+
+        services.AddTransient<ITestPlanDomain, TestPlanDomain>();
+        services.AddTransient<ITestExecutionDomain, TestExecutionDomain>();
 
         if (UseInMemorySecurity())
         {

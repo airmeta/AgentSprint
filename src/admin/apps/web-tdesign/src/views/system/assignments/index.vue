@@ -20,6 +20,7 @@ import {
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
+const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const assignments = ref<SystemApi.CodeName[]>([]);
@@ -93,11 +94,17 @@ function reset() {
 }
 
 async function save() {
+  if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
-  await saveAssignmentApi(form);
-  MessagePlugin.success('岗位已保存');
-  visible.value = false;
-  await load();
+  saving.value = true;
+  try {
+    await saveAssignmentApi(form);
+    MessagePlugin.success('岗位已保存');
+    visible.value = false;
+    await load();
+  } finally {
+    saving.value = false;
+  }
 }
 
 function remove(row: SystemApi.CodeName) {
@@ -129,7 +136,7 @@ onMounted(load);
           class="filter-control"
         />
         <TSpace>
-          <TButton theme="primary" @click="search">查询</TButton>
+          <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
           <TButton @click="reset">重置</TButton>
         </TSpace>
       </template>
@@ -141,7 +148,7 @@ onMounted(load);
         </TSpace>
       </template>
     </SystemPage>
-    <TDialog v-model:visible="visible" header="岗位维护" width="560px" confirm-btn="保存" @confirm="save">
+    <TDialog v-model:visible="visible" header="岗位维护" width="560px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
       <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
         <TFormItem label="岗位编码" name="code"><TInput v-model="form.code" /></TFormItem>
         <TFormItem label="岗位名称" name="name"><TInput v-model="form.name" /></TFormItem>

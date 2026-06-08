@@ -73,6 +73,16 @@ public sealed class StartupConfigurationTests
     {
         Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IUserDomain)));
         Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IUserDomain)));
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IDictionaryTypeDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IDictionaryTypeDomain)));
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IDictionaryItemDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IDictionaryItemDomain)));
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IRuntimeEnvironmentDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IRuntimeEnvironmentDomain)));
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IRuntimeEnvironmentContainerDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IRuntimeEnvironmentContainerDomain)));
+        Assert.True(typeof(IEntityDomain).IsAssignableFrom(typeof(IPromptTemplateDomain)));
+        Assert.True(typeof(ITransient).IsAssignableFrom(typeof(IPromptTemplateDomain)));
     }
 
     [Fact]

@@ -35,6 +35,7 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 import '../_shared/table-layout.css';
 
+const creating = ref(false);
 const loading = ref(false);
 const createVisible = ref(false);
 const createFormRef = ref<FormInstanceFunctions>();
@@ -205,31 +206,37 @@ async function resetFilters() {
 }
 
 async function createDefect() {
+  if (creating.value) return;
   if (!(await validateForm(createFormRef.value))) return;
   if (!form.projectId || !form.requirementId || !form.title.trim()) {
     MessagePlugin.warning('项目、需求和缺陷标题不能为空');
     return;
   }
 
-  await createBugApi({
-    description: form.description,
-    environment: form.environment,
-    projectId: form.projectId,
-    requirementId: form.requirementId,
-    severity: form.severity,
-    title: form.title,
-  });
-  MessagePlugin.success('缺陷已提交');
-  Object.assign(form, {
-    description: '',
-    environment: 'test',
-    projectId: '',
-    requirementId: '',
-    severity: 'major',
-    title: '',
-  });
-  createVisible.value = false;
-  await loadDefects();
+  creating.value = true;
+  try {
+    await createBugApi({
+      description: form.description,
+      environment: form.environment,
+      projectId: form.projectId,
+      requirementId: form.requirementId,
+      severity: form.severity,
+      title: form.title,
+    });
+    MessagePlugin.success('缺陷已提交');
+    Object.assign(form, {
+      description: '',
+      environment: 'test',
+      projectId: '',
+      requirementId: '',
+      severity: 'major',
+      title: '',
+    });
+    createVisible.value = false;
+    await loadDefects();
+  } finally {
+    creating.value = false;
+  }
 }
 
 async function claimDefect(defect: SprintMvpApi.Bug) {
@@ -285,8 +292,8 @@ onMounted(async () => {
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryDefects">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryDefects">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
@@ -295,7 +302,7 @@ onMounted(async () => {
       <div class="sprint-table-header">
         <h3>缺陷列表</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" @click="loadDefects">↻</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadDefects">↻</TButton>
           <TButton theme="primary" @click="openCreate">提交缺陷</TButton>
         </div>
       </div>
@@ -351,7 +358,7 @@ onMounted(async () => {
       v-model:visible="createVisible"
       :size="'60%'"
       header="提交缺陷"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: creating }"
       @confirm="createDefect"
     >
       <TForm ref="createFormRef" :data="form" :rules="defectRules" label-width="80px">

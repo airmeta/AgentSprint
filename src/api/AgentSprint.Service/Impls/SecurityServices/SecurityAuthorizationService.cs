@@ -35,6 +35,9 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         "SystemConfigurations",
         "SystemDepartments",
         "SystemAssignments",
+        "GlobalConfig",
+        "GlobalConfigEnvironments",
+        "GlobalConfigPromptTemplates",
         "Security",
         "SystemAgentTokens"
     ];
@@ -334,6 +337,9 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "SystemRoles" => "角色管理",
             "SystemMenus" => "菜单管理",
             "SystemConfigurations" => "系统配置",
+            "GlobalConfig" => "全局配置",
+            "GlobalConfigEnvironments" => "环境管理",
+            "GlobalConfigPromptTemplates" => "提示词设置",
             "SystemAgentTokens" => "令牌管理",
             "SystemDepartments" => "部门管理",
             "SystemAssignments" => "岗位管理",
@@ -352,6 +358,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "WorkerGroup" => "/sprint/my-tasks",
             "TestGroup" => "/sprint/tests",
             "System" => "/system/users",
+            "GlobalConfig" => "/global-config/environments",
             "Security" => "/system/agent-tokens",
             _ => null
         };

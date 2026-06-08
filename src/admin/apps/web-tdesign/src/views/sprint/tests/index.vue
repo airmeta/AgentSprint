@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
@@ -35,6 +35,7 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 import '../_shared/table-layout.css';
 
+const creating = ref(false);
 const loading = ref(false);
 const executionLoading = ref(false);
 const createVisible = ref(false);
@@ -257,22 +258,28 @@ function openCreate() {
 }
 
 async function createPlan() {
+  if (creating.value) return;
   if (!(await validateForm(planFormRef.value))) return;
   if (!planForm.projectId || !planForm.requirementId || !planForm.name.trim()) {
     MessagePlugin.warning('项目、需求和测试计划名称不能为空');
     return;
   }
 
-  await createTestPlanApi({
-    environment: planForm.environment,
-    name: planForm.name.trim(),
-    projectId: planForm.projectId,
-    requirementId: planForm.requirementId,
-    testUrl: planForm.testUrl.trim() || undefined,
-  });
-  MessagePlugin.success('测试计划已创建');
-  createVisible.value = false;
-  await loadPlans();
+  creating.value = true;
+  try {
+    await createTestPlanApi({
+      environment: planForm.environment,
+      name: planForm.name.trim(),
+      projectId: planForm.projectId,
+      requirementId: planForm.requirementId,
+      testUrl: planForm.testUrl.trim() || undefined,
+    });
+    MessagePlugin.success('测试计划已创建');
+    createVisible.value = false;
+    await loadPlans();
+  } finally {
+    creating.value = false;
+  }
 }
 
 async function startPlan(plan: SprintTestApi.TestPlan) {
@@ -397,8 +404,8 @@ onMounted(async () => {
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" @click="queryPlans">查询</TButton>
-          <TButton variant="outline" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryPlans">查询</TButton>
+          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
         </div>
       </div>
     </section>
@@ -407,7 +414,7 @@ onMounted(async () => {
       <div class="sprint-table-header">
         <h3>测试计划列表</h3>
         <div class="sprint-table-actions">
-          <TButton @click="loadPlans">刷新</TButton>
+          <TButton :loading="loading" @click="loadPlans">刷新</TButton>
           <TButton theme="primary" @click="openCreate">新增测试计划</TButton>
         </div>
       </div>
@@ -452,7 +459,7 @@ onMounted(async () => {
       v-model:visible="createVisible"
       :size="'40%'"
       header="新增测试计划"
-      confirm-btn="保存"
+      :confirm-btn="{ content: '保存', loading: creating }"
       @confirm="createPlan"
     >
       <TForm ref="planFormRef" :data="planForm" :rules="planRules" label-width="90px">

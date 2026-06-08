@@ -20,6 +20,8 @@ import { refreshTokenApi } from './core';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
+let isHandlingUnauthorized = false;
+
 function normalizeFrameworkResponse(responseData: any) {
   if (
     responseData &&
@@ -35,6 +37,20 @@ function normalizeFrameworkResponse(responseData: any) {
   return responseData;
 }
 
+async function handleUnauthorized() {
+  if (isHandlingUnauthorized) {
+    return;
+  }
+
+  isHandlingUnauthorized = true;
+  try {
+    const authStore = useAuthStore();
+    await authStore.logout();
+  } finally {
+    isHandlingUnauthorized = false;
+  }
+}
+
 function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   const client = new RequestClient({
     ...options,
@@ -47,16 +63,9 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   async function doReAuthenticate() {
     console.warn('Access token or refresh token is invalid or expired. ');
     const accessStore = useAccessStore();
-    const authStore = useAuthStore();
     accessStore.setAccessToken(null);
-    if (
-      preferences.app.loginExpiredMode === 'modal' &&
-      accessStore.isAccessChecked
-    ) {
-      accessStore.setLoginExpired(true);
-    } else {
-      await authStore.logout();
-    }
+    accessStore.setLoginExpired(false);
+    await handleUnauthorized();
   }
 
   /**
@@ -95,6 +104,27 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     },
   );
 
+  client.addResponseInterceptor({
+    fulfilled: async (response) => {
+      const responseCode = response.data?.code;
+      if (response.status === 401 || responseCode === 401) {
+        await handleUnauthorized();
+        throw Object.assign({}, response, { response });
+      }
+
+      return response;
+    },
+    rejected: async (error) => {
+      const response = error?.response;
+      const responseCode = response?.data?.code;
+      if (response?.status === 401 || responseCode === 401) {
+        await handleUnauthorized();
+      }
+
+      throw error;
+    },
+  });
+
   client.addResponseInterceptor(
     defaultResponseInterceptor({
       codeField: 'code',
@@ -117,6 +147,13 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   // 通用的错误处理,如果没有进入上面的错误处理逻辑，就会进入这里
   client.addResponseInterceptor(
     errorMessageResponseInterceptor((msg: string, error) => {
+      if (
+        error?.response?.status === 401 ||
+        error?.response?.data?.code === 401
+      ) {
+        return;
+      }
+
       // 这里可以根据业务进行定制,你可以拿到 error 内的信息进行定制化处理，根据不同的 code 做不同的提示，而不是直接使用 message.error 提示 msg
       // 当前mock接口返回的错误字段是 error 或者 message
       const responseData = error?.response?.data ?? {};

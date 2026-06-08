@@ -132,6 +132,41 @@ public sealed class AssignmentDomain : EntityDomainBase<AssignmentEntity>, IAssi
     }
 }
 
+public sealed class DictionaryTypeDomain : EntityDomainBase<DictionaryTypeEntity>, IDictionaryTypeDomain
+{
+    public DictionaryTypeDomain(IRepository<DictionaryTypeEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DictionaryItemDomain : EntityDomainBase<DictionaryItemEntity>, IDictionaryItemDomain
+{
+    public DictionaryItemDomain(IRepository<DictionaryItemEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class RuntimeEnvironmentDomain : EntityDomainBase<RuntimeEnvironmentEntity>, IRuntimeEnvironmentDomain
+{
+    public RuntimeEnvironmentDomain(IRepository<RuntimeEnvironmentEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class RuntimeEnvironmentContainerDomain : EntityDomainBase<RuntimeEnvironmentContainerEntity>, IRuntimeEnvironmentContainerDomain
+{
+    public RuntimeEnvironmentContainerDomain(IRepository<RuntimeEnvironmentContainerEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class PromptTemplateDomain : EntityDomainBase<PromptTemplateEntity>, IPromptTemplateDomain
+{
+    public PromptTemplateDomain(IRepository<PromptTemplateEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class EntityAssociationDomain : EntityDomainBase<EntityAssociationEntity>, IEntityAssociationDomain
 {
     public EntityAssociationDomain(IRepository<EntityAssociationEntity> repository) : base(repository)
