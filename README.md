@@ -1,5 +1,8 @@
 # 烛照项目自动化协同平台
  简称烛照协同平台,面向 AI Agent / Codex 的敏捷需求接取、开发、测试发布平台。/Agile workflow platform for Codex-style coding agents. 
+<img width="2560" height="1389" alt="image" src="https://github.com/user-attachments/assets/f7ff231a-f756-47bc-a924-57736de19321" />
+
+
 
 ## 自动化流程
 
@@ -27,9 +30,17 @@
 
    ### 开始工作
    1. 登录烛照协同平台中的我的任务列表找到优先级最高的任务
+   <img width="2560" height="1389" alt="image" src="https://github.com/user-attachments/assets/ca441c79-1925-4827-b33b-004e6624cfbb" />
+   
    2. 选中任务并点击任务推进
+   
    3. 根据弹出的抽屉复制MCP服务器信息,粘贴给Codex,让Codex配置MCP服务器(仅仅在初次配置/烛照协同平台迁移到其他位置时执行)
+   <img width="2560" height="1389" alt="image" src="https://github.com/user-attachments/assets/e44b45e5-4f0b-4a45-82c0-f2a392fd1279" />
+   
    4. 复制任务推进提示词,键入Codex项目工作空间聊天框中即可
+   <img width="2560" height="1541" alt="image" src="https://github.com/user-attachments/assets/2d4464f6-03c7-4053-bafb-0b11d11031aa" />
+
+   5. Codex可能会将其设为一个目标,并持续进行自动化推进,只要平台内有当前任务即可自动推进
 
 ## 后续规划
    1. 优化现有的功能流程,修复页面操作Bug
@@ -43,3 +54,6 @@
    9. 增加项目运行监控,允许以整体角度观察项目管理中的进度统计,生产环境,测试环境,各类关联组件/服务器的状态监控
    10. 增加AI管理, 将安全管理的令牌管理移动到此,并增加 当前活动自动化会话的管理(MCP已支持), 三方OpenAI协议的对接与配置(类中转站的消息中转与转发)
    11. 增加安全审查管理,对每次AI的对话内容进行安全审计,严防泄密,数据泄露等各类安全合规性要求(前提是10已经完成)
+
+## 注意事项
+   不建议在已有的项目中推动此平台,这可能会导致代码发生大规模重构/数据库重建等危险性操作, 在尝试此平台时,优先建议尝试新的项目或者微服务架构中的某个单独的服务
