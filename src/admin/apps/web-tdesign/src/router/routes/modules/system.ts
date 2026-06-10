@@ -85,24 +85,46 @@ const routes: RouteRecordRaw[] = [
   },
   {
     meta: {
+      icon: 'lucide:server-cog',
+      order: 91,
+      title: '运维管理',
+    },
+    name: 'OperationManagement',
+    path: '/operations',
+    redirect: '/operations/scripts',
+    children: [
+      {
+        name: 'OperationScripts',
+        path: '/operations/scripts',
+        component: () => import('#/views/operations/scripts/index.vue'),
+        meta: {
+          icon: 'lucide:file-terminal',
+          keepAlive: false,
+          title: '脚本管理',
+        },
+      },
+      {
+        name: 'OperationEnvironments',
+        path: '/operations/environments',
+        component: () => import('#/views/system/runtime-environments/index.vue'),
+        meta: {
+          icon: 'lucide:server-cog',
+          keepAlive: false,
+          title: '环境配置',
+        },
+      },
+    ],
+  },
+  {
+    meta: {
       icon: 'lucide:sliders-horizontal',
       order: 92,
       title: '全局配置',
     },
     name: 'GlobalConfig',
     path: '/global-config',
-    redirect: '/global-config/environments',
+    redirect: '/global-config/prompt-templates',
     children: [
-      {
-        name: 'GlobalConfigEnvironments',
-        path: '/global-config/environments',
-        component: () => import('#/views/system/runtime-environments/index.vue'),
-        meta: {
-          icon: 'lucide:server-cog',
-          keepAlive: false,
-          title: '环境管理',
-        },
-      },
       {
         name: 'GlobalConfigPromptTemplates',
         path: '/global-config/prompt-templates',
@@ -111,6 +133,16 @@ const routes: RouteRecordRaw[] = [
           icon: 'lucide:message-square-code',
           keepAlive: false,
           title: '提示词设置',
+        },
+      },
+      {
+        name: 'GlobalConfigSkills',
+        path: '/global-config/skills',
+        component: () => import('#/views/sprint/skills/index.vue'),
+        meta: {
+          icon: 'lucide:brain-circuit',
+          keepAlive: false,
+          title: 'Skill配置',
         },
       },
     ],

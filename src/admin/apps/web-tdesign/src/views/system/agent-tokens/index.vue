@@ -9,24 +9,23 @@ import {
   type SystemApi,
 } from '#/api';
 import { listProjectsApi, type SprintMvpApi } from '#/api/sprint/mvp';
-import SystemPage from '#/views/system/_shared/system-page.vue';
-import { getCellRow } from '#/views/system/_shared/table-cell';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Button as TButton,
   DatePicker as TDatePicker,
   Drawer as TDrawer,
   DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
-import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
 const creating = ref(false);
@@ -52,16 +51,24 @@ const query = reactive({
   keyword: '',
   status: '',
 });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
 
 const columns = [
-  { colKey: 'name', title: '名称' },
-  { colKey: 'maskedToken', title: '令牌' },
-  { colKey: 'ownerUsername', title: '归属用户' },
-  { colKey: 'projectId', title: '归属项目' },
-  { colKey: 'expiresAt', title: '到期时间', cell: (...args: any[]) => formatTime(getCellRow(args[0], args[1])?.expiresAt) },
-  { colKey: 'lastUsedAt', title: '最后使用', cell: (...args: any[]) => formatTime(getCellRow(args[0], args[1])?.lastUsedAt) },
-  { colKey: 'status', title: '状态', cell: 'status' },
-  { colKey: 'actions', title: '操作', cell: 'actions' },
+  { colKey: 'name', title: '名称', width: 160 },
+  { colKey: 'maskedToken', title: '令牌', width: 220 },
+  { colKey: 'ownerUsername', title: '归属用户', width: 140 },
+  { colKey: 'projectId', title: '归属项目', width: 180 },
+  { colKey: 'expiresAt', title: '到期时间', width: 170 },
+  { colKey: 'lastUsedAt', title: '最后使用', width: 170 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'actions', title: '操作', width: 120 },
+];
+const statusOptions = [
+  { label: '有效', value: '1' },
+  { label: '已撤销', value: '0' },
 ];
 
 const projectOptions = computed(() =>
@@ -73,21 +80,12 @@ const projectOptions = computed(() =>
 const projectNameMap = computed(() =>
   Object.fromEntries(projects.value.map((project) => [project.id, `${project.code} · ${project.name}`])),
 );
-
-const filteredTokens = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  const status = query.status;
-  return tokens.value.filter((token) => {
-    const matchesKeyword =
-      !keyword ||
-      lowerText(token.name).includes(keyword) ||
-      lowerText(token.maskedToken).includes(keyword) ||
-      lowerText(token.ownerUsername).includes(keyword) ||
-      lowerText(token.projectId).includes(keyword);
-    const matchesStatus = !status || String(token.status) === status;
-    return matchesKeyword && matchesStatus;
-  });
-});
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: tokens.value.length,
+}));
 
 function defaultExpiresAt() {
   const target = new Date();
@@ -98,18 +96,6 @@ function defaultExpiresAt() {
 function toDateValue(value: Date) {
   const pad = (item: number) => String(item).padStart(2, '0');
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-}
-
-function formatTime(value?: string) {
-  if (!value) {
-    return '-';
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : toDateValue(date);
-}
-
-function lowerText(value?: string | null) {
-  return String(value || '').toLowerCase();
 }
 
 function resolveProjectName(projectId?: string) {
@@ -178,19 +164,26 @@ function openCreate() {
   createVisible.value = true;
 }
 
-function search() {
-  Object.assign(query, filters);
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
 }
 
-function reset() {
+async function search() {
+  Object.assign(query, filters);
+  pagination.current = 1;
+  await load();
+}
+
+async function reset() {
   Object.assign(filters, { keyword: '', status: '' });
-  search();
+  await search();
 }
 
 async function load() {
   loading.value = true;
   try {
-    const [tokenResult, projectRows] = await Promise.all([listAgentTokensApi(), listProjectsApi()]);
+    const [tokenResult, projectRows] = await Promise.all([listAgentTokensApi(query), listProjectsApi()]);
     tokens.value = (tokenResult || []).filter(Boolean).map(normalizeToken);
     projects.value = projectRows;
   } finally {
@@ -246,25 +239,37 @@ onMounted(load);
 
 <template>
   <div>
-    <SystemPage title="令牌管理" :addable="true" :columns="columns" :data="filteredTokens" :loading="loading" @add="openCreate">
+    <AdminListPage
+      title="令牌管理"
+      description="维护 AgentSprint MCP 接入令牌，按名称、用户、项目与状态检索令牌记录。"
+      table-title="令牌列表"
+      add-button-text="新增令牌"
+      :columns="columns"
+      :data="tokens"
+      :loading="loading"
+      :pagination="tablePagination"
+      :refreshable="false"
+      @add="openCreate"
+      @page-change="handlePageChange"
+      @reset="reset"
+      @search="search"
+    >
       <template #filters>
-        <TInput v-model="filters.keyword" clearable placeholder="名称 / 令牌 / 用户 / 项目" class="filter-control" />
-        <TSelect
-          v-model="filters.status"
-          clearable
-          placeholder="状态"
-          :options="[
-            { label: '有效', value: '1' },
-            { label: '已撤销', value: '0' },
-          ]"
-          class="filter-control"
-        />
-        <TSpace>
-          <TButton theme="primary" @click="search">查询</TButton>
-          <TButton @click="reset">重置</TButton>
-        </TSpace>
+        <label class="filter-field">
+          <span>令牌信息</span>
+          <TInput v-model="filters.keyword" clearable placeholder="名称 / 令牌 / 用户 / 项目" />
+        </label>
+        <label class="filter-field">
+          <span>状态</span>
+          <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+        </label>
       </template>
-      <template #action>新增令牌</template>
+      <template #expiresAt="{ row }">
+        {{ formatDateTime(row?.expiresAt) }}
+      </template>
+      <template #lastUsedAt="{ row }">
+        {{ formatDateTime(row?.lastUsedAt) }}
+      </template>
       <template #status="{ row }">
         <TTag :theme="statusTheme(row)" variant="light">{{ statusText(row) }}</TTag>
       </template>
@@ -273,10 +278,16 @@ onMounted(load);
       </template>
       <template #actions="{ row }">
         <TSpace>
-          <TLink v-if="row?.status === 1 && !row?.revokedAt" theme="danger" @click="revoke(row)">撤销</TLink>
+          <RowAction
+            v-if="row?.status === 1 && !row?.revokedAt"
+            icon="lucide:ban"
+            label="撤销"
+            theme="danger"
+            @click="revoke(row)"
+          />
         </TSpace>
       </template>
-    </SystemPage>
+    </AdminListPage>
 
     <TDrawer
       v-model:visible="createVisible"
@@ -309,8 +320,12 @@ onMounted(load);
 </template>
 
 <style scoped>
-.filter-control {
-  width: 240px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
 }
 
 .drawer-content {
@@ -336,5 +351,12 @@ onMounted(load);
 
 .token-result__head span {
   color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 </style>

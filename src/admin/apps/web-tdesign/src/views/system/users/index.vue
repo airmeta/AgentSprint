@@ -1,6 +1,7 @@
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref } from 'vue';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
+
+import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
   deleteSystemUserApi,
@@ -9,21 +10,20 @@ import {
   saveSystemUserApi,
   type SystemApi,
 } from '#/api';
-import SystemPage from '#/views/system/_shared/system-page.vue';
-import { getCellRow } from '#/views/system/_shared/table-cell';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Button as TButton,
   Dialog as TDialog,
   DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
+  Tag as TTag,
 } from 'tdesign-vue-next';
-import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -53,42 +53,32 @@ const filters = reactive({
   status: undefined as number | undefined,
 });
 const query = reactive({ ...filters });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
 
+const statusOptions = [
+  { label: '启用', value: 1 },
+  { label: '停用', value: 0 },
+];
 const roleNameMap = computed(() => new Map(roles.value.map((role) => [role.id, role.name])));
 const columns = [
   { colKey: 'username', title: '用户名', width: 160 },
   { colKey: 'displayName', title: '显示名称', width: 160 },
   { colKey: 'email', title: '邮箱', width: 220 },
   { colKey: 'phoneNumber', title: '手机号', width: 150 },
-  {
-    colKey: 'roleIds',
-    title: '角色',
-    cell: (...args: any[]) =>
-      asArray(getCellRow(args[0], args[1])?.roleIds).map((id: string) => roleNameMap.value.get(id) || id).join(', ') || '-',
-  },
-  {
-    colKey: 'status',
-    title: '状态',
-    width: 100,
-    cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用'),
-  },
-  { colKey: 'actions', title: '操作', width: 140, cell: 'actions' },
+  { colKey: 'roleIds', title: '角色' },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'actions', title: '操作', width: 150 },
 ];
 
-const filteredUsers = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return users.value.filter((user) => {
-    const matchesKeyword =
-      !keyword ||
-      user.username.toLowerCase().includes(keyword) ||
-      user.displayName.toLowerCase().includes(keyword) ||
-      (user.email || '').toLowerCase().includes(keyword) ||
-      (user.phoneNumber || '').toLowerCase().includes(keyword);
-    const matchesRole = !query.roleId || asArray(user.roleIds).includes(query.roleId);
-    const matchesStatus = query.status === undefined || user.status === query.status;
-    return matchesKeyword && matchesRole && matchesStatus;
-  });
-});
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: users.value.length,
+}));
 
 function asArray(value: string[] | null | undefined) {
   return Array.isArray(value) ? value : [];
@@ -101,13 +91,25 @@ function normalizeUser(user: SystemApi.User): SystemApi.User {
   };
 }
 
-function search() {
-  Object.assign(query, filters);
+function resolveRoleNames(roleIds?: string[] | null) {
+  const names = asArray(roleIds).map((id) => roleNameMap.value.get(id) || id);
+  return names.length > 0 ? names.join(', ') : '-';
 }
 
-function reset() {
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
+}
+
+async function search() {
+  Object.assign(query, filters);
+  pagination.current = 1;
+  await load();
+}
+
+async function reset() {
   Object.assign(filters, { keyword: '', roleId: '', status: undefined });
-  search();
+  await search();
 }
 
 function open(row?: SystemApi.User) {
@@ -127,7 +129,7 @@ function open(row?: SystemApi.User) {
 async function load() {
   loading.value = true;
   try {
-    const [userRows, roleRows] = await Promise.all([listSystemUsersApi(), listSystemRolesApi()]);
+    const [userRows, roleRows] = await Promise.all([listSystemUsersApi(query), listSystemRolesApi()]);
     users.value = userRows.map(normalizeUser);
     roles.value = roleRows;
     roleOptions.value = roleRows.map((role) => ({
@@ -170,56 +172,69 @@ onMounted(load);
 </script>
 
 <template>
-  <SystemPage
+  <AdminListPage
     title="用户管理"
-    description="维护维护人员、项目成员和系统账号，角色授权后可参与对应业务操作。"
+    description="维护人员、项目成员和系统账号，完成角色授权后可参与对应业务操作。"
+    table-title="用户列表"
+    add-button-text="新增用户"
     :columns="columns"
-    :data="filteredUsers"
+    :data="users"
     :loading="loading"
+    :pagination="tablePagination"
+    :refreshable="false"
     @add="open()"
+    @page-change="handlePageChange"
+    @reset="reset"
+    @search="search"
   >
     <template #filters>
-      <TInput v-model="filters.keyword" clearable placeholder="用户名 / 显示名称 / 邮箱 / 手机号" class="filter-control" />
-      <TSelect v-model="filters.roleId" clearable placeholder="角色" :options="roleOptions" class="filter-control" />
-      <TSelect
-        v-model="filters.status"
-        clearable
-        placeholder="状态"
-        :options="[
-          { label: '启用', value: 1 },
-          { label: '停用', value: 0 },
-        ]"
-        class="filter-control"
-      />
-      <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-        <TButton @click="reset">重置</TButton>
-      </TSpace>
+      <label class="filter-field">
+        <span>用户信息</span>
+        <TInput v-model="filters.keyword" clearable placeholder="用户名 / 显示名称 / 邮箱 / 手机号" />
+      </label>
+      <label class="filter-field">
+        <span>角色</span>
+        <TSelect v-model="filters.roleId" clearable placeholder="全部角色" :options="roleOptions" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+      </label>
     </template>
-    <template #action>新增用户</template>
+
+    <template #roleIds="{ row }">
+      {{ resolveRoleNames(row.roleIds) }}
+    </template>
+    <template #status="{ row }">
+      <TTag :theme="row.status === 1 ? 'success' : 'default'" variant="light">
+        {{ row.status === 1 ? '启用' : '停用' }}
+      </TTag>
+    </template>
     <template #actions="{ row }">
       <TSpace>
-        <TLink v-if="row" theme="primary" @click="open(row)">编辑</TLink>
-        <TLink v-if="row" theme="danger" @click="remove(row)">删除</TLink>
+        <RowAction label="编辑" @click="open(row)" />
+        <RowAction label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
-  </SystemPage>
+  </AdminListPage>
 
-  <TDialog v-model:visible="visible" header="用户维护" width="640px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
+  <TDialog
+    v-model:visible="visible"
+    header="用户维护"
+    width="640px"
+    :confirm-btn="{ content: '保存', loading: saving }"
+    @confirm="save"
+  >
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="用户名" name="username"><TInput v-model="form.username" /></TFormItem>
       <TFormItem label="显示名称" name="displayName"><TInput v-model="form.displayName" /></TFormItem>
-      <TFormItem label="密码" name="password"><TInput v-model="form.password" type="password" placeholder="新增必填，编辑留空则不修改" /></TFormItem>
+      <TFormItem label="密码" name="password">
+        <TInput v-model="form.password" type="password" placeholder="新增必填，编辑留空则不修改" />
+      </TFormItem>
       <TFormItem label="邮箱"><TInput v-model="form.email" /></TFormItem>
       <TFormItem label="手机号"><TInput v-model="form.phoneNumber" /></TFormItem>
       <TFormItem label="状态">
-        <TSelect
-          v-model="form.status"
-          :options="[
-            { label: '启用', value: 1 },
-            { label: '停用', value: 0 },
-          ]"
-        />
+        <TSelect v-model="form.status" :options="statusOptions" />
       </TFormItem>
       <TFormItem label="角色">
         <TSelect v-model="form.roleIds" multiple filterable :options="roleOptions" />
@@ -229,7 +244,18 @@ onMounted(load);
 </template>
 
 <style scoped>
-.filter-control {
-  width: 240px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 </style>

@@ -5,6 +5,7 @@ import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { IconifyIcon } from '@vben/icons';
 import { useUserStore } from '@vben/stores';
 
 import {
@@ -12,7 +13,6 @@ import {
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
-  Input as TInput,
   Link as TLink,
   MessagePlugin,
   Select as TSelect,
@@ -29,8 +29,12 @@ import {
   listUserOptionsApi,
 } from '#/api/sprint/mvp';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
 
 import '../_shared/table-layout.css';
+
+defineOptions({ name: 'SprintTasks' });
 
 const assigning = ref(false);
 const loading = ref(false);
@@ -46,8 +50,8 @@ const userStore = useUserStore();
 const router = useRouter();
 
 const filters = reactive({
-  assigneeId: '',
   projectId: '',
+  relatedUserId: '',
   requirementId: '',
   status: '',
 });
@@ -55,15 +59,15 @@ const assignForm = reactive({
   assigneeId: '',
 });
 const assignRules: FormRules<typeof assignForm> = {
-  assigneeId: requiredRule('请选择开发人员', 'change'),
+  assigneeId: requiredRule('请选择研发人员', 'change'),
 };
 const pagination = reactive({
   current: 1,
   pageSize: 10,
 });
 
-const projectOptions = computed(() =>
-  projects.value.map((item) => ({ label: `${item.code} · ${item.name}`, value: item.id })),
+const selectedProject = computed(() =>
+  projects.value.find((project) => project.id === filters.projectId),
 );
 const requirementOptions = computed(() =>
   requirements.value
@@ -92,9 +96,8 @@ const columns = [
   { colKey: 'projectId', title: '项目', width: 160 },
   { colKey: 'requirementId', title: '需求', width: 200 },
   { colKey: 'status', title: '状态', width: 130 },
+  { colKey: 'relatedUser', title: '关联人员', width: 180 },
   { colKey: 'priority', title: '优先级', width: 90 },
-  { colKey: 'assigneeId', title: '负责人', width: 140 },
-  { colKey: 'assignedBy', title: '指派人', width: 140 },
   { colKey: 'actions', title: '操作', width: 160 },
 ];
 
@@ -131,14 +134,15 @@ async function loadBase() {
     listRequirementsApi(),
     listUserOptionsApi(),
   ]);
+  filters.projectId ||= projects.value[0]?.id || '';
 }
 
 async function loadTasks() {
   loading.value = true;
   try {
     tasks.value = await listDevelopmentTasksApi({
-      assigneeId: canAssignTask.value ? filters.assigneeId || undefined : undefined,
       projectId: filters.projectId || undefined,
+      relatedUserId: canAssignTask.value ? filters.relatedUserId || undefined : undefined,
       requirementId: filters.requirementId || undefined,
       status: filters.status || undefined,
     });
@@ -154,16 +158,17 @@ async function queryTasks() {
 
 async function resetFilters() {
   Object.assign(filters, {
-    assigneeId: '',
-    projectId: '',
+    projectId: projects.value[0]?.id || '',
+    relatedUserId: '',
     requirementId: '',
     status: '',
   });
   await loadTasks();
 }
 
-function handleProjectFilterChange() {
+async function handleProjectChange() {
   filters.requirementId = '';
+  await loadTasks();
 }
 
 function openAssign(task: SprintMvpApi.DevelopmentTask) {
@@ -221,24 +226,32 @@ onActivated(async () => {
 </script>
 
 <template>
-  <div class="tasks-page sprint-list-page">
-    <section class="sprint-page-title">
+  <ProjectSecondaryListShell
+    v-model:selected-project-id="filters.projectId"
+    class="tasks-page"
+    :loading="loading"
+    :projects="projects"
+    @project-change="handleProjectChange"
+    @refresh="loadTasks"
+  >
+    <template #header>
+      <section class="sprint-page-title">
       <h2>任务大厅</h2>
-      <p>统一管理需求拆解后的任务，并指派给具体开发人员。</p>
-    </section>
+      <p>统一管理需求拆解后的任务，并指派给具体研发人员。</p>
+      </section>
+    </template>
+
+    <template #workspace-header>
+      <div class="workspace-head">
+        <div>
+          <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
+          <p>{{ selectedProject?.code || '-' }}</p>
+        </div>
+      </div>
+    </template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>项目</span>
-          <TSelect
-            v-model="filters.projectId"
-            clearable
-            :options="projectOptions"
-            placeholder="全部项目"
-            @change="handleProjectFilterChange"
-          />
-        </label>
         <label class="sprint-filter-field">
           <span>需求</span>
           <TSelect
@@ -249,8 +262,14 @@ onActivated(async () => {
           />
         </label>
         <label v-if="canAssignTask" class="sprint-filter-field">
-          <span>负责人</span>
-          <TInput v-model="filters.assigneeId" clearable placeholder="负责人 ID" />
+          <span>关联人员</span>
+          <TSelect
+            v-model="filters.relatedUserId"
+            clearable
+            filterable
+            :options="userOptions"
+            placeholder="负责人 / 指派人"
+          />
         </label>
         <div v-else class="sprint-filter-field">
           <span>范围</span>
@@ -266,8 +285,18 @@ onActivated(async () => {
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :loading="loading" @click="queryTasks">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryTasks">
+            <template #icon>
+              <IconifyIcon icon="lucide:search" />
+            </template>
+            查询
+          </TButton>
+          <TButton :disabled="loading" @click="resetFilters">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            重置
+          </TButton>
         </div>
       </div>
     </section>
@@ -276,19 +305,22 @@ onActivated(async () => {
       <div class="sprint-table-header">
         <h3>任务列表</h3>
         <div class="sprint-table-actions">
-          <TButton :loading="loading" @click="loadTasks">刷新</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadTasks">
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </TButton>
         </div>
       </div>
 
       <TTable
         row-key="id"
         class="sprint-compact-table"
-        :columns="columns"
+        :columns="withSerialColumn(columns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
         :data="tasks"
         :loading="loading"
         :pagination="tablePagination"
         size="small"
         hover
+        stripe
         @page-change="handlePageChange"
       >
         <template #projectId="{ row }">
@@ -300,16 +332,22 @@ onActivated(async () => {
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
-        <template #assigneeId="{ row }">
-          {{ row.assigneeId ? userMap[row.assigneeId]?.displayName || row.assigneeId : '未指派' }}
-        </template>
-        <template #assignedBy="{ row }">
-          {{ row.assignedBy ? userMap[row.assignedBy]?.displayName || row.assignedBy : '-' }}
+        <template #relatedUser="{ row }">
+          <div class="task-related-users">
+            <span>负责人：{{ row.assigneeId ? userMap[row.assigneeId]?.displayName || row.assigneeId : '未指派' }}</span>
+            <span>指派人：{{ row.assignedBy ? userMap[row.assignedBy]?.displayName || row.assignedBy : '-' }}</span>
+          </div>
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
-            <TLink theme="primary" @click="openDetail(row)">详情</TLink>
-            <TLink v-if="canAssignTask" theme="primary" @click="openAssign(row)">指派</TLink>
+            <TLink theme="primary" @click="openDetail(row)">
+              <IconifyIcon icon="lucide:eye" />
+              <span>详情</span>
+            </TLink>
+            <TLink v-if="canAssignTask" theme="primary" @click="openAssign(row)">
+              <IconifyIcon icon="lucide:user-plus" />
+              <span>指派</span>
+            </TLink>
           </TSpace>
         </template>
       </TTable>
@@ -323,19 +361,26 @@ onActivated(async () => {
       @confirm="assignTask"
     >
       <TForm ref="assignFormRef" :data="assignForm" :rules="assignRules" label-width="80px">
-        <TFormItem label="开发人员" name="assigneeId">
+        <TFormItem label="研发人员" name="assigneeId">
           <TSelect
             v-model="assignForm.assigneeId"
             :options="userOptions"
             filterable
-            placeholder="选择开发人员"
+            placeholder="选择研发人员"
           />
         </TFormItem>
       </TForm>
     </TDrawer>
-
-  </div>
+  </ProjectSecondaryListShell>
 </template>
 
 <style scoped>
+.task-related-users {
+  display: grid;
+  gap: 2px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
 </style>
+

@@ -13,7 +13,6 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         "Workspace",
         "ProjectGroup",
         "SprintProjects",
-        "SprintSkills",
         "SprintMultiEndpoints",
         "SprintProjectDetail",
         "ProductGroup",
@@ -28,6 +27,9 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         "SprintTests",
         "SprintDefects",
         "SprintDefectDetail",
+        "OperationManagement",
+        "OperationScripts",
+        "OperationEnvironments",
         "System",
         "SystemUsers",
         "SystemRoles",
@@ -38,6 +40,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         "GlobalConfig",
         "GlobalConfigEnvironments",
         "GlobalConfigPromptTemplates",
+        "GlobalConfigSkills",
         "Security",
         "SystemAgentTokens"
     ];
@@ -221,7 +224,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
                         Title = ResolveMenuTitle(entity.Name),
                         HideInMenu = entity.Type == 2 ? true : null,
                         ActivePath = ResolveActivePath(entity.Name),
-                        AffixTab = entity.Name is "Workspace" or "SprintProjects" or "SprintSkills" or "SprintMultiEndpoints" ? true : null
+                        AffixTab = entity.Name is "Workspace" or "SprintProjects" or "SprintMultiEndpoints" ? true : null
                     }
                 }))
             .ToList();
@@ -282,6 +285,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
     {
         if (path == "/sprint" ||
             path == "/system/org" ||
+            path == "/global-config/environments" ||
             path.StartsWith("/demos", StringComparison.Ordinal) ||
             path.StartsWith("/vben-admin", StringComparison.Ordinal))
         {
@@ -317,7 +321,6 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         {
             "ProjectGroup" => "项目管理",
             "SprintProjects" => "项目配置",
-            "SprintSkills" => "Skill配置",
             "SprintMultiEndpoints" => "多端管理",
             "SprintProjectDetail" => "项目详情",
             "ProductGroup" => "产品管理",
@@ -332,6 +335,9 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "SprintTests" => "测试计划",
             "SprintDefects" => "缺陷跟踪",
             "SprintDefectDetail" => "缺陷详情",
+            "OperationManagement" => "运维管理",
+            "OperationScripts" => "脚本管理",
+            "OperationEnvironments" => "环境配置",
             "System" => "系统管理",
             "SystemUsers" => "用户管理",
             "SystemRoles" => "角色管理",
@@ -340,6 +346,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "GlobalConfig" => "全局配置",
             "GlobalConfigEnvironments" => "环境管理",
             "GlobalConfigPromptTemplates" => "提示词设置",
+            "GlobalConfigSkills" => "Skill配置",
             "SystemAgentTokens" => "令牌管理",
             "SystemDepartments" => "部门管理",
             "SystemAssignments" => "岗位管理",
@@ -357,8 +364,9 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "ProductGroup" => "/sprint/requirements",
             "WorkerGroup" => "/sprint/my-tasks",
             "TestGroup" => "/sprint/tests",
+            "OperationManagement" => "/operations/scripts",
             "System" => "/system/users",
-            "GlobalConfig" => "/global-config/environments",
+            "GlobalConfig" => "/global-config/prompt-templates",
             "Security" => "/system/agent-tokens",
             _ => null
         };

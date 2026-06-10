@@ -2,6 +2,7 @@
 import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
@@ -32,8 +33,13 @@ import {
   updateTestExecutionBugApi,
 } from '#/api/sprint/mvp';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
 
 import '../_shared/table-layout.css';
+
+defineOptions({ name: 'SprintTests' });
 
 const creating = ref(false);
 const loading = ref(false);
@@ -90,6 +96,9 @@ const testableRequirementStatuses = new Set(['ready_test', 'testing', 'tested', 
 const projectOptions = computed(() =>
   projects.value.map((item) => ({ label: `${item.code} / ${item.name}`, value: item.id })),
 );
+const selectedProject = computed(() =>
+  projects.value.find((project) => project.id === filters.projectId),
+);
 const requirementOptions = computed(() =>
   requirements.value
     .filter(
@@ -123,10 +132,10 @@ const bugOptions = computed(() =>
 
 const planColumns = [
   { colKey: 'name', ellipsis: true, title: '测试计划' },
-  { colKey: 'projectId', title: '项目', width: 160 },
   { colKey: 'requirementId', title: '需求', width: 220 },
   { colKey: 'environment', title: '环境', width: 100 },
   { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'testability', title: '可测状态', width: 130 },
   { colKey: 'createdBy', title: '测试负责人', width: 130 },
   { colKey: 'actions', title: '操作', width: 260 },
 ];
@@ -147,6 +156,21 @@ const planStatusText: Record<string, string> = {
   passed: '已通过',
   pending: '待执行',
   testing: '测试中',
+};
+const requirementStatusText: Record<string, string> = {
+  approved: '评审通过',
+  completed: '已完成',
+  decomposed: '已拆解',
+  developing: '进行中',
+  draft: '草稿',
+  pending_fix: '待修复',
+  pending_review: '待评审',
+  ready_development: '待开发',
+  ready_test: '待测试',
+  rejected: '评审驳回',
+  tested: '已测试',
+  testing: '测试中',
+  voided: '已作废',
 };
 const executionResultText: Record<string, string> = {
   blocked: '阻塞',
@@ -185,6 +209,7 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }) {
 async function loadBase() {
   projects.value = await listProjectsApi();
   requirements.value = await listRequirementsApi();
+  filters.projectId ||= projects.value[0]?.id || '';
   if (!planForm.testUrl) {
     planForm.testUrl = projects.value.find((item) => item.id === filters.projectId)?.testEnvironmentUrl || '';
   }
@@ -219,6 +244,7 @@ async function loadBugs(projectId?: string, requirementId?: string) {
 async function handleProjectChange() {
   filters.requirementId = '';
   planForm.testUrl = projects.value.find((item) => item.id === filters.projectId)?.testEnvironmentUrl || '';
+  await loadPlans();
 }
 
 async function queryPlans() {
@@ -227,7 +253,7 @@ async function queryPlans() {
 
 async function resetFilters() {
   Object.assign(filters, {
-    projectId: '',
+    projectId: projects.value[0]?.id || '',
     requirementId: '',
   });
   await loadPlans();
@@ -283,6 +309,11 @@ async function createPlan() {
 }
 
 async function startPlan(plan: SprintTestApi.TestPlan) {
+  if (!canStartPlan(plan)) {
+    MessagePlugin.warning('关联需求当前不可开始测试');
+    return;
+  }
+
   try {
     await startTestPlanApi(plan.id);
     MessagePlugin.success('测试计划已进入测试中');
@@ -290,6 +321,30 @@ async function startPlan(plan: SprintTestApi.TestPlan) {
   } catch (error: any) {
     MessagePlugin.warning(error?.response?.data?.message || error?.message || 'Requirement is not ready for testing.');
   }
+}
+
+function canStartPlan(plan: SprintTestApi.TestPlan) {
+  const requirement = requirementMap.value[plan.requirementId];
+  return plan.status === 'pending' && !!requirement && testableRequirementStatuses.has(requirement.status);
+}
+
+function planTestabilityText(plan: SprintTestApi.TestPlan) {
+  const requirement = requirementMap.value[plan.requirementId];
+  if (canStartPlan(plan)) return '可开始测试';
+  if (plan.status !== 'pending') return planStatusText[plan.status] || plan.status;
+  if (!requirement) return '需求不存在';
+  return requirementStatusText[requirement.status] || requirement.status;
+}
+
+function projectRequirementCount(projectId: string) {
+  return requirements.value.filter((requirement) => requirement.projectId === projectId).length;
+}
+
+function projectTestableRequirementCount(projectId: string) {
+  return requirements.value.filter(
+    (requirement) =>
+      requirement.projectId === projectId && testableRequirementStatuses.has(requirement.status),
+  ).length;
 }
 
 async function openExecution(plan: SprintTestApi.TestPlan) {
@@ -376,84 +431,123 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="tests-page sprint-list-page">
-    <section class="sprint-page-title">
-      <h2>测试验证</h2>
-      <p>围绕项目和需求管理测试计划、执行结果、失败缺陷和回归验证。</p>
-    </section>
+  <div class="tests-page">
+    <ProjectSecondaryListShell
+      v-model:selected-project-id="filters.projectId"
+      :loading="loading"
+      :projects="projects"
+      @project-change="handleProjectChange"
+      @refresh="loadPlans"
+    >
+      <template #header>
+        <section class="sprint-page-title">
+          <h2>测试验证</h2>
+          <p>围绕项目和需求管理测试计划、执行结果、失败缺陷和回归验证。</p>
+        </section>
+      </template>
 
-    <section class="sprint-filter-panel">
-      <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>项目</span>
-          <TSelect
-            v-model="filters.projectId"
-            clearable
-            :options="projectOptions"
-            placeholder="全部项目"
-            @change="handleProjectChange"
-          />
-        </label>
-        <label class="sprint-filter-field">
-          <span>需求</span>
-          <TSelect
-            v-model="filters.requirementId"
-            clearable
-            :options="requirementOptions"
-            placeholder="全部需求"
-          />
-        </label>
-        <div class="sprint-filter-actions">
-          <TButton theme="primary" :loading="loading" @click="queryPlans">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+      <template #project-meta="{ project }">
+        <span>需求 {{ projectRequirementCount(project.id) }}</span>
+        <span>可测 {{ projectTestableRequirementCount(project.id) }}</span>
+      </template>
+
+      <template #workspace-header>
+        <div class="workspace-head">
+          <div>
+            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
+            <p>{{ selectedProject?.code || '-' }}</p>
+          </div>
+          <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
+            <template #icon>
+              <IconifyIcon icon="lucide:plus" />
+            </template>
+            新增测试计划
+          </TButton>
         </div>
-      </div>
-    </section>
+      </template>
 
-    <section class="sprint-table-panel">
-      <div class="sprint-table-header">
-        <h3>测试计划列表</h3>
-        <div class="sprint-table-actions">
-          <TButton :loading="loading" @click="loadPlans">刷新</TButton>
-          <TButton theme="primary" @click="openCreate">新增测试计划</TButton>
+      <section class="sprint-filter-panel">
+        <div class="sprint-filter-grid">
+          <label class="sprint-filter-field">
+            <span>需求</span>
+            <TSelect
+              v-model="filters.requirementId"
+              clearable
+              :options="requirementOptions"
+              placeholder="全部可测需求"
+            />
+          </label>
+          <div class="sprint-filter-actions">
+            <TButton theme="primary" :loading="loading" @click="queryPlans">
+              <template #icon>
+                <IconifyIcon icon="lucide:search" />
+              </template>
+              查询
+            </TButton>
+            <TButton :disabled="loading" @click="resetFilters">
+              <template #icon>
+                <IconifyIcon icon="lucide:refresh-cw" />
+              </template>
+              重置
+            </TButton>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <TTable
-        row-key="id"
-        class="sprint-compact-table"
-        :columns="planColumns"
-        :data="plans"
-        :loading="loading"
-        :pagination="tablePagination"
-        size="small"
-        hover
-        @page-change="handlePageChange"
-      >
-        <template #projectId="{ row }">
-          {{ projectMap[row.projectId]?.name || row.projectId }}
-        </template>
-        <template #requirementId="{ row }">
-          {{ requirementMap[row.requirementId]?.title || row.requirementId }}
-        </template>
-        <template #status="{ row }">
-          <TTag :theme="statusTheme[row.status] || 'default'" variant="light">
-            {{ planStatusText[row.status] || row.status }}
-          </TTag>
-        </template>
-        <template #actions="{ row }">
-          <TSpace class="sprint-row-actions">
-            <TLink theme="primary" @click="openDetail(row)">详情</TLink>
-            <TLink v-if="row.status === 'pending'" theme="primary" @click="startPlan(row)">
-              开始测试
-            </TLink>
-            <TLink v-if="row.status === 'testing'" theme="primary" @click="openExecution(row)">
-              提交结果
-            </TLink>
-          </TSpace>
-        </template>
-      </TTable>
-    </section>
+      <section class="sprint-table-panel">
+        <div class="sprint-table-header">
+          <h3>测试计划列表</h3>
+          <div class="sprint-table-actions">
+            <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadPlans">
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </TButton>
+          </div>
+        </div>
+
+        <TTable
+          row-key="id"
+          class="sprint-compact-table"
+          :columns="withSerialColumn(planColumns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
+          :data="plans"
+          :loading="loading"
+          :pagination="tablePagination"
+          size="small"
+          hover
+          stripe
+          @page-change="handlePageChange"
+        >
+          <template #requirementId="{ row }">
+            {{ requirementMap[row.requirementId]?.title || row.requirementId }}
+          </template>
+          <template #status="{ row }">
+            <TTag :theme="statusTheme[row.status] || 'default'" variant="light">
+              {{ planStatusText[row.status] || row.status }}
+            </TTag>
+          </template>
+          <template #testability="{ row }">
+            <TTag :theme="canStartPlan(row) ? 'success' : 'default'" variant="light">
+              {{ planTestabilityText(row) }}
+            </TTag>
+          </template>
+          <template #actions="{ row }">
+            <TSpace class="sprint-row-actions">
+              <TLink theme="primary" @click="openDetail(row)">
+                <IconifyIcon icon="lucide:search" />
+                <span>详情</span>
+              </TLink>
+              <TLink v-if="canStartPlan(row)" theme="primary" @click="startPlan(row)">
+                <IconifyIcon icon="lucide:play" />
+                <span>开始测试</span>
+              </TLink>
+              <TLink v-if="row.status === 'testing'" theme="primary" @click="openExecution(row)">
+                <IconifyIcon icon="lucide:clipboard-check" />
+                <span>提交结果</span>
+              </TLink>
+            </TSpace>
+          </template>
+        </TTable>
+      </section>
+    </ProjectSecondaryListShell>
 
     <TDrawer
       v-model:visible="createVisible"
@@ -545,11 +639,13 @@ onMounted(async () => {
         <h3>执行记录</h3>
         <TTable
           row-key="id"
-          :columns="executionColumns"
+          class="sprint-compact-table"
+          :columns="withSerialColumn(executionColumns)"
           :data="executions"
           :loading="executionLoading"
           size="small"
           hover
+          stripe
         >
           <template #result="{ row }">
             <TTag :theme="statusTheme[row.result] || 'default'" variant="light">
@@ -558,6 +654,9 @@ onMounted(async () => {
           </template>
           <template #createdBugId="{ row }">
             {{ row.createdBugId || row.bugId || '-' }}
+          </template>
+          <template #executedAt="{ row }">
+            {{ formatDateTime(row.executedAt) }}
           </template>
         </TTable>
       </section>
@@ -594,11 +693,13 @@ onMounted(async () => {
         <h3>执行记录</h3>
         <TTable
           row-key="id"
-          :columns="executionColumns"
+          class="sprint-compact-table"
+          :columns="withSerialColumn(executionColumns)"
           :data="executions"
           :loading="executionLoading"
           size="small"
           hover
+          stripe
         >
           <template #result="{ row }">
             <TTag :theme="statusTheme[row.result] || 'default'" variant="light">
@@ -607,6 +708,9 @@ onMounted(async () => {
           </template>
           <template #createdBugId="{ row }">
             {{ row.createdBugId || row.bugId || '-' }}
+          </template>
+          <template #executedAt="{ row }">
+            {{ formatDateTime(row.executedAt) }}
           </template>
         </TTable>
       </section>
@@ -647,3 +751,4 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 </style>
+

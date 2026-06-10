@@ -31,16 +31,6 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        name: 'SprintSkills',
-        path: '/sprint/skills',
-        component: () => import('#/views/sprint/skills/index.vue'),
-        meta: {
-          affixTab: true,
-          icon: 'lucide:brain-circuit',
-          title: 'Skill配置',
-        },
-      },
-      {
         name: 'SprintProjectDetail',
         path: '/sprint/projects/detail/:id',
         component: () => import('#/views/sprint/projects/detail.vue'),

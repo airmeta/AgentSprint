@@ -3,16 +3,15 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { deleteDepartmentApi, listDepartmentsApi, saveDepartmentApi, type SystemApi } from '#/api';
-import SystemPage from '#/views/system/_shared/system-page.vue';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
-  Button as TButton,
   Dialog as TDialog,
   DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
@@ -45,6 +44,10 @@ const query = reactive({
   keyword: '',
   status: undefined as number | undefined,
 });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
 const columns = [
   { colKey: 'code', title: '部门编码' },
   { colKey: 'name', title: '部门名称' },
@@ -53,19 +56,17 @@ const columns = [
   { colKey: 'status', title: '状态', cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用') },
   { colKey: 'actions', title: '操作', cell: 'actions' },
 ];
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: departments.value.length,
+}));
 
-const filteredDepartments = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return departments.value.filter((department) => {
-    const matchesKeyword =
-      !keyword ||
-      department.code.toLowerCase().includes(keyword) ||
-      department.name.toLowerCase().includes(keyword) ||
-      (department.parentId || '').toLowerCase().includes(keyword);
-    const matchesStatus = query.status === undefined || department.status === query.status;
-    return matchesKeyword && matchesStatus;
-  });
-});
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
+}
 
 function open(row?: SystemApi.Department) {
   Object.assign(form, {
@@ -82,19 +83,21 @@ function open(row?: SystemApi.Department) {
 async function load() {
   loading.value = true;
   try {
-    departments.value = await listDepartmentsApi();
+    departments.value = await listDepartmentsApi(query);
   } finally {
     loading.value = false;
   }
 }
 
-function search() {
+async function search() {
   Object.assign(query, filters);
+  pagination.current = 1;
+  await load();
 }
 
-function reset() {
+async function reset() {
   Object.assign(filters, { keyword: '', status: undefined });
-  search();
+  await search();
 }
 
 async function save() {
@@ -129,29 +132,42 @@ onMounted(load);
 
 <template>
   <div>
-    <SystemPage title="部门管理" :columns="columns" :data="filteredDepartments" :loading="loading" @add="open()">
+    <AdminListPage
+      title="部门管理"
+      table-title="部门列表"
+      add-button-text="新增部门"
+      :columns="columns"
+      :data="departments"
+      :loading="loading"
+      :pagination="tablePagination"
+      :refreshable="false"
+      @add="open()"
+      @page-change="handlePageChange"
+      @reset="reset"
+      @search="search"
+    >
       <template #filters>
-        <TInput v-model="filters.keyword" clearable placeholder="部门编码 / 名称 / 父级 ID" class="filter-control" />
-        <TSelect
-          v-model="filters.status"
-          clearable
-          placeholder="状态"
-          :options="[{ label: '启用', value: 1 }, { label: '停用', value: 0 }]"
-          class="filter-control"
-        />
-        <TSpace>
-          <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-          <TButton @click="reset">重置</TButton>
-        </TSpace>
+        <label class="filter-field">
+          <span>部门信息</span>
+          <TInput v-model="filters.keyword" clearable placeholder="部门编码 / 名称 / 父级 ID" />
+        </label>
+        <label class="filter-field">
+          <span>状态</span>
+          <TSelect
+            v-model="filters.status"
+            clearable
+            placeholder="全部状态"
+            :options="[{ label: '启用', value: 1 }, { label: '停用', value: 0 }]"
+          />
+        </label>
       </template>
-      <template #action>新增部门</template>
       <template #actions="{ row }">
         <TSpace>
-          <TLink theme="primary" @click="open(row)">编辑</TLink>
-          <TLink theme="danger" @click="remove(row)">删除</TLink>
+          <RowAction label="编辑" @click="open(row)" />
+          <RowAction label="删除" theme="danger" @click="remove(row)" />
         </TSpace>
       </template>
-    </SystemPage>
+    </AdminListPage>
     <TDialog v-model:visible="visible" header="部门维护" width="560px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
       <TForm ref="formRef" :data="form" :rules="rules" label-width="110px">
         <TFormItem label="父级部门 ID"><TInput v-model="form.parentId" /></TFormItem>
@@ -165,7 +181,18 @@ onMounted(load);
 </template>
 
 <style scoped>
-.filter-control {
-  width: 240px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 </style>

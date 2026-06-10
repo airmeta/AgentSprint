@@ -86,6 +86,20 @@
   z-index: var(--popup-z-index);
 }
 
+.t-button__icon:not(:empty) + .t-button__text:not(:empty),
+.t-button__text:not(:empty) + .t-button__icon:not(:empty) {
+  margin-left: 4px;
+}
+
+.t-link .iconify {
+  margin-right: 4px;
+}
+
+.t-link span + .iconify {
+  margin-right: 0;
+  margin-left: 4px;
+}
+
 @keyframes shrink {
   0% {
     transform: scale(1);

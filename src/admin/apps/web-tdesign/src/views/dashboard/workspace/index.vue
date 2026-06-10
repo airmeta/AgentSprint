@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router';
 
 import { preferences } from '@vben/preferences';
 import { useUserStore } from '@vben/stores';
+import { IconifyIcon } from '@vben/icons';
 
 import {
   Avatar as TAvatar,
@@ -33,6 +34,10 @@ import {
   listTestPlansApi,
   listUserOptionsApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+
+import '../../sprint/_shared/table-layout.css';
 
 type ActivityKind = 'bug' | 'lease' | 'requirement' | 'task' | 'test';
 
@@ -287,11 +292,6 @@ function countRequirements(status: string) {
   return requirements.value.filter((item) => item.status === status).length;
 }
 
-function displayDate(value?: string) {
-  if (!value) return '-';
-  return value.replace('T', ' ').slice(0, 16);
-}
-
 function displayUser(id?: string) {
   if (!id) return '-';
   const user = userMap.value[id];
@@ -337,8 +337,18 @@ onMounted(loadDashboard);
           </div>
         </div>
         <TSpace>
-          <TButton variant="outline" @click="loadDashboard">刷新</TButton>
-          <TButton theme="primary" @click="go('/sprint/my-tasks')">我的任务</TButton>
+          <TButton variant="outline" @click="loadDashboard">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            刷新
+          </TButton>
+          <TButton theme="primary" @click="go('/sprint/my-tasks')">
+            <template #icon>
+              <IconifyIcon icon="lucide:list-checks" />
+            </template>
+            我的任务
+          </TButton>
         </TSpace>
       </section>
 
@@ -354,10 +364,12 @@ onMounted(loadDashboard);
           <TCard bordered title="我的工作推进">
             <TTable
               row-key="id"
-              :columns="taskColumns"
+              class="sprint-compact-table"
+              :columns="withSerialColumn(taskColumns)"
               :data="activeMyTasks"
               size="small"
               hover
+              stripe
             >
               <template #status="{ row }">
                 <TTag :theme="statusTagTheme(row.status)" variant="light">
@@ -368,7 +380,10 @@ onMounted(loadDashboard);
                 {{ projectName(row.projectId) }}
               </template>
               <template #actions="{ row }">
-                <TLink theme="primary" @click="go(`/sprint/tasks/detail/${row.id}`)">详情</TLink>
+                <TLink theme="primary" class="sprint-action-link" @click="go(`/sprint/tasks/detail/${row.id}`)">
+                  <IconifyIcon icon="lucide:eye" />
+                  <span>详情</span>
+                </TLink>
               </template>
             </TTable>
           </TCard>
@@ -386,10 +401,12 @@ onMounted(loadDashboard);
           <TCard bordered title="任务大厅简版">
             <TTable
               row-key="id"
-              :columns="requirementColumns"
+              class="sprint-compact-table"
+              :columns="withSerialColumn(requirementColumns)"
               :data="quickRequirements"
               size="small"
               hover
+              stripe
             >
               <template #status="{ row }">
                 <TTag :theme="statusTagTheme(row.status)" variant="light">
@@ -398,8 +415,14 @@ onMounted(loadDashboard);
               </template>
               <template #actions="{ row }">
                 <TSpace size="small">
-                  <TLink theme="primary" @click="claimRequirement(row)">接取</TLink>
-                  <TLink @click="go(`/sprint/requirements/detail/${row.id}`)">详情</TLink>
+                  <TLink theme="primary" class="sprint-action-link" @click="claimRequirement(row)">
+                    <IconifyIcon icon="lucide:handshake" />
+                    <span>接取</span>
+                  </TLink>
+                  <TLink class="sprint-action-link" @click="go(`/sprint/requirements/detail/${row.id}`)">
+                    <IconifyIcon icon="lucide:eye" />
+                    <span>详情</span>
+                  </TLink>
                 </TSpace>
               </template>
             </TTable>
@@ -430,7 +453,7 @@ onMounted(loadDashboard);
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.description }} · {{ item.actor }}</p>
                 </div>
-                <time>{{ displayDate(item.time) }}</time>
+                <time>{{ formatDateTime(item.time) }}</time>
               </div>
             </div>
           </TCard>

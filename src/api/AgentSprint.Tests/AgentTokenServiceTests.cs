@@ -1,7 +1,7 @@
-using AgentSprint.Entry.Development;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
+using AgentSprint.Service.Impls.AuthServices;
 using AgentSprint.Service.Impls.SecurityServices;
 using AgentSprint.Service.Security;
 
@@ -36,19 +36,17 @@ public sealed class AgentTokenServiceTests
     }
 
     [Fact]
-    public async Task CreateTokenAsync_AllowsDevelopmentLoginUserAsOwner()
+    public async Task CreateTokenAsync_AllowsExplicitOwnerWhenCallerIsSuper()
     {
         var tokenEntities = new List<AgentTokenEntity>();
-        var service = CreateService(
-            userDomain: new DevelopmentUserDomain(),
-            tokenEntities: tokenEntities);
+        var service = CreateService(tokenEntities: tokenEntities);
 
         var result = await service.CreateTokenAsync(
-            new CreateAgentTokenRequest("dev-token", DateTime.UtcNow.AddDays(7), null, null),
-            "dev-admin",
+            new CreateAgentTokenRequest("admin-token", DateTime.UtcNow.AddDays(7), null, "admin-1"),
+            "user-1",
             ["super"]);
 
-        Assert.Equal("dev-admin", result.Metadata.OwnerUserId);
+        Assert.Equal("admin-1", result.Metadata.OwnerUserId);
         Assert.Equal("admin", result.Metadata.OwnerUsername);
         Assert.Single(tokenEntities);
     }
@@ -131,13 +129,16 @@ public sealed class AgentTokenServiceTests
             new InMemoryRoleMenuDomain([]),
             new InMemoryRolePermissionDomain([]),
             new InMemoryEntityAssociationDomain(associations));
-        var auth = new DevelopmentAuthService(Options.Create(new JwtOptions
-        {
-            SigningKey = "AgentSprintTestsSigningKeyMustBeLongEnough",
-            Issuer = "AgentSprint.Tests",
-            Audience = "AgentSprint.Tests",
-            AccessTokenMinutes = 10
-        }));
+        var auth = new AuthService(
+            userDomain,
+            authorization,
+            Options.Create(new JwtOptions
+            {
+                SigningKey = "AgentSprintTestsSigningKeyMustBeLongEnough",
+                Issuer = "AgentSprint.Tests",
+                Audience = "AgentSprint.Tests",
+                AccessTokenMinutes = 10
+            }));
 
         return new AgentTokenService(
             new InMemoryAgentTokenDomain(tokenEntities ?? []),

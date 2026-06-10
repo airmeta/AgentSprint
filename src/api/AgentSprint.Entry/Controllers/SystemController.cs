@@ -36,9 +36,13 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("users")]
-    public async Task<ApiResponse<IReadOnlyList<UserManagementResult>>> ListUsers()
+    public async Task<ApiResponse<IReadOnlyList<UserManagementResult>>> ListUsers(
+        [FromQuery] string? keyword,
+        [FromQuery] string? roleId,
+        [FromQuery] int? status)
     {
-        return ApiResponse<IReadOnlyList<UserManagementResult>>.Ok(await _systemService.ListUsersAsync());
+        return ApiResponse<IReadOnlyList<UserManagementResult>>.Ok(
+            await _systemService.ListUsersAsync(keyword, roleId, status));
     }
 
     [HttpPost("users")]
@@ -54,9 +58,13 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("roles")]
-    public async Task<ApiResponse<IReadOnlyList<RoleManagementResult>>> ListRoles()
+    public async Task<ApiResponse<IReadOnlyList<RoleManagementResult>>> ListRoles(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status,
+        [FromQuery] int? grantState)
     {
-        return ApiResponse<IReadOnlyList<RoleManagementResult>>.Ok(await _systemService.ListRolesAsync());
+        return ApiResponse<IReadOnlyList<RoleManagementResult>>.Ok(
+            await _systemService.ListRolesAsync(keyword, status, grantState));
     }
 
     [HttpPost("roles")]
@@ -72,9 +80,13 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("menus")]
-    public async Task<ApiResponse<IReadOnlyList<MenuManagementResult>>> ListMenus()
+    public async Task<ApiResponse<IReadOnlyList<MenuManagementResult>>> ListMenus(
+        [FromQuery] string? keyword,
+        [FromQuery] int? type,
+        [FromQuery] int? status)
     {
-        return ApiResponse<IReadOnlyList<MenuManagementResult>>.Ok(await _systemService.ListMenusAsync());
+        return ApiResponse<IReadOnlyList<MenuManagementResult>>.Ok(
+            await _systemService.ListMenusAsync(keyword, type, status));
     }
 
     [HttpPost("menus")]
@@ -90,9 +102,12 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("permissions")]
-    public async Task<ApiResponse<IReadOnlyList<PermissionManagementResult>>> ListPermissions()
+    public async Task<ApiResponse<IReadOnlyList<PermissionManagementResult>>> ListPermissions(
+        [FromQuery] string? keyword,
+        [FromQuery] string? menuId)
     {
-        return ApiResponse<IReadOnlyList<PermissionManagementResult>>.Ok(await _systemService.ListPermissionsAsync());
+        return ApiResponse<IReadOnlyList<PermissionManagementResult>>.Ok(
+            await _systemService.ListPermissionsAsync(keyword, menuId));
     }
 
     [HttpPost("permissions")]
@@ -116,10 +131,12 @@ public sealed class SystemController : ControllerBase
     /// en-us: Token metadata collection without full token plaintext.
     /// </returns>
     [HttpGet("agent-tokens")]
-    public async Task<ApiResponse<IReadOnlyList<AgentTokenManagementResult>>> ListAgentTokens()
+    public async Task<ApiResponse<IReadOnlyList<AgentTokenManagementResult>>> ListAgentTokens(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
         return ApiResponse<IReadOnlyList<AgentTokenManagementResult>>.Ok(
-            await _agentTokenService.ListTokensAsync(GetUserId(), GetRoles()));
+            await _agentTokenService.ListTokensAsync(GetUserId(), GetRoles(), keyword, status));
     }
 
     /// <summary>
@@ -167,10 +184,12 @@ public sealed class SystemController : ControllerBase
     /// en-us: Configuration list.
     /// </returns>
     [HttpGet("configurations")]
-    public async Task<ApiResponse<IReadOnlyList<SystemConfigurationResult>>> ListConfigurations()
+    public async Task<ApiResponse<IReadOnlyList<SystemConfigurationResult>>> ListConfigurations(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
         return ApiResponse<IReadOnlyList<SystemConfigurationResult>>.Ok(
-            await _configurationService.ListConfigurationsAsync());
+            await _configurationService.ListConfigurationsAsync(keyword, status));
     }
 
     /// <summary>
@@ -255,9 +274,12 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("departments")]
-    public async Task<ApiResponse<IReadOnlyList<DepartmentManagementResult>>> ListDepartments()
+    public async Task<ApiResponse<IReadOnlyList<DepartmentManagementResult>>> ListDepartments(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
-        return ApiResponse<IReadOnlyList<DepartmentManagementResult>>.Ok(await _systemService.ListDepartmentsAsync());
+        return ApiResponse<IReadOnlyList<DepartmentManagementResult>>.Ok(
+            await _systemService.ListDepartmentsAsync(keyword, status));
     }
 
     [HttpPost("departments")]
@@ -277,9 +299,12 @@ public sealed class SystemController : ControllerBase
     }
 
     [HttpGet("assignments")]
-    public async Task<ApiResponse<IReadOnlyList<AssignmentManagementResult>>> ListAssignments()
+    public async Task<ApiResponse<IReadOnlyList<AssignmentManagementResult>>> ListAssignments(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
-        return ApiResponse<IReadOnlyList<AssignmentManagementResult>>.Ok(await _systemService.ListAssignmentsAsync());
+        return ApiResponse<IReadOnlyList<AssignmentManagementResult>>.Ok(
+            await _systemService.ListAssignmentsAsync(keyword, status));
     }
 
     [HttpPost("assignments")]
@@ -303,10 +328,12 @@ public sealed class SystemController : ControllerBase
     /// <para>en-us:Lists system dictionary types used to maintain business enum categories and drive dictionary-item filtering.</para>
     /// </summary>
     [HttpGet("dictionary-types")]
-    public async Task<ApiResponse<IReadOnlyList<DictionaryTypeManagementResult>>> ListDictionaryTypes()
+    public async Task<ApiResponse<IReadOnlyList<DictionaryTypeManagementResult>>> ListDictionaryTypes(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
         return ApiResponse<IReadOnlyList<DictionaryTypeManagementResult>>.Ok(
-            await _systemService.ListDictionaryTypesAsync());
+            await _systemService.ListDictionaryTypesAsync(keyword, status));
     }
 
     /// <summary>
@@ -336,10 +363,12 @@ public sealed class SystemController : ControllerBase
     /// </summary>
     [HttpGet("dictionary-items")]
     public async Task<ApiResponse<IReadOnlyList<DictionaryItemManagementResult>>> ListDictionaryItems(
-        [FromQuery] string? dictionaryTypeId)
+        [FromQuery] string? dictionaryTypeId,
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
         return ApiResponse<IReadOnlyList<DictionaryItemManagementResult>>.Ok(
-            await _systemService.ListDictionaryItemsAsync(dictionaryTypeId));
+            await _systemService.ListDictionaryItemsAsync(dictionaryTypeId, keyword, status));
     }
 
     /// <summary>
@@ -389,8 +418,8 @@ public sealed class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// <para>zh-cn:软删除运行环境，并由服务层同步清理该环境下容器映射。</para>
-    /// <para>en-us:Soft-deletes a runtime environment while the service layer cleans container mappings under it.</para>
+    /// <para>zh-cn:软删除运行环境，并由服务层同步清理该环境下服务配置。</para>
+    /// <para>en-us:Soft-deletes a runtime environment while the service layer cleans service configurations under it.</para>
     /// </summary>
     [HttpDelete("runtime-environments/{id}")]
     public async Task<ApiResponse<bool>> DeleteRuntimeEnvironment(string id)
@@ -399,8 +428,8 @@ public sealed class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// <para>zh-cn:查询指定运行环境下的容器端口映射。</para>
-    /// <para>en-us:Lists container port mappings under the specified runtime environment.</para>
+    /// <para>zh-cn:查询指定运行环境下的服务配置。</para>
+    /// <para>en-us:Lists service configurations under the specified runtime environment.</para>
     /// </summary>
     [HttpGet("runtime-environment-containers")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<RuntimeEnvironmentContainerManagementResult>>>> ListRuntimeEnvironmentContainers(
@@ -410,8 +439,8 @@ public sealed class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// <para>zh-cn:新增或更新运行环境容器映射，维护容器名称、宿主端口、容器端口和协议。</para>
-    /// <para>en-us:Creates or updates a runtime-environment container mapping with container name, host port, container port, and protocol.</para>
+    /// <para>zh-cn:新增或更新运行环境服务配置，维护服务名称、运行容器类型、服务 IP、端口和协议。</para>
+    /// <para>en-us:Creates or updates a runtime-environment service configuration with service name, container type, service IP, ports, and protocol.</para>
     /// </summary>
     [HttpPost("runtime-environment-containers")]
     public async Task<ActionResult<ApiResponse<RuntimeEnvironmentContainerManagementResult>>> UpsertRuntimeEnvironmentContainer(
@@ -421,8 +450,8 @@ public sealed class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// <para>zh-cn:软删除指定运行环境容器映射。</para>
-    /// <para>en-us:Soft-deletes the specified runtime-environment container mapping.</para>
+    /// <para>zh-cn:软删除指定运行环境服务配置。</para>
+    /// <para>en-us:Soft-deletes the specified runtime-environment service configuration.</para>
     /// </summary>
     [HttpDelete("runtime-environment-containers/{id}")]
     public async Task<ApiResponse<bool>> DeleteRuntimeEnvironmentContainer(string id)
@@ -431,20 +460,22 @@ public sealed class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// <para>zh-cn:查询提示词模板；当前 Codex 可维护，其他环境用于前端展示正在开发。</para>
-    /// <para>en-us:Lists prompt templates; Codex is maintainable currently while other environments are used by the frontend as in-development entries.</para>
+    /// <para>zh-cn:查询提示词模板；可通过 agentEnvironment 查询参数限定到某个 AI 平台，未传时返回全部平台模板。</para>
+    /// <para>en-us:Lists prompt templates; the agentEnvironment query parameter restricts results to one AI platform, and omission returns templates for all platforms.</para>
     /// </summary>
     [HttpGet("prompt-templates")]
     public async Task<ApiResponse<IReadOnlyList<PromptTemplateManagementResult>>> ListPromptTemplates(
-        [FromQuery] string? agentEnvironment)
+        [FromQuery] string? agentEnvironment,
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
     {
         return ApiResponse<IReadOnlyList<PromptTemplateManagementResult>>.Ok(
-            await _systemService.ListPromptTemplatesAsync(agentEnvironment));
+            await _systemService.ListPromptTemplatesAsync(agentEnvironment, keyword, status));
     }
 
     /// <summary>
-    /// <para>zh-cn:新增或更新 Codex 提示词模板，服务层会拒绝尚未支持的 Agent 环境。</para>
-    /// <para>en-us:Creates or updates a Codex prompt template; unsupported agent environments are rejected by the service layer.</para>
+    /// <para>zh-cn:新增或更新提示词模板，服务层按 AI 平台和模板编码维护唯一记录。</para>
+    /// <para>en-us:Creates or updates a prompt template; the service layer maintains one unique record per AI platform and template code.</para>
     /// </summary>
     [HttpPost("prompt-templates")]
     public async Task<ActionResult<ApiResponse<PromptTemplateManagementResult>>> UpsertPromptTemplate(

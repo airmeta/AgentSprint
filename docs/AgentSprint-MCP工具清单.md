@@ -31,11 +31,12 @@ Codex 侧不应只依赖静态提示词。推荐提示词只告诉 Codex：
 | `get_mcp_tool_guide` | 返回 MCP 工具使用指南，供 Codex 自举读取流程、参数、返回结构和投递方式。 | 无 | `format`，可选 `summary` 或 `full`，默认 `summary` | `format`, `purpose`, `recommended_flow`, `next_work_priority`, `delivery_options`, `safety_rules`, `tools`, `return_shapes`, `prompt_snippet` |
 | `get_agent_skill_pack` | 获取 Codex 执行任务需要遵守的 Skill、规则和验证命令。 | 无 | `project_code` | `project_code`, `workspace_path`, `required_skills`, `backend_rules`, `frontend_rules`, `verification_commands` |
 | `get_project_bootstrap` | 获取项目启动上下文，适合任务开始时整体拉取项目、需求、任务和规则。 | 无 | `project_code` | `project`, `project_code`, `project_id`, `workspace_path`, `api_base_url`, `current_user`, `skill_pack`, `requirements`, `tasks` |
+| `get_project_test_deployment` | 根据项目标识获取当前选中的测试环境部署信息和容器端口映射。 | `project_id` | 无 | `project`, `project_id`, `selected_environment`, `deployment`, `containers`, `test_url`, `notice`, `resolution` |
 | `list_task_hall` | 查询当前登录用户可见的任务大厅任务。 | 无 | `project_id`, `requirement_id`, `assignee_id`, `status`, `primary_only` | `SprintDevelopmentTaskResult[]` |
 | `list_my_tasks` | 查询当前登录用户名下的任务。 | 无 | 无 | `SprintDevelopmentTaskResult[]` |
 | `get_task_prompt` | 获取指定任务推进提示词、任务详情、需求详情和 Skill 包。 | `task_id` | 无 | `task_id`, `task_prompt`, `task_detail`, `requirement_detail`, `skill_pack`, `workspace_path`, `codex_instruction` |
 | `complete_my_task` | 当前任务完成并本地验证通过后回写完成状态，同时返回下一工作项建议。 | `task_id` | `project_id`, `requirement_id`, `primary_only`, `owner_device` | `completed_task`, `next_work` |
-| `assign_task` | 将拆解任务指派给指定开发人员。 | `task_id`, `assignee_id` | 无 | `SprintDevelopmentTaskResult` |
+| `assign_task` | 将拆解任务指派给指定研发人员。 | `task_id`, `assignee_id` | 无 | `SprintDevelopmentTaskResult` |
 | `get_next_work` | 查询当前 Codex 用户下一项最高优先级工作，不改变平台状态。 | 无 | `project_id`, `requirement_id`, `owner_device`, `primary_only`, `session_id`, `idle_round` | `kind`, `reason`, `item`, `claim_supported`, `claim_note`, `polling`, `session` |
 | `claim_next_work` | 自动领取下一项最高优先级工作。 | 无 | `project_id`, `requirement_id`, `owner_device`, `primary_only`, `session_id`, `idle_round` | `kind`, `reason`, `item`, `claim`, `polling`, `session` |
 | `list_test_plans` | 查询测试计划。 | 无 | `project_id`, `requirement_id` | `TestPlanResult[]` |
@@ -83,7 +84,7 @@ Codex 侧不应只依赖静态提示词。推荐提示词只告诉 Codex：
 | `severity` | 严重程度：`critical`, `major`, `minor`, `trivial`。 |
 | `status` | 缺陷状态：`open`, `fixing`, `fixed_ready_regression`, `closed`。 |
 | `createdBy` | 提交人。 |
-| `developerId` | 当前修复开发人员。 |
+| `developerId` | 当前修复研发人员。 |
 | `fixedAt`, `createTime` | 时间字段。 |
 
 ### `SprintTaskLeaseResult`
@@ -99,6 +100,54 @@ Codex 侧不应只依赖静态提示词。推荐提示词只告诉 Codex：
 | `leaseToken` | 租约令牌。 |
 | `status` | 租约状态：`active`, `completed`, `released`。 |
 | `expiresAt`, `completedAt`, `createTime` | 时间字段。 |
+
+### `ProjectTestDeploymentInfo`
+
+`get_project_test_deployment` 返回项目测试环境部署信息。工具只读取平台已有的运行环境和容器映射配置，不直接连接服务器或执行 Docker 命令。
+
+| 字段 | 说明 |
+| --- | --- |
+| `project` | 项目详情，来自 `/mvp/projects` 中匹配 `project_id` 的记录，可能为空。 |
+| `project_id` | 调用方传入的项目标识。 |
+| `selected_environment` | 选中的测试运行环境。优先使用项目的 `testEnvironmentId`，否则优先选择 `environmentType=test` 且排序最靠前的环境。 |
+| `deployment` | 规整后的部署信息，包含地址、服务器 IP、部署目录、Compose 文件和发布包路径。 |
+| `containers` | 选中运行环境下的容器/服务端口映射列表。 |
+| `test_url` | 优先取环境 `frontendUrl`，其次取 `apiBaseUrl`、`mcpEndpoint`，最后回退到项目 `testEnvironmentUrl`。 |
+| `notice` | 部署须知：你必须按照提示词和脚本来进行部署系统,如果脚本出现异常,直接提示用户异常原因是什么,不要尝试更换方式去绕过脚本。 |
+| `resolution` | 解析过程摘要，包含 `project_id`、`environment_id`、`environment_code`、`environment_type`、`container_count`、`active_container_count`。 |
+
+`deployment` 字段结构：
+
+| 字段 | 说明 |
+| --- | --- |
+| `frontend_url` | 测试环境前端地址。 |
+| `api_base_url` | 测试环境 API 地址。 |
+| `frontend_proxy_api_url` | 前端代理 API 地址。 |
+| `mcp_endpoint` | MCP 地址。 |
+| `server_ips` | 服务器 IP 列表，由运行环境 `serverIps` 按逗号、分号或换行拆分。 |
+| `deploy_root` | 部署根目录。 |
+| `docker_directory` | Docker Compose 目录。 |
+| `remote_package_path` | 远端发布包路径。 |
+| `compose_file_path` | Compose 文件路径。 |
+| `local_package_paths` | 本地发布包路径列表，由运行环境 `localPackagePaths` 按逗号、分号或换行拆分。 |
+
+`containers` 中每项保持后台接口字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 容器映射标识。 |
+| `runtimeEnvironmentId` | 所属运行环境标识。 |
+| `name` | 服务或容器名称。 |
+| `containerType` | 容器类型编码。 |
+| `serverIp` | 服务所在服务器 IP。 |
+| `hostPort` | 宿主机端口。 |
+| `containerPort` | 容器端口。 |
+| `protocol` | 协议，通常为 `tcp`。 |
+| `description` | 说明。 |
+| `prompt` | 服务部署提示词。 |
+| `deployScript` | 服务部署脚本。 |
+| `sort` | 排序。 |
+| `status` | 状态，`active_container_count` 当前按 `status=1` 统计。 |
 
 ### `next_work`
 

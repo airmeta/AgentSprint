@@ -1,4 +1,4 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
@@ -32,8 +32,13 @@ import {
   listTestExecutionsApi,
 } from '#/api/sprint/mvp';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
 
 import '../_shared/table-layout.css';
+
+defineOptions({ name: 'SprintDefects' });
 
 const creating = ref(false);
 const loading = ref(false);
@@ -70,6 +75,9 @@ const pagination = reactive({
 
 const projectOptions = computed(() =>
   projects.value.map((item) => ({ label: `${item.code} · ${item.name}`, value: item.id })),
+);
+const selectedProject = computed(() =>
+  projects.value.find((project) => project.id === filters.projectId),
 );
 const requirementOptions = computed(() =>
   requirements.value
@@ -174,6 +182,7 @@ async function openDetail(defect: SprintMvpApi.Bug) {
 async function loadBase() {
   projects.value = await listProjectsApi();
   requirements.value = await listRequirementsApi();
+  filters.projectId ||= projects.value[0]?.id || '';
 }
 
 async function loadDefects() {
@@ -191,6 +200,7 @@ async function loadDefects() {
 
 async function handleProjectChange() {
   filters.requirementId = '';
+  await loadDefects();
 }
 
 async function queryDefects() {
@@ -199,7 +209,7 @@ async function queryDefects() {
 
 async function resetFilters() {
   Object.assign(filters, {
-    projectId: '',
+    projectId: projects.value[0]?.id || '',
     requirementId: '',
   });
   await loadDefects();
@@ -264,24 +274,21 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="defects-page sprint-list-page">
-    <section class="sprint-page-title">
+  <ProjectSecondaryListShell
+    v-model:selected-project-id="filters.projectId"
+    class="defects-page"
+    :loading="loading"
+    :projects="projects"
+    @project-change="handleProjectChange"
+    @refresh="loadDefects"
+  >
+    <template #header><section class="sprint-page-title">
       <h2>缺陷管理</h2>
       <p>缺陷必须绑定项目和具体需求，需求列表健康状态会随缺陷变化。</p>
-    </section>
+    </section></template><template #workspace-header><div class="workspace-head"><div><h3>{{ selectedProject?.name || '请选择项目' }}</h3><p>{{ selectedProject?.code || '-' }}</p></div><TButton theme="primary" :disabled="!filters.projectId" @click="openCreate"><template #icon><IconifyIcon icon="lucide:bug" /></template>提交缺陷</TButton></div></template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>项目</span>
-          <TSelect
-            v-model="filters.projectId"
-            clearable
-            :options="projectOptions"
-            placeholder="全部项目"
-            @change="handleProjectChange"
-          />
-        </label>
         <label class="sprint-filter-field">
           <span>需求</span>
           <TSelect
@@ -292,8 +299,18 @@ onMounted(async () => {
           />
         </label>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :loading="loading" @click="queryDefects">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryDefects">
+            <template #icon>
+              <IconifyIcon icon="lucide:search" />
+            </template>
+            查询
+          </TButton>
+          <TButton :disabled="loading" @click="resetFilters">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            重置
+          </TButton>
         </div>
       </div>
     </section>
@@ -302,20 +319,28 @@ onMounted(async () => {
       <div class="sprint-table-header">
         <h3>缺陷列表</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadDefects">↻</TButton>
-          <TButton theme="primary" @click="openCreate">提交缺陷</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadDefects">
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </TButton>
+          <TButton theme="primary" @click="openCreate">
+            <template #icon>
+              <IconifyIcon icon="lucide:bug" />
+            </template>
+            提交缺陷
+          </TButton>
         </div>
       </div>
 
       <TTable
         row-key="id"
         class="sprint-compact-table"
-        :columns="columns"
+        :columns="withSerialColumn(columns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
         :data="defects"
         :loading="loading"
         :pagination="tablePagination"
         size="small"
         hover
+        stripe
         @page-change="handlePageChange"
       >
         <template #projectId="{ row }">
@@ -335,19 +360,25 @@ onMounted(async () => {
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
-            <TLink theme="primary" @click="openDetail(row)">详情</TLink>
+            <TLink theme="primary" @click="openDetail(row)">
+              <IconifyIcon icon="lucide:eye" />
+              <span>详情</span>
+            </TLink>
             <TLink v-if="row.status === 'open'" theme="primary" @click="claimDefect(row)">
-              领取
+              <IconifyIcon icon="lucide:handshake" />
+              <span>领取</span>
             </TLink>
             <TLink v-if="row.status === 'fixing'" theme="primary" @click="fixDefect(row)">
-              修复
+              <IconifyIcon icon="lucide:wrench" />
+              <span>修复</span>
             </TLink>
             <TLink
               v-if="row.status === 'fixed_ready_regression'"
               theme="primary"
               @click="closeDefect(row)"
             >
-              关闭
+              <IconifyIcon icon="lucide:check" />
+              <span>关闭</span>
             </TLink>
           </TSpace>
         </template>
@@ -416,8 +447,8 @@ onMounted(async () => {
           <TDescriptionsItem label="测试执行">
             {{ currentDefect.testExecutionId || '未绑定' }}
           </TDescriptionsItem>
-          <TDescriptionsItem label="修复时间">{{ currentDefect.fixedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ currentDefect.createTime }}</TDescriptionsItem>
+          <TDescriptionsItem label="修复时间">{{ formatDateTime(currentDefect.fixedAt) }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建时间">{{ formatDateTime(currentDefect.createTime) }}</TDescriptionsItem>
         </TDescriptions>
         <section class="detail-section">
           <h3>缺陷描述</h3>
@@ -425,11 +456,22 @@ onMounted(async () => {
         </section>
         <section class="detail-section">
           <h3>测试执行记录</h3>
-          <TTable row-key="id" :columns="executionColumns" :data="defectExecutions" hover />
+          <TTable
+            row-key="id"
+            class="sprint-compact-table"
+            :columns="withSerialColumn(executionColumns)"
+            :data="defectExecutions"
+            hover
+            stripe
+          >
+            <template #executedAt="{ row }">
+              {{ formatDateTime(row.executedAt) }}
+            </template>
+          </TTable>
         </section>
       </section>
     </TDrawer>
-  </div>
+  </ProjectSecondaryListShell>
 </template>
 
 <style scoped>
@@ -453,3 +495,4 @@ onMounted(async () => {
   white-space: pre-wrap;
 }
 </style>
+

@@ -305,6 +305,7 @@ public sealed class SystemManagementServiceTests
                 null,
                 null,
                 null,
+                null,
                 20,
                 1)));
 
@@ -312,28 +313,69 @@ public sealed class SystemManagementServiceTests
     }
 
     [Fact]
+    public async Task UpsertRuntimeEnvironmentAsync_SavesServerIpList()
+    {
+        var runtimeEnvironments = new List<RuntimeEnvironmentEntity>();
+        var service = CreateService(runtimeEnvironments: runtimeEnvironments);
+
+        var result = await service.UpsertRuntimeEnvironmentAsync(new UpsertRuntimeEnvironmentRequest(
+            null,
+            "project-1",
+            "endpoint-1",
+            "module-1",
+            "test",
+            "Test",
+            "test",
+            null,
+            null,
+            null,
+            null,
+            null,
+            "10.0.0.11,10.0.0.12",
+            "/opt/app",
+            null,
+            null,
+            null,
+            null,
+            10,
+            1));
+
+        Assert.Equal("10.0.0.11,10.0.0.12", result.ServerIps);
+        Assert.Equal("10.0.0.11,10.0.0.12", runtimeEnvironments.Single().ServerIps);
+    }
+
+    [Fact]
     public async Task UpsertRuntimeEnvironmentContainerAsync_RequiresExistingEnvironmentAndUniqueContainerName()
     {
-        var environment = new RuntimeEnvironmentEntity { Id = "env-1", Code = "test", Name = "Test" };
+        var environment = new RuntimeEnvironmentEntity
+        {
+            Id = "env-1",
+            Code = "test",
+            Name = "Test",
+            ServerIps = "10.0.0.11,10.0.0.12"
+        };
+        var runtimeEnvironmentContainers = new List<RuntimeEnvironmentContainerEntity>
+        {
+            new()
+            {
+                Id = "container-admin",
+                RuntimeEnvironmentId = environment.Id,
+                Name = "agentsprint-admin",
+                HostPort = 5999,
+                ContainerPort = 80
+            }
+        };
         var service = CreateService(
             runtimeEnvironments: [environment],
-            runtimeEnvironmentContainers:
-            [
-                new RuntimeEnvironmentContainerEntity
-                {
-                    Id = "container-admin",
-                    RuntimeEnvironmentId = environment.Id,
-                    Name = "agentsprint-admin",
-                    HostPort = 5999,
-                    ContainerPort = 80
-                }
-            ]);
+            runtimeEnvironmentContainers: runtimeEnvironmentContainers);
 
         var missing = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.UpsertRuntimeEnvironmentContainerAsync(new UpsertRuntimeEnvironmentContainerRequest(
                 null,
                 "missing-env",
                 "agentsprint-api",
+                0,
+                null,
                 5000,
                 5000,
                 "tcp",
@@ -347,6 +389,8 @@ public sealed class SystemManagementServiceTests
                 null,
                 environment.Id,
                 "AGENTSPRINT-ADMIN",
+                0,
+                "10.0.0.11",
                 5999,
                 80,
                 "tcp",
@@ -354,6 +398,42 @@ public sealed class SystemManagementServiceTests
                 10,
                 1)));
         Assert.Equal("Container name already exists in the runtime environment.", duplicate.Message);
+
+        var invalidIp = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertRuntimeEnvironmentContainerAsync(new UpsertRuntimeEnvironmentContainerRequest(
+                null,
+                environment.Id,
+                "agentsprint-worker",
+                0,
+                "10.0.0.99",
+                6001,
+                6001,
+                "tcp",
+                null,
+                10,
+                1)));
+        Assert.Equal("Service server IP must be selected from the runtime environment IP list.", invalidIp.Message);
+
+        var saved = await service.UpsertRuntimeEnvironmentContainerAsync(new UpsertRuntimeEnvironmentContainerRequest(
+            null,
+            environment.Id,
+            "agentsprint-api",
+            2,
+            "10.0.0.12",
+            5000,
+            5000,
+            "tcp",
+            null,
+            20,
+            1,
+            "Deploy the API service through the configured script.",
+            "docker compose up -d agentsprint-api"));
+        Assert.Equal(2, saved.ContainerType);
+        Assert.Equal("10.0.0.12", saved.ServerIp);
+        Assert.Equal("Deploy the API service through the configured script.", saved.Prompt);
+        Assert.Equal("docker compose up -d agentsprint-api", saved.DeployScript);
+        Assert.Equal("Deploy the API service through the configured script.", runtimeEnvironmentContainers.Single(entity => entity.Name == "agentsprint-api").Prompt);
+        Assert.Equal("docker compose up -d agentsprint-api", runtimeEnvironmentContainers.Single(entity => entity.Name == "agentsprint-api").DeployScript);
     }
 
     [Fact]
@@ -387,22 +467,25 @@ public sealed class SystemManagementServiceTests
     }
 
     [Fact]
-    public async Task UpsertPromptTemplateAsync_RejectsUnsupportedAgentEnvironment()
+    public async Task UpsertPromptTemplateAsync_AllowsDifferentAgentEnvironments()
     {
-        var service = CreateService();
+        var promptTemplates = new List<PromptTemplateEntity>();
+        var service = CreateService(promptTemplates: promptTemplates);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
-                null,
-                "claude_code",
-                "task_execution",
-                "Task execution",
-                "Prompt content",
-                null,
-                10,
-                1)));
+        var result = await service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
+            null,
+            "claude_code",
+            "TASK_EXECUTION",
+            "Task execution",
+            "Use {{agent_token}} and {{mcp_endpoint}} placeholders.",
+            null,
+            10,
+            1));
 
-        Assert.Equal("Only Codex prompt templates are supported currently.", ex.Message);
+        Assert.Equal("claude_code", result.AgentEnvironment);
+        Assert.Equal("task_execution", result.Code);
+        Assert.Equal("Use {{agent_token}} and {{mcp_endpoint}} placeholders.", result.Content);
+        Assert.Single(promptTemplates);
     }
 
     [Fact]
@@ -435,22 +518,33 @@ public sealed class SystemManagementServiceTests
     }
 
     [Fact]
-    public async Task UpsertPromptTemplateAsync_RejectsNonFixedPromptTemplateCode()
+    public async Task ListPromptTemplatesAsync_FiltersByAgentEnvironment()
     {
-        var service = CreateService();
+        var service = CreateService(promptTemplates:
+        [
+            new PromptTemplateEntity
+            {
+                Id = "prompt-codex",
+                AgentEnvironment = "codex",
+                Code = "task_execution",
+                Name = "Codex task execution",
+                Content = "Codex prompt"
+            },
+            new PromptTemplateEntity
+            {
+                Id = "prompt-claude",
+                AgentEnvironment = "claude_code",
+                Code = "task_execution",
+                Name = "Claude task execution",
+                Content = "Claude prompt"
+            }
+        ]);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpsertPromptTemplateAsync(new UpsertPromptTemplateRequest(
-                null,
-                "codex",
-                "custom_prompt",
-                "Custom prompt",
-                "Prompt content",
-                null,
-                30,
-                1)));
+        var codexTemplates = await service.ListPromptTemplatesAsync("codex");
+        var allTemplates = await service.ListPromptTemplatesAsync();
 
-        Assert.Equal("Only fixed Codex prompt templates can be maintained.", ex.Message);
+        Assert.Equal(["prompt-codex"], codexTemplates.Select(item => item.Id));
+        Assert.Equal(["prompt-claude", "prompt-codex"], allTemplates.Select(item => item.Id).OrderBy(id => id, StringComparer.Ordinal));
     }
 
     private static SystemManagementService CreateService(
@@ -485,7 +579,7 @@ public sealed class SystemManagementServiceTests
             new InMemoryDictionaryItemDomain(dictionaryItems ?? []),
             new InMemoryRuntimeEnvironmentDomain(runtimeEnvironments ?? []),
             new InMemoryRuntimeEnvironmentContainerDomain(runtimeEnvironmentContainers ?? []),
-            new InMemoryPromptTemplateDomain(promptTemplates ?? []),
+            new InMemorySystemPromptTemplateDomain(promptTemplates ?? []),
             new InMemoryUserRoleDomain(userRoles ?? []),
             new InMemoryRoleMenuDomain(roleMenus ?? []),
             new InMemoryRolePermissionDomain(rolePermissions ?? []),
@@ -517,5 +611,5 @@ internal sealed class InMemoryRuntimeEnvironmentDomain(IList<RuntimeEnvironmentE
 internal sealed class InMemoryRuntimeEnvironmentContainerDomain(IList<RuntimeEnvironmentContainerEntity> entities)
     : InMemorySecurityDomain<RuntimeEnvironmentContainerEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IRuntimeEnvironmentContainerDomain;
 
-internal sealed class InMemoryPromptTemplateDomain(IList<PromptTemplateEntity> entities)
+internal sealed class InMemorySystemPromptTemplateDomain(IList<PromptTemplateEntity> entities)
     : InMemorySecurityDomain<PromptTemplateEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IPromptTemplateDomain;

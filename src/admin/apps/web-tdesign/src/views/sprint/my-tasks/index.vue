@@ -1,9 +1,12 @@
-<script lang="ts" setup>
+﻿<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
+import type { PrimaryTableCol } from 'tdesign-vue-next';
+import type { TableRowData } from 'tdesign-vue-next';
+import type { HTMLElementAttributes } from 'tdesign-vue-next';
 
-import { CircleAlert } from '@vben/icons';
+import { CircleAlert, IconifyIcon } from '@vben/icons';
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import {
@@ -23,6 +26,9 @@ import {
 } from 'tdesign-vue-next';
 
 import { listAgentTokensApi, type SystemApi } from '#/api';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
 import {
   completeDevelopmentTaskApi,
   getDevelopmentTaskPromptApi,
@@ -38,6 +44,8 @@ import {
   buildAgentsprintMcpSetupPromptWithToken,
 } from '../_shared/mcpSetupPrompt';
 
+defineOptions({ name: 'SprintMyTasks' });
+
 const loading = ref(false);
 const router = useRouter();
 const promptVisible = ref(false);
@@ -51,6 +59,7 @@ const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const tasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const currentTask = ref<SprintMvpApi.DevelopmentTask>();
+const selectedTaskKeys = ref<Array<number | string>>([]);
 const filters = reactive({
   projectId: '',
   requirementId: '',
@@ -78,8 +87,8 @@ const agentTokenOptions = computed(() =>
     value: token.id,
   })),
 );
-const projectOptions = computed(() =>
-  projects.value.map((item) => ({ label: `${item.code} · ${item.name}`, value: item.id })),
+const selectedProject = computed(() =>
+  projects.value.find((project) => project.id === filters.projectId),
 );
 const requirementOptions = computed(() =>
   requirements.value
@@ -87,17 +96,36 @@ const requirementOptions = computed(() =>
     .map((item) => ({ label: item.title, value: item.id })),
 );
 
-const columns = [
+const columns: PrimaryTableCol[] = [
+  {
+    colKey: 'row-select',
+    disabled: ({ row }: { row: TableRowData }) => isTaskCompleted(row as SprintMvpApi.DevelopmentTask),
+    type: 'single',
+    width: 48,
+  },
   { colKey: 'title', title: '任务标题' },
-  { colKey: 'projectId', title: '项目', width: 160 },
   { colKey: 'requirementId', title: '需求', width: 200 },
   { colKey: 'status', title: '状态', width: 120 },
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'assignedBy', title: '指派人', width: 140 },
   { colKey: 'updateTime', title: '更新时间', width: 180 },
-  { colKey: 'actions', title: '操作', width: 220 },
+  { colKey: 'actions', title: '操作', width: 100 },
 ];
 
+const priorityText: Record<number, string> = {
+  1: '加急',
+  2: '正常',
+  3: '可延后',
+  4: '低优先级',
+  5: '最低优先级',
+};
+const priorityTheme: Record<number, 'default' | 'primary' | 'success' | 'warning'> = {
+  1: 'warning',
+  2: 'primary',
+  3: 'success',
+  4: 'default',
+  5: 'default',
+};
 const statusText: Record<string, string> = {
   assigned: '已指派',
   completed: '已完成',
@@ -109,14 +137,6 @@ const statusOptions = [
   { label: '推进中', value: 'in_progress' },
   { label: '已完成', value: 'completed' },
 ];
-const filteredTasks = computed(() =>
-  tasks.value.filter(
-    (task) =>
-      (!filters.projectId || task.projectId === filters.projectId) &&
-      (!filters.requirementId || task.requirementId === filters.requirementId) &&
-      (!filters.status || task.status === filters.status),
-  ),
-);
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
@@ -124,15 +144,51 @@ const tablePagination = computed(() => ({
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
-  total: filteredTasks.value.length,
+  total: tasks.value.length,
 }));
 const displayedMcpSetupPrompt = computed(() =>
   buildAgentsprintMcpSetupPrompt(promptResult.value?.mcpSetupPrompt.content),
 );
+const selectedTask = computed(() =>
+  tasks.value.find((task) => task.id === selectedTaskKeys.value[0]),
+);
+const canOperateSelectedTask = computed(() =>
+  Boolean(selectedTask.value && selectedTask.value.status !== 'completed'),
+);
+
+watch(tasks, (items) => {
+  if (
+    selectedTaskKeys.value.length > 0 &&
+    !items.some((task) => task.id === selectedTaskKeys.value[0])
+  ) {
+    selectedTaskKeys.value = [];
+  }
+});
 
 function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   pagination.current = pageInfo.current;
   pagination.pageSize = pageInfo.pageSize;
+}
+
+function handleSelectChange(keys: Array<number | string>) {
+  selectedTaskKeys.value = keys.filter((id) => {
+    const task = tasks.value.find((item) => item.id === id);
+    return task && !isTaskCompleted(task);
+  });
+}
+
+function isTaskCompleted(task: SprintMvpApi.DevelopmentTask) {
+  return task.status === 'completed';
+}
+
+function resolveTaskRowAttributes({ row }: { row: TableRowData }): HTMLElementAttributes {
+  return isTaskCompleted(row as SprintMvpApi.DevelopmentTask)
+    ? { title: '当前任务已完成,无需处理' }
+    : {};
+}
+
+function resolveTaskRowClassName({ row }: { row: TableRowData }) {
+  return isTaskCompleted(row as SprintMvpApi.DevelopmentTask) ? 'task-row-completed' : '';
 }
 
 async function loadTasks() {
@@ -142,35 +198,50 @@ async function loadTasks() {
       listProjectsApi(),
       listRequirementsApi(),
       listUserOptionsApi(),
-      listMyDevelopmentTasksApi(),
+      listMyDevelopmentTasksApi({
+        projectId: filters.projectId || undefined,
+        requirementId: filters.requirementId || undefined,
+        status: filters.status || undefined,
+      }),
       listAgentTokensApi(),
     ]);
+    filters.projectId ||= projects.value[0]?.id || '';
+    selectedTaskKeys.value = selectedTaskKeys.value.filter((id) =>
+      tasks.value.some((task) => task.id === id && !isTaskCompleted(task)),
+    );
     pagination.current = 1;
   } finally {
     loading.value = false;
   }
 }
 
-function handleProjectFilterChange() {
+async function handleProjectChange() {
   filters.requirementId = '';
+  selectedTaskKeys.value = [];
   pagination.current = 1;
+  await loadTasks();
 }
 
-function handleFilterChange() {
+async function handleFilterChange() {
+  selectedTaskKeys.value = [];
   pagination.current = 1;
+  await loadTasks();
 }
 
-function queryTasks() {
+async function queryTasks() {
   pagination.current = 1;
+  await loadTasks();
 }
 
-function resetFilters() {
+async function resetFilters() {
   Object.assign(filters, {
-    projectId: '',
+    projectId: projects.value[0]?.id || '',
     requirementId: '',
     status: '',
   });
+  selectedTaskKeys.value = [];
   pagination.current = 1;
+  await loadTasks();
 }
 
 function goTaskHall() {
@@ -178,6 +249,7 @@ function goTaskHall() {
 }
 
 async function advanceTask(task: SprintMvpApi.DevelopmentTask) {
+  if (task.status === 'completed') return;
   const result = await getDevelopmentTaskPromptApi(task.id);
   promptResult.value = result;
   currentTask.value = task;
@@ -190,9 +262,28 @@ function openDetail(task: SprintMvpApi.DevelopmentTask) {
 }
 
 async function completeTask(task: SprintMvpApi.DevelopmentTask) {
+  if (task.status === 'completed') return;
   await completeDevelopmentTaskApi(task.id);
   MessagePlugin.success('任务已完成；同一需求下全部任务完成后需求进入待测试');
   await loadTasks();
+}
+
+async function advanceSelectedTask() {
+  if (!selectedTask.value || !canOperateSelectedTask.value) return;
+  await advanceTask(selectedTask.value);
+}
+
+async function completeSelectedTask() {
+  if (!selectedTask.value || !canOperateSelectedTask.value) return;
+  await completeTask(selectedTask.value);
+}
+
+function resolvePriorityText(priority: number) {
+  return priorityText[priority] || `优先级 ${priority}`;
+}
+
+function resolvePriorityTheme(priority: number) {
+  return priorityTheme[priority] || 'default';
 }
 
 function fallbackCopyText(content: string) {
@@ -280,25 +371,22 @@ onMounted(loadTasks);
 </script>
 
 <template>
-  <div class="my-tasks-page sprint-list-page">
-    <section class="sprint-page-title">
+  <ProjectSecondaryListShell
+    v-model:selected-project-id="filters.projectId"
+    class="my-tasks-page"
+    :loading="loading"
+    :projects="projects"
+    @project-change="handleProjectChange"
+    @refresh="loadTasks"
+  >
+    <template #header><section class="sprint-page-title">
       <h2>我的任务</h2>
       <p>当前账号被指派的需求拆解任务。</p>
-    </section>
+    </section></template><template #workspace-header><div class="workspace-head"><div><h3>{{ selectedProject?.name || '请选择项目' }}</h3><p>{{ selectedProject?.code || '-' }}</p></div></div></template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>项目</span>
-          <TSelect
-            v-model="filters.projectId"
-            clearable
-            :options="projectOptions"
-            placeholder="全部项目"
-            @change="handleProjectFilterChange"
-          />
-        </label>
-        <label class="sprint-filter-field">
+        <div class="sprint-filter-field">
           <span>需求</span>
           <TSelect
             v-model="filters.requirementId"
@@ -307,8 +395,8 @@ onMounted(loadTasks);
             placeholder="全部需求"
             @change="handleFilterChange"
           />
-        </label>
-        <label class="sprint-filter-field">
+        </div>
+        <div class="sprint-filter-field">
           <span>状态</span>
           <TSelect
             v-model="filters.status"
@@ -317,10 +405,20 @@ onMounted(loadTasks);
             placeholder="全部状态"
             @change="handleFilterChange"
           />
-        </label>
+        </div>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :disabled="loading" @click="queryTasks">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :disabled="loading" @click="queryTasks">
+            <template #icon>
+              <IconifyIcon icon="lucide:search" />
+            </template>
+            查询
+          </TButton>
+          <TButton :disabled="loading" @click="resetFilters">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            重置
+          </TButton>
         </div>
       </div>
     </section>
@@ -329,43 +427,78 @@ onMounted(loadTasks);
       <div class="sprint-table-header">
         <h3>任务列表</h3>
         <div class="sprint-table-actions">
-          <TButton theme="primary" @click="goTaskHall">接取任务</TButton>
-          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadTasks">↻</TButton>
+          <TButton theme="primary" @click="goTaskHall">
+            <template #icon>
+              <IconifyIcon icon="lucide:handshake" />
+            </template>
+            接取任务
+          </TButton>
+          <TButton
+            theme="primary"
+            :disabled="!canOperateSelectedTask"
+            @click="advanceSelectedTask"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:play" />
+            </template>
+            任务推进
+          </TButton>
+          <TButton
+            theme="primary"
+            :disabled="!canOperateSelectedTask"
+            @click="completeSelectedTask"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:check" />
+            </template>
+            完成
+          </TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadTasks">
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </TButton>
         </div>
       </div>
 
       <TTable
         row-key="id"
         class="sprint-compact-table"
-        :columns="columns"
-        :data="filteredTasks"
+        :columns="withSerialColumn(columns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
+        :data="tasks"
         :loading="loading"
         :pagination="tablePagination"
+        :row-attributes="resolveTaskRowAttributes"
+        :row-class-name="resolveTaskRowClassName"
+        :selected-row-keys="selectedTaskKeys"
+        row-selection-type="single"
+        select-on-row-click
         size="small"
         hover
+        stripe
         @page-change="handlePageChange"
+        @select-change="handleSelectChange"
       >
-        <template #projectId="{ row }">
-          {{ projectMap[row.projectId]?.name || row.projectId }}
-        </template>
         <template #requirementId="{ row }">
           {{ requirementMap[row.requirementId]?.title || row.requirementId }}
         </template>
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
+        <template #priority="{ row }">
+          <TTag :theme="resolvePriorityTheme(row.priority)" variant="light">
+            {{ resolvePriorityText(row.priority) }}
+          </TTag>
+        </template>
         <template #assignedBy="{ row }">
           {{ row.assignedBy ? userMap[row.assignedBy]?.displayName || row.assignedBy : '-' }}
         </template>
         <template #updateTime="{ row }">
-          {{ row.updateTime || row.createTime }}
+          {{ formatDateTime(row.updateTime || row.createTime) }}
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
-            <TLink theme="primary" @click="openDetail(row)">详情</TLink>
-            <TLink theme="primary" @click="advanceTask(row)">任务推进</TLink>
-            <TLink v-if="row.status !== 'completed'" theme="primary" @click="completeTask(row)">
-              完成
+            <TLink theme="primary" class="task-detail-link" @click="openDetail(row)">
+              <IconifyIcon icon="lucide:search" />
+              <span>详情</span>
             </TLink>
           </TSpace>
         </template>
@@ -390,6 +523,9 @@ onMounted(loadTasks);
               <h4>{{ promptResult.mcpSetupPrompt.title }}</h4>
             </div>
             <TButton theme="primary" @click="openMcpCopy">
+              <template #icon>
+                <IconifyIcon icon="lucide:settings" />
+              </template>
               初次接入配置
             </TButton>
           </div>
@@ -422,13 +558,16 @@ onMounted(loadTasks);
               </div>
             </div>
             <TButton theme="primary" @click="copyPrompt(promptResult.taskExecutionPrompt.content)">
+              <template #icon>
+                <IconifyIcon icon="lucide:copy" />
+              </template>
               任务推进提示词
             </TButton>
           </div>
           <p class="prompt-usage">
             <strong>日常推进</strong>只复制此段，Codex 会按
             <strong>任务 ID</strong> 通过 <strong>MCP</strong> 拉取任务、需求和 Skill 上下文，并按
-            <strong>next_work</strong> 继续接取后续缺陷或任务。
+            <strong>next_work</strong> 仅作为状态参考，完成当前任务后停止接取新任务。
           </p>
           <div class="prompt-content">
             {{ promptResult.taskExecutionPrompt.content }}
@@ -465,8 +604,7 @@ onMounted(loadTasks);
         <TTextarea :model-value="mcpSetupContent" readonly autosize />
       </section>
     </TDialog>
-
-  </div>
+  </ProjectSecondaryListShell>
 </template>
 
 <style scoped>
@@ -561,4 +699,27 @@ onMounted(loadTasks);
   color: var(--td-text-color-secondary);
   line-height: 1.7;
 }
+
+:deep(.task-row-completed) {
+  color: var(--td-text-color-disabled);
+  cursor: not-allowed;
+}
+
+:deep(.task-row-completed .t-checkbox),
+:deep(.task-row-completed .t-radio) {
+  cursor: not-allowed;
+}
+
+.task-detail-link {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.task-detail-link .iconify {
+  width: 14px;
+  height: 14px;
+}
 </style>
+
+

@@ -31,9 +31,14 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
     /// zh-cn: 系统配置展示结果集合。
     /// en-us: System configuration display result collection.
     /// </returns>
-    public async Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync()
+    public async Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
         return (await _configurationDomain.ListAsync())
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Key, entity.Value, entity.Description)))
             .OrderBy(entity => entity.Key, StringComparer.Ordinal)
             .Select(MapConfiguration)
             .ToList();
@@ -141,6 +146,13 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static bool TextContains(string keyword, params string?[] values)
+    {
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ValidateRequired(string? value, string message)

@@ -12,8 +12,10 @@ import {
   type SystemApi,
 } from '#/api';
 import { useAccessStore } from '@vben/stores';
-import SystemPage from '#/views/system/_shared/system-page.vue';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
+import { withSerialColumn } from '#/views/_shared/table-columns';
 import {
   Button as TButton,
   Dialog as TDialog,
@@ -21,12 +23,12 @@ import {
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
   Table as TTable,
 } from 'tdesign-vue-next';
+import { IconifyIcon } from '@vben/icons';
 import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 type MenuTreeNode = SystemApi.Menu & {
@@ -80,6 +82,10 @@ const filters = reactive({
   type: undefined as number | undefined,
 });
 const query = reactive({ ...filters });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
 
 const menuNameMap: Record<string, string> = {
   ProductDefects: '缺陷跟踪',
@@ -161,27 +167,14 @@ const parentOptions = computed(() =>
 );
 
 const filteredMenus = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  const matches = (menu: SystemApi.Menu) => {
-    const buttonPermissions = getMenuPermissions(menu.id);
-    const displayName = getDisplayName(menu).toLowerCase();
-    const matchesKeyword =
-      !keyword ||
-      menu.name.toLowerCase().includes(keyword) ||
-      displayName.includes(keyword) ||
-      menu.path.toLowerCase().includes(keyword) ||
-      (menu.component || '').toLowerCase().includes(keyword) ||
-      (menu.icon || '').toLowerCase().includes(keyword) ||
-      buttonPermissions.some(
-        (permission) =>
-          permission.code.toLowerCase().includes(keyword) || permission.name.toLowerCase().includes(keyword),
-      );
-    const matchesType = query.type === undefined || menu.type === query.type;
-    const matchesStatus = query.status === undefined || menu.status === query.status;
-    return matchesKeyword && matchesType && matchesStatus;
-  };
-  return buildMenuTree(menus.value, matches, !!keyword || query.type !== undefined || query.status !== undefined);
+  return buildMenuTree(menus.value);
 });
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: filteredMenus.value.length,
+}));
 
 const selectedMenuPermissions = computed(() =>
   selectedMenu.value
@@ -193,7 +186,7 @@ function getDisplayName(menu: SystemApi.Menu) {
   return menuNameMap[menu.name] || menu.name;
 }
 
-function buildMenuTree(source: SystemApi.Menu[], predicate: (menu: SystemApi.Menu) => boolean, filtered: boolean) {
+function buildMenuTree(source: SystemApi.Menu[]) {
   const nodeMap = new Map<string, MenuTreeNode>();
   source.forEach((menu) =>
     nodeMap.set(menu.id, {
@@ -219,29 +212,27 @@ function buildMenuTree(source: SystemApi.Menu[], predicate: (menu: SystemApi.Men
   };
   sortNodes(roots);
 
-  const prune = (node: MenuTreeNode): MenuTreeNode | null => {
-    const children = (node.children || []).map(prune).filter(Boolean) as MenuTreeNode[];
-    const selfMatched = predicate(node);
-    if (!filtered || selfMatched || children.length > 0) {
-      return { ...node, children };
-    }
-    return null;
-  };
-
-  return roots.map(prune).filter(Boolean) as MenuTreeNode[];
+  return roots;
 }
 
 function getMenuPermissions(menuId: string) {
   return permissions.value.filter((permission) => permission.menuId === menuId);
 }
 
-function search() {
+async function search() {
   Object.assign(query, filters);
+  pagination.current = 1;
+  await load();
 }
 
-function reset() {
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
+}
+
+async function reset() {
   Object.assign(filters, { keyword: '', status: undefined, type: undefined });
-  search();
+  await search();
 }
 
 function open(row?: SystemApi.Menu) {
@@ -262,7 +253,10 @@ function open(row?: SystemApi.Menu) {
 async function load() {
   loading.value = true;
   try {
-    const [menuRows, permissionRows] = await Promise.all([listSystemMenusApi(), listSystemPermissionsApi()]);
+    const [menuRows, permissionRows] = await Promise.all([
+      listSystemMenusApi(query),
+      listSystemPermissionsApi(query.keyword ? { keyword: query.keyword } : undefined),
+    ]);
     menus.value = menuRows;
     permissions.value = permissionRows;
     accessStore.syncAccessMenusFromSystemMenus(menuRows);
@@ -355,55 +349,64 @@ onMounted(load);
 </script>
 
 <template>
-  <SystemPage
+  <AdminListPage
     title="菜单管理"
     description="维护系统菜单树和菜单下的按钮权限，支持组菜单、页面菜单、隐藏详情路由和页面级按钮权限。"
+    table-title="菜单列表"
+    add-button-text="新增菜单"
     :columns="columns"
     :data="filteredMenus"
     :expanded-tree-nodes="expandedTreeNodes"
     :loading="loading"
+    :pagination="tablePagination"
+    :refreshable="false"
     :table-key="treeVersion"
     :tree="treeConfig"
     @add="open()"
     @expanded-tree-nodes-change="expandedTreeNodes = $event"
+    @page-change="handlePageChange"
+    @reset="reset"
+    @search="search"
   >
     <template #filters>
-      <TInput v-model="filters.keyword" clearable placeholder="名称 / 路径 / 组件 / 图标" class="filter-control" />
-      <TSelect
-        v-model="filters.type"
-        clearable
-        placeholder="类型"
-        :options="[
-          { label: '组菜单', value: 0 },
-          { label: '页面菜单', value: 1 },
-          { label: '隐藏路由', value: 2 },
-        ]"
-        class="filter-control"
-      />
-      <TSelect
-        v-model="filters.status"
-        clearable
-        placeholder="状态"
-        :options="[
-          { label: '启用', value: 1 },
-          { label: '停用', value: 0 },
-        ]"
-        class="filter-control"
-      />
-      <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-        <TButton @click="reset">重置</TButton>
-      </TSpace>
+      <label class="filter-field">
+        <span>菜单信息</span>
+        <TInput v-model="filters.keyword" clearable placeholder="名称 / 路径 / 组件 / 图标" />
+      </label>
+      <label class="filter-field">
+        <span>类型</span>
+        <TSelect
+          v-model="filters.type"
+          clearable
+          placeholder="全部类型"
+          :options="[
+            { label: '组菜单', value: 0 },
+            { label: '页面菜单', value: 1 },
+            { label: '隐藏路由', value: 2 },
+          ]"
+        />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <TSelect
+          v-model="filters.status"
+          clearable
+          placeholder="全部状态"
+          :options="[
+            { label: '启用', value: 1 },
+            { label: '停用', value: 0 },
+          ]"
+        />
+      </label>
     </template>
-    <template #action>新增菜单</template>
     <template #actions="{ row }">
       <TSpace>
-        <TLink v-if="row" theme="primary" @click="openPermissions(row)">按钮权限</TLink>
-        <TLink v-if="row" theme="primary" @click="open(row)">编辑</TLink>
-        <TLink v-if="row" theme="danger" @click="remove(row)">删除</TLink>
+        <RowAction v-if="row" icon="lucide:key-round" label="按钮权限" @click="openPermissions(row)" />
+        <RowAction v-if="row" label="编辑" @click="open(row)" />
+        <RowAction v-if="row" label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
-  </SystemPage>
+  </AdminListPage>
 
   <TDialog v-model:visible="visible" header="菜单维护" width="660px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
@@ -454,24 +457,35 @@ onMounted(load);
       <TFormItem label="按钮名称" name="name"><TInput v-model="permissionForm.name" placeholder="新增用户" /></TFormItem>
       <TFormItem>
         <TSpace>
-          <TButton theme="primary" :loading="permissionSaving" @click="savePermission">保存按钮权限</TButton>
-          <TButton @click="openPermission()">清空</TButton>
+          <TButton theme="primary" :loading="permissionSaving" @click="savePermission">
+            <template #icon>
+              <IconifyIcon icon="lucide:save" />
+            </template>
+            保存按钮权限
+          </TButton>
+          <TButton @click="openPermission()">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            清空
+          </TButton>
         </TSpace>
       </TFormItem>
     </TForm>
     <TTable
       row-key="id"
-      :columns="permissionColumns"
+      :columns="withSerialColumn(permissionColumns)"
       :data="selectedMenuPermissions"
       :loading="loading"
       bordered
       hover
       class="permission-table"
+      stripe
     >
       <template #actions="{ row }">
         <TSpace>
-          <TLink v-if="row" theme="primary" @click="openPermission(row)">编辑</TLink>
-          <TLink v-if="row" theme="danger" @click="removePermission(row)">删除</TLink>
+          <RowAction v-if="row" label="编辑" @click="openPermission(row)" />
+          <RowAction v-if="row" label="删除" theme="danger" @click="removePermission(row)" />
         </TSpace>
       </template>
     </TTable>
@@ -479,8 +493,19 @@ onMounted(load);
 </template>
 
 <style scoped>
-.filter-control {
-  width: 240px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 
 .permission-form {

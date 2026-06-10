@@ -2,6 +2,7 @@
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
@@ -36,6 +37,7 @@ import {
   requiredRule,
   validateForm,
 } from '#/views/_shared/form-rules';
+import { formatDateTime } from '#/views/_shared/date-format';
 
 const creating = ref(false);
 const loading = ref(false);
@@ -83,7 +85,7 @@ const editForm = reactive({
 const projectRules: FormRules<typeof form> = {
   architectId: requiredRule('请选择架构师', 'change'),
   backendTechStack: requiredArrayRule('请选择后端技术栈'),
-  developerIds: requiredArrayRule('请选择至少一名开发人员'),
+  developerIds: requiredArrayRule('请选择至少一名研发人员'),
   frontendTechStack: requiredArrayRule('请选择前端技术栈'),
   name: requiredRule('请输入项目名称'),
   productManagerIds: requiredArrayRule('请选择至少一名产品经理'),
@@ -326,7 +328,12 @@ onMounted(async () => {
           <span>推进中</span>
           <strong>{{ activeProjects }}</strong>
         </div>
-        <TButton theme="primary" :disabled="loading" @click="openCreate">新增项目</TButton>
+        <TButton theme="primary" :disabled="loading" @click="openCreate">
+          <template #icon>
+            <IconifyIcon icon="lucide:plus" />
+          </template>
+          新增项目
+        </TButton>
       </div>
     </section>
 
@@ -334,7 +341,12 @@ onMounted(async () => {
       <div v-if="!loading && projects.length === 0" class="project-empty">
         <h3>暂无项目数据</h3>
         <p>先新建项目，再维护端、功能模块、需求和任务闭环。</p>
-        <TButton theme="primary" :disabled="loading" @click="openCreate">新建项目</TButton>
+        <TButton theme="primary" :disabled="loading" @click="openCreate">
+          <template #icon>
+            <IconifyIcon icon="lucide:plus" />
+          </template>
+          新建项目
+        </TButton>
       </div>
       <TCard
         v-for="project in projects"
@@ -351,9 +363,18 @@ onMounted(async () => {
         </div>
         <p class="repo">{{ project.repositoryUrl || '未配置仓库' }}</p>
         <div class="card-actions">
-          <TLink theme="primary" @click="openDrawer(project, 'edit')">编辑</TLink>
-          <TLink theme="primary" @click="openDrawer(project, 'detail')">详情</TLink>
-          <TLink theme="primary" @click="openDrawer(project, 'stats')">统计</TLink>
+          <TLink theme="primary" @click="openDrawer(project, 'edit')">
+            <IconifyIcon icon="lucide:pencil" />
+            编辑
+          </TLink>
+          <TLink theme="primary" @click="openDrawer(project, 'detail')">
+            <IconifyIcon icon="lucide:eye" />
+            详情
+          </TLink>
+          <TLink theme="primary" @click="openDrawer(project, 'stats')">
+            <IconifyIcon icon="lucide:bar-chart-3" />
+            统计
+          </TLink>
         </div>
       </TCard>
     </section>
@@ -379,7 +400,7 @@ onMounted(async () => {
             </div>
             <div class="stat-box">
               <span>创建时间</span>
-              <strong>{{ selectedProject.createTime }}</strong>
+              <strong>{{ formatDateTime(selectedProject.createTime) }}</strong>
             </div>
           </div>
         </template>
@@ -427,7 +448,7 @@ onMounted(async () => {
             <TFormItem label="产品经理" name="productManagerIds">
               <TSelect v-model="editForm.productManagerIds" multiple filterable :options="userOptions" />
             </TFormItem>
-            <TFormItem label="开发人员" name="developerIds">
+            <TFormItem label="研发人员" name="developerIds">
               <TSelect v-model="editForm.developerIds" multiple filterable :options="userOptions" />
             </TFormItem>
             <TFormItem label="测试人员" name="testerIds">
@@ -445,7 +466,7 @@ onMounted(async () => {
             <dt>详细信息</dt>
             <dd>{{ selectedProject.description || '未填写' }}</dd>
             <dt>仓库地址</dt>
-            <dd>{{ selectedProject.repositoryUrl || '未配置' }}</dd>
+            <dd class="repo-detail">{{ selectedProject.repositoryUrl || '未配置' }}</dd>
             <dt>测试环境</dt>
             <dd>
               {{ resolveRuntimeEnvironmentName(selectedProject.testEnvironmentId) }}
@@ -461,7 +482,7 @@ onMounted(async () => {
             <dd>{{ resolveUserName(selectedProject.projectManagerId) }}</dd>
             <dt>产品经理</dt>
             <dd>{{ resolveUserNames(selectedProject.productManagerIds) }}</dd>
-            <dt>开发人员</dt>
+            <dt>研发人员</dt>
             <dd>{{ resolveUserNames(selectedProject.developerIds) }}</dd>
             <dt>测试人员</dt>
             <dd>{{ resolveUserNames(selectedProject.testerIds) }}</dd>
@@ -482,9 +503,6 @@ onMounted(async () => {
       @confirm="createProject"
     >
       <TForm ref="createFormRef" :data="form" :rules="projectRules" label-width="100px">
-        <TFormItem label="项目编码">
-          <TInput :value="generatedProjectCode" disabled />
-        </TFormItem>
         <TFormItem label="项目名称" name="name">
           <TInput v-model="form.name" placeholder="AgentSprint" />
         </TFormItem>
@@ -528,7 +546,7 @@ onMounted(async () => {
         <TFormItem label="产品经理" name="productManagerIds">
           <TSelect v-model="form.productManagerIds" multiple filterable :options="userOptions" />
         </TFormItem>
-        <TFormItem label="开发人员" name="developerIds">
+        <TFormItem label="研发人员" name="developerIds">
           <TSelect v-model="form.developerIds" multiple filterable :options="userOptions" />
         </TFormItem>
         <TFormItem label="测试人员" name="testerIds">
@@ -679,13 +697,14 @@ h3 {
 }
 
 .repo {
-  height: 36px;
+  height: 18px;
   margin: 8px 0 10px;
   overflow: hidden;
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 18px;
-  word-break: break-all;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .drawer-content dl {
@@ -699,8 +718,16 @@ h3 {
 }
 
 .drawer-content dd {
+  min-width: 0;
   margin: 0;
   word-break: break-all;
+}
+
+.drawer-content .repo-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .stats-grid {

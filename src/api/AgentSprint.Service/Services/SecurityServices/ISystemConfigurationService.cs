@@ -4,7 +4,7 @@ namespace AgentSprint.Service.Services.SecurityServices;
 
 public interface ISystemConfigurationService
 {
-    Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync();
+    Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null);
 
     Task<SystemConfigurationResult> UpsertConfigurationAsync(UpsertSystemConfigurationRequest request);
 

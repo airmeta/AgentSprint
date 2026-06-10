@@ -95,6 +95,24 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task CreateProjectAsync_CreatesDefaultAdminEndpoint()
+    {
+        var endpointDomain = new InMemorySprintProjectEndpointDomain();
+        var service = CreateService(endpointDomain: endpointDomain);
+
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DEFAULT-ADMIN", "Default admin endpoint"),
+            "pm-1");
+        var endpoints = await endpointDomain.ListAsync(entity => entity.ProjectId == project.Id);
+
+        var endpoint = Assert.Single(endpoints);
+        Assert.Equal("DEFAULT-ADMIN", endpoint.Code);
+        Assert.Equal("管理后台", endpoint.Name);
+        Assert.Equal(SprintProjectEndpointTypes.Admin, endpoint.Type);
+    }
+
+
+    [Fact]
     public async Task FixBugAsync_KeepsRequirementPendingFixWhenOtherBugsRemainOpen()
     {
         var service = CreateService();
@@ -205,6 +223,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
@@ -278,7 +297,8 @@ public sealed class AgileMvpServiceTests
                 "AIR-CLOUD",
                 "Air.Cloud delivery gate",
                 "Follow Air.Cloud coding, testing and documentation rules.",
-                "Repository delivery gate"),
+                "Repository delivery gate",
+                SprintSkillTypes.RequirementAnalysis),
             "admin-1");
 
         var project = await service.CreateProjectAsync(
@@ -314,6 +334,42 @@ public sealed class AgileMvpServiceTests
         Assert.Equal([skill.Id], requirement.SkillIds);
         var listed = Assert.Single(await service.ListSkillsAsync(activeOnly: true));
         Assert.Equal("AIR-CLOUD", listed.Code);
+        Assert.Equal(SprintSkillTypes.RequirementAnalysis, listed.Type);
+    }
+
+    [Fact]
+    public async Task CreateSkillAsync_GeneratesCodeWhenCodeIsMissing()
+    {
+        var service = CreateService();
+
+        var skill = await service.CreateSkillAsync(
+            new CreateSprintSkillRequest(null, "Imported skill", "Use imported markdown content."),
+            "admin-1");
+
+        Assert.StartsWith("SKILL-", skill.Code);
+        Assert.Equal(14, skill.Code.Length);
+        Assert.Equal("Imported skill", skill.Name);
+    }
+
+    [Fact]
+    public async Task UpdateSkillAsync_CanChangeType()
+    {
+        var service = CreateService();
+        var skill = await service.CreateSkillAsync(
+            new CreateSprintSkillRequest("DEBUG", "Debug skill", "Debug runtime problems"),
+            "admin-1");
+
+        var updated = await service.UpdateSkillAsync(
+            skill.Id,
+            new UpdateSprintSkillRequest(
+                skill.Name,
+                skill.Content,
+                skill.Description,
+                SprintSkillStatuses.Active,
+                SprintSkillTypes.Debugging));
+
+        Assert.Equal(SprintSkillTypes.Development, skill.Type);
+        Assert.Equal(SprintSkillTypes.Debugging, updated.Type);
     }
 
     [Fact]
@@ -568,10 +624,41 @@ public sealed class AgileMvpServiceTests
             project.Id,
             requirement.Id,
             null,
+            null,
             SprintDevelopmentTaskStatuses.Assigned);
 
         Assert.NotEmpty(assignedTasks);
         Assert.All(assignedTasks, task => Assert.Equal(SprintDevelopmentTaskStatuses.Assigned, task.Status));
+    }
+
+    [Fact]
+    public async Task ListDevelopmentTasks_FiltersByRelatedUserAsAssigneeOrAssigner()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-TASK-RELATED-USER", "Task related user"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Related user filter", "Filter by assignee or assigner", 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(null, SprintTaskAssignmentModes.Manual),
+            "po-1");
+        var task = Assert.Single(tasks);
+        await service.AssignDevelopmentTaskAsync(
+            task.Id,
+            new AssignSprintDevelopmentTaskRequest("dev-related"),
+            "pm-related");
+
+        var assigneeTasks = await service.ListDevelopmentTasksAsync(project.Id, requirement.Id, null, "dev-related");
+        var assignerTasks = await service.ListDevelopmentTasksAsync(project.Id, requirement.Id, null, "pm-related");
+        var unrelatedTasks = await service.ListDevelopmentTasksAsync(project.Id, requirement.Id, null, "user-other");
+
+        Assert.Single(assigneeTasks, item => item.Id == task.Id);
+        Assert.Single(assignerTasks, item => item.Id == task.Id);
+        Assert.DoesNotContain(unrelatedTasks, item => item.Id == task.Id);
     }
 
     [Fact]
@@ -601,6 +688,7 @@ public sealed class AgileMvpServiceTests
             project.Id,
             requirement.Id,
             null,
+            null,
             SprintDevelopmentTaskStatuses.PendingAssign,
             false,
             "pm-1");
@@ -620,6 +708,47 @@ public sealed class AgileMvpServiceTests
             Assert.Equal(requirement.Id, task.RequirementId);
             Assert.Equal(SprintDevelopmentTaskStatuses.PendingAssign, task.Status);
         });
+    }
+
+    [Fact]
+    public async Task DecomposeRequirementAsync_ManualModeAssignsSelectedDeveloper()
+    {
+        var projectMemberDomain = new InMemorySprintProjectMemberDomain();
+        var service = CreateService(projectMemberDomain: projectMemberDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-MANUAL-ASSIGNEE", "Manual assignee"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Manual assigned tasks", "Assign on decomposition", 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(
+                "Create implementation task.",
+                SprintTaskAssignmentModes.Manual,
+                2,
+                "dev-selected"),
+            "po-1");
+        var updatedRequirement = (await service.ListRequirementsAsync(project.Id)).Single();
+        var projectMembers = await projectMemberDomain.ListAsync(entity =>
+            entity.ProjectId == project.Id &&
+            entity.UserId == "dev-selected" &&
+            entity.Role == SprintProjectMemberRoles.Developer);
+
+        Assert.Equal(2, tasks.Count);
+        Assert.All(tasks, task =>
+        {
+            Assert.Equal("dev-selected", task.AssigneeId);
+            Assert.Equal("po-1", task.AssignedBy);
+            Assert.Equal(SprintDevelopmentTaskStatuses.Assigned, task.Status);
+            Assert.NotNull(task.AssignedAt);
+            Assert.False(string.IsNullOrWhiteSpace(task.Prompt));
+        });
+        Assert.Equal(SprintRequirementStatuses.Decomposed, updatedRequirement.Status);
+        Assert.Equal("dev-selected", updatedRequirement.DeveloperId);
+        Assert.Single(projectMembers);
     }
 
     [Fact]
@@ -686,6 +815,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
@@ -730,6 +860,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
@@ -754,6 +885,7 @@ public sealed class AgileMvpServiceTests
         var tasks = await service.ListDevelopmentTasksAsync(
             requirement.ProjectId,
             requirement.Id,
+            null,
             null,
             SprintDevelopmentTaskStatuses.PendingAssign);
         var repaired = await requirementDomain.GetAsync(requirement.Id);
@@ -797,7 +929,7 @@ public sealed class AgileMvpServiceTests
             new DecomposeSprintRequirementRequest(null),
             "po-2");
 
-        var tasks = await service.ListParticipatingDevelopmentTasksAsync(null, null, null, null, false, "pm-1");
+        var tasks = await service.ListParticipatingDevelopmentTasksAsync(null, null, null, null, null, false, "pm-1");
 
         Assert.NotEmpty(tasks);
         Assert.All(tasks, task =>
@@ -854,11 +986,13 @@ public sealed class AgileMvpServiceTests
             project.Id,
             null,
             null,
+            null,
             SprintDevelopmentTaskStatuses.PendingAssign,
             true,
             "module-dev");
         var endpointDeveloperTasks = await service.ListParticipatingDevelopmentTasksAsync(
             project.Id,
+            null,
             null,
             null,
             SprintDevelopmentTaskStatuses.PendingAssign,
@@ -931,54 +1065,38 @@ public sealed class AgileMvpServiceTests
             tasks[0].Id,
             new AssignSprintDevelopmentTaskRequest("dev-1"),
             "pm-1");
+        var requirementBeforePrompt = (await service.ListRequirementsAsync(project.Id)).Single(item => item.Id == requirement.Id);
         var prompt = await service.GetDevelopmentTaskPromptAsync(assigned.Id, "dev-1");
+        var requirementAfterPrompt = (await service.ListRequirementsAsync(project.Id)).Single(item => item.Id == requirement.Id);
 
         Assert.Equal(SprintRequirementStatuses.Approved, requirement.Status);
+        Assert.Equal(SprintRequirementStatuses.Decomposed, requirementBeforePrompt.Status);
+        Assert.Equal(SprintRequirementStatuses.Developing, requirementAfterPrompt.Status);
         Assert.NotEmpty(tasks);
         Assert.Equal("dev-1", assigned.AssigneeId);
         Assert.Equal("pm-1", assigned.AssignedBy);
-        Assert.Contains("AgentSprint", prompt.Prompt, StringComparison.Ordinal);
+        Assert.Contains(project.Code, prompt.Prompt, StringComparison.Ordinal);
         Assert.Contains(assigned.Id, prompt.Prompt, StringComparison.Ordinal);
-        Assert.Contains($"任务 ID：{assigned.Id}", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
+        Assert.Contains($"Task {project.Code} {assigned.Id}", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("Build task hall", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         if (!string.IsNullOrWhiteSpace(assigned.Description))
         {
             Assert.DoesNotContain(assigned.Description, prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         }
-        Assert.Contains("[mcp_servers.agentsprint]", prompt.Prompt, StringComparison.Ordinal);
-        Assert.Contains("url =", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
         Assert.Contains("/mcp", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint", prompt.Prompt, StringComparison.Ordinal);
-        Assert.Contains("register_session", prompt.Prompt, StringComparison.Ordinal);
-        Assert.Contains("get_task_prompt", prompt.Prompt, StringComparison.Ordinal);
-        Assert.Contains("complete_my_task", prompt.Prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Aa123456!", prompt.Prompt, StringComparison.Ordinal);
         Assert.Equal("MCP 接入配置", prompt.McpSetupPrompt.Title);
-        Assert.Contains("[mcp_servers.agentsprint]", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("http_headers = { Authorization = \"Bearer <这里填令牌>\" }", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("不要使用 `[mcp_servers.agentsprint.headers]` 子表", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain(Environment.NewLine + "[mcp_servers.agentsprint.headers]" + Environment.NewLine, prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"command\"", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("不要默认写入 `X-AgentSprint-Api-Base-Url`", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"X-AgentSprint-Api-Base-Url\" = \"http://localhost:5000\"", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("X-AgentSprint-Workspace-Path", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("请只完成 Codex 的 agentsprint MCP 接入配置，不修改项目代码", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
+        Assert.Contains($"MCP {project.Code} {assigned.Id}", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
+        Assert.Contains("Authorization", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{agentToken}}", prompt.McpSetupPrompt.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{projectCode}}", prompt.Prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{taskId}}", prompt.Prompt, StringComparison.Ordinal);
         Assert.NotEmpty(prompt.McpSetupPrompt.Usage);
         Assert.Equal("任务推进提示词", prompt.TaskExecutionPrompt.Title);
-        Assert.Contains("agentsprint.register_session", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint.get_mcp_tool_guide", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("format = \"full\"", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint.get_agent_skill_pack", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint.get_next_work", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint.claim_next_work", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("next_work.kind = none", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("idle_round", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("polling.next_interval_seconds", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("session.offline_requested", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
-        Assert.Contains("agentsprint.close_session", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
+        Assert.Contains("stop-after-complete", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("按仓库内 Air.Cloud 风格完成实现、测试和文档同步", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("按仓库内 Air.Cloud 风格完成实现、测试和文档同步", prompt.Prompt, StringComparison.Ordinal);
-        Assert.NotEmpty(prompt.TaskExecutionPrompt.Notes);
+        Assert.NotEmpty(prompt.TaskExecutionPrompt.Usage);
     }
 
     [Fact]
@@ -1033,6 +1151,7 @@ public sealed class AgileMvpServiceTests
             tasks[0].Id,
             new AssignSprintDevelopmentTaskRequest("dev-1"),
             "pm-1");
+        var beforeClaimRequirement = (await service.ListRequirementsAsync(project.Id)).Single();
 
         var lease = await service.ClaimDevelopmentTaskAsync(
             assigned.Id,
@@ -1047,7 +1166,10 @@ public sealed class AgileMvpServiceTests
                 assigned.Id,
                 new ClaimSprintTaskRequest("window-2"),
                 "dev-1"));
+        var claimedRequirement = (await service.ListRequirementsAsync(project.Id)).Single();
 
+        Assert.Equal(SprintRequirementStatuses.Decomposed, beforeClaimRequirement.Status);
+        Assert.Equal(SprintRequirementStatuses.Developing, claimedRequirement.Status);
         Assert.Equal(SprintTaskTargetTypes.DevelopmentTask, lease.TargetType);
         Assert.Equal(assigned.Id, lease.TargetId);
         Assert.Equal(lease.Id, sameWindowLease.Id);
@@ -1321,6 +1443,62 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task DeleteFeatureModuleAsync_AllowsDeletingModuleWithoutRequirements()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DELETE-MODULE", "Delete unused module"),
+            "pm-1");
+        var endpoint = (await service.ListProjectEndpointsAsync(project.Id)).Single();
+        var module = await service.CreateFeatureModuleAsync(
+            new CreateSprintFeatureModuleRequest(
+                project.Id,
+                endpoint.Id,
+                "UNUSED",
+                "Unused",
+                null),
+            "pm-1");
+
+        var deleted = await service.DeleteFeatureModuleAsync(module.Id);
+        var modules = await service.ListFeatureModulesAsync(project.Id, endpoint.Id);
+
+        Assert.True(deleted);
+        Assert.DoesNotContain(modules, item => item.Id == module.Id);
+    }
+
+    [Fact]
+    public async Task DeleteFeatureModuleAsync_RejectsModuleReferencedByRequirement()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DELETE-MODULE-GUARD", "Delete used module guard"),
+            "pm-1");
+        var endpoint = (await service.ListProjectEndpointsAsync(project.Id)).Single();
+        var module = await service.CreateFeatureModuleAsync(
+            new CreateSprintFeatureModuleRequest(
+                project.Id,
+                endpoint.Id,
+                "USED",
+                "Used",
+                null),
+            "pm-1");
+        await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(
+                project.Id,
+                "Requirement bound to module",
+                null,
+                2,
+                EndpointId: endpoint.Id,
+                ModuleId: module.Id),
+            "po-1");
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DeleteFeatureModuleAsync(module.Id));
+
+        Assert.Equal("Module is used by requirements and cannot be deleted.", exception.Message);
+    }
+
+    [Fact]
     public async Task VoidRequirementAsync_AllowsRequirementCreatorToVoidRejectedRequirement()
     {
         var service = CreateService();
@@ -1423,6 +1601,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
@@ -1498,6 +1677,33 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task CreateRequirementAsync_CanSkipReviewAndDecomposeImmediately()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-SKIP-REVIEW", "Skip review"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(
+                project.Id,
+                "Skip review requirement",
+                "Can be decomposed immediately.",
+                1,
+                RequiresReview: false),
+            "po-1");
+
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(null),
+            "po-1");
+
+        Assert.Equal(SprintRequirementStatuses.Approved, requirement.Status);
+        Assert.Equal("po-1", requirement.ReviewedBy);
+        Assert.NotNull(requirement.ApprovedAt);
+        Assert.NotEmpty(tasks);
+    }
+
+    [Fact]
     public async Task ApproveRequirementAsync_RejectsDraftRequirementToProtectReviewWorkflow()
     {
         var service = CreateService();
@@ -1517,12 +1723,13 @@ public sealed class AgileMvpServiceTests
     private static AgileMvpService CreateService(
         IRequirementDecompositionService? decompositionService = null,
         InMemorySprintProjectMemberDomain? projectMemberDomain = null,
+        InMemorySprintProjectEndpointDomain? endpointDomain = null,
         ISystemConfigurationService? configurationService = null)
     {
         return new AgileMvpService(
             new InMemorySprintProjectDomain(),
             projectMemberDomain ?? new InMemorySprintProjectMemberDomain(),
-            new InMemorySprintProjectEndpointDomain(),
+            endpointDomain ?? new InMemorySprintProjectEndpointDomain(),
             new InMemorySprintFeatureModuleDomain(),
             new InMemorySprintRequirementDomain(),
             new InMemorySprintSkillDomain(),
@@ -1533,6 +1740,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             decompositionService ?? new RequirementDecompositionService(),
             configurationService ?? new StaticSystemConfigurationService());
@@ -1629,7 +1837,7 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
         _value = value;
     }
 
-    public Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync()
+    public Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null)
     {
         return Task.FromResult<IReadOnlyList<SystemConfigurationResult>>([]);
     }
@@ -1769,5 +1977,39 @@ internal sealed class InMemoryAgileRuntimeEnvironmentDomain :
     InMemoryDomainBase<RuntimeEnvironmentEntity>,
     IRuntimeEnvironmentDomain;
 
-internal sealed class InMemoryAgileTestPlanDomain : InMemoryDomainBase<TestPlanEntity>, ITestPlanDomain;
+internal sealed class InMemoryAgilePromptTemplateDomain : InMemoryDomainBase<PromptTemplateEntity>, IPromptTemplateDomain
+{
+    public InMemoryAgilePromptTemplateDomain()
+    {
+        CreateAsync(new PromptTemplateEntity
+        {
+            AgentEnvironment = "codex",
+            Code = "mcp_setup",
+            Name = "MCP 接入配置",
+            Content = """
+                      MCP {{projectCode}} {{taskId}}
 
+                      [mcp_servers.agentsprint]
+                      url = "{{mcpEndpoint}}"
+                      http_headers = { Authorization = "{{agentToken}}" }
+
+                      Token placeholder: Bearer <这里填令牌>
+                      """,
+            Description = "首次接入",
+            Sort = 1,
+            Status = 1
+        }).GetAwaiter().GetResult();
+        CreateAsync(new PromptTemplateEntity
+        {
+            AgentEnvironment = "codex",
+            Code = "task_execution",
+            Name = "任务推进提示词",
+            Content = "Task {{projectCode}} {{taskId}} {{repositoryReference}} {{workspacePath}} stop-after-complete",
+            Description = "日常推进",
+            Sort = 2,
+            Status = 1
+        }).GetAwaiter().GetResult();
+    }
+}
+
+internal sealed class InMemoryAgileTestPlanDomain : InMemoryDomainBase<TestPlanEntity>, ITestPlanDomain;

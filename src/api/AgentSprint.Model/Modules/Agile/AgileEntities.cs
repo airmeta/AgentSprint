@@ -211,6 +211,9 @@ public sealed class SprintSkillEntity : EntityBase
     [MaxLength(128)]
     public string Name { get; set; } = string.Empty;
 
+    [MaxLength(32)]
+    public string Type { get; set; } = SprintSkillTypes.Development;
+
     [MaxLength(512)]
     public string? Description { get; set; }
 
@@ -520,6 +523,19 @@ public static class SprintSkillStatuses
     public const string Active = "active";
 
     public const string Disabled = "disabled";
+}
+
+public static class SprintSkillTypes
+{
+    public const string Development = "development";
+
+    public const string Debugging = "debugging";
+
+    public const string Operations = "operations";
+
+    public const string RequirementAnalysis = "requirement_analysis";
+
+    public const string Other = "other";
 }
 
 public static class SprintRequirementReviewStatuses

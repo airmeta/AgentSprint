@@ -1,6 +1,4 @@
 using AgentSprint.Entry;
-using AgentSprint.Service.Services.AuthServices;
-using AgentSprint.Service.Services.UserServices;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Service.Impls.AgileServices;
 using AgentSprint.Service.Impls.TestServices;
@@ -39,7 +37,7 @@ public sealed class StartupConfigurationTests
     }
 
     [Fact]
-    public void ConfigureServices_UsesDevelopmentSecurityWithoutDroppingBusinessServices()
+    public void ConfigureServices_DoesNotRegisterDevelopmentSecurityOverrides()
     {
         var services = new ServiceCollection();
         var startup = new Startup();
@@ -48,14 +46,9 @@ public sealed class StartupConfigurationTests
         {
             startup.ConfigureServices(services);
 
-            Assert.Contains(
+            Assert.DoesNotContain(
                 services,
-                descriptor => descriptor.ServiceType == typeof(IAuthService) &&
-                    descriptor.ImplementationType?.Name == "DevelopmentAuthService");
-            Assert.Contains(
-                services,
-                descriptor => descriptor.ServiceType == typeof(IUserService) &&
-                    descriptor.ImplementationType?.Name == "DevelopmentUserService");
+                descriptor => descriptor.ImplementationType?.Namespace == "AgentSprint.Entry.Development");
         });
     }
 
@@ -111,12 +104,10 @@ public sealed class StartupConfigurationTests
 
     private static void WithDevelopmentStartupEnvironment(Action action)
     {
-        var previousUseInMemorySecurity = Environment.GetEnvironmentVariable("Database__UseInMemorySecurity");
         var previousConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__AgentSprintConnectionString");
 
         try
         {
-            Environment.SetEnvironmentVariable("Database__UseInMemorySecurity", "true");
             Environment.SetEnvironmentVariable(
                 "ConnectionStrings__AgentSprintConnectionString",
                 "server=127.0.0.1;port=3306;database=agentsprint_test;user=root;password=example;");
@@ -125,7 +116,6 @@ public sealed class StartupConfigurationTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("Database__UseInMemorySecurity", previousUseInMemorySecurity);
             Environment.SetEnvironmentVariable(
                 "ConnectionStrings__AgentSprintConnectionString",
                 previousConnectionString);

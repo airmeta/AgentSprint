@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 
+import { IconifyIcon } from '@vben/icons';
 import { onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -20,6 +21,10 @@ import {
   listTestExecutionsApi,
   listTestPlansApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+
+import '../_shared/table-layout.css';
 
 const route = useRoute();
 const loading = ref(false);
@@ -87,7 +92,12 @@ onMounted(loadDetail);
         <h2>{{ bug?.title || '缺陷详情' }}</h2>
         <p>{{ project?.name || '未找到缺陷' }}</p>
       </div>
-      <TButton @click="loadDetail">刷新</TButton>
+      <TButton @click="loadDetail">
+        <template #icon>
+          <IconifyIcon icon="lucide:refresh-cw" />
+        </template>
+        刷新
+      </TButton>
     </section>
 
     <TEmpty v-if="!loading && !bug" description="缺陷不存在或已被删除" />
@@ -112,8 +122,8 @@ onMounted(loadDetail);
           <TDescriptionsItem label="处理人">{{ bug.developerId || '未指派' }}</TDescriptionsItem>
           <TDescriptionsItem label="测试计划">{{ testPlan?.name || bug.testPlanId || '未绑定' }}</TDescriptionsItem>
           <TDescriptionsItem label="测试执行">{{ bug.testExecutionId || '未绑定' }}</TDescriptionsItem>
-          <TDescriptionsItem label="修复时间">{{ bug.fixedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ bug.createTime }}</TDescriptionsItem>
+          <TDescriptionsItem label="修复时间">{{ formatDateTime(bug.fixedAt) }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建时间">{{ formatDateTime(bug.createTime) }}</TDescriptionsItem>
         </TDescriptions>
       </section>
 
@@ -124,7 +134,11 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>测试执行记录</h3>
-        <TTable row-key="id" :columns="executionColumns" :data="executions" hover />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(executionColumns)" :data="executions" hover stripe>
+          <template #executedAt="{ row }">
+            {{ formatDateTime(row.executedAt) }}
+          </template>
+        </TTable>
       </section>
     </template>
   </div>

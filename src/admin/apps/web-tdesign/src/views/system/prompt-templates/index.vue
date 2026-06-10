@@ -1,50 +1,86 @@
 <script lang="ts" setup>
 import type { SystemApi } from '#/api';
-import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
+import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-vue-next';
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 
-import { listPromptTemplatesApi, savePromptTemplateApi } from '#/api';
-import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
-import SystemPage from '#/views/system/_shared/system-page.vue';
-import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
-  Button as TButton,
+  listDictionaryItemsApi,
+  listDictionaryTypesApi,
+  listPromptTemplatesApi,
+  savePromptTemplateApi,
+} from '#/api';
+import {
+  requiredRule,
+  validateForm,
+} from '#/views/_shared/form-rules';
+import MarkdownEditor from '#/views/sprint/_shared/markdown-editor.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
+import { getCellRow } from '#/views/system/_shared/table-cell';
+import SystemPage from '#/views/system/_shared/system-page.vue';
+import {
   Dialog as TDialog,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
-  Select as TSelect,
   Space as TSpace,
+  TabPanel as TTabPanel,
+  Tabs as TTabs,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
 
-const fixedPromptTemplates = [
-  {
-    code: 'mcp_setup',
-    description: 'Codex agentsprint MCP 接入配置提示词。',
-    name: 'MCP 接入提示词',
-    sort: 10,
-  },
-  {
-    code: 'task_execution',
-    description: 'Codex 任务推进提示词。',
-    name: '任务推进提示词',
-    sort: 20,
-  },
-] as const;
-const fixedPromptCodes = new Set<string>(fixedPromptTemplates.map((item) => item.code));
+defineOptions({ name: 'GlobalConfigPromptTemplates' });
 
+const AI_PLATFORM_DICTIONARY_CODE = 'ai_platform_support';
+const CODEX_PLATFORM_CODE = 'codex';
+
+const fallbackPlatformItems: SystemApi.DictionaryItem[] = [
+  {
+    code: 'codex',
+    dictionaryTypeId: AI_PLATFORM_DICTIONARY_CODE,
+    id: 'fallback-ai-platform-codex',
+    name: 'Codex',
+    sort: 10,
+    status: 1,
+  },
+  {
+    code: 'claude_code',
+    dictionaryTypeId: AI_PLATFORM_DICTIONARY_CODE,
+    id: 'fallback-ai-platform-claude-code',
+    name: 'ClaudeCode',
+    sort: 20,
+    status: 1,
+  },
+  {
+    code: 'work_buddy',
+    dictionaryTypeId: AI_PLATFORM_DICTIONARY_CODE,
+    id: 'fallback-ai-platform-work-buddy',
+    name: 'WorkBuddy',
+    sort: 30,
+    status: 1,
+  },
+  {
+    code: 'open_claw',
+    dictionaryTypeId: AI_PLATFORM_DICTIONARY_CODE,
+    id: 'fallback-ai-platform-open-claw',
+    name: 'OpenClaw',
+    sort: 40,
+    status: 1,
+  },
+];
+
+const activePromptTab = ref(CODEX_PLATFORM_CODE);
 const loading = ref(false);
 const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
+const platformItems = ref<SystemApi.DictionaryItem[]>([]);
 const templates = ref<SystemApi.PromptTemplate[]>([]);
+
 const form = reactive<Partial<SystemApi.PromptTemplate>>({
-  agentEnvironment: 'codex',
+  agentEnvironment: CODEX_PLATFORM_CODE,
   code: '',
   content: '',
   description: '',
@@ -53,106 +89,101 @@ const form = reactive<Partial<SystemApi.PromptTemplate>>({
   sort: 10,
   status: 1,
 });
-const filters = reactive({
-  keyword: '',
-  status: undefined as number | undefined,
-});
-const query = reactive({
-  keyword: '',
-  status: undefined as number | undefined,
-});
-
 const rules: FormRules<typeof form> = {
+  code: requiredRule('请输入模板编码'),
   content: requiredRule('请输入提示词内容'),
-  sort: optionalNumberRule('排序必须是数字'),
+  name: requiredRule('请输入模板名称'),
 };
-const statusOptions = [
-  { label: '启用', value: 1 },
-  { label: '停用', value: 0 },
+const templateVariables = [
+  '{{agent_token}}',
+  '{{mcp_endpoint}}',
+  '{{task_id}}',
 ];
-const columns = [
+const columns: PrimaryTableCol[] = [
   { colKey: 'code', title: '模板编码', width: 180 },
   { colKey: 'name', title: '模板名称', width: 180 },
-  { colKey: 'description', title: '说明', cell: (...args: any[]) => getCellRow(args[0], args[1])?.description || '-' },
-  { colKey: 'sort', title: '排序', width: 80 },
-  { colKey: 'status', title: '状态', width: 90, cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用') },
-  { colKey: 'actions', title: '操作', width: 100, cell: 'actions' },
+  {
+    cell: (...args: any[]) => getCellRow(args[0], args[1])?.description || '-',
+    colKey: 'description',
+    title: '说明',
+  },
+  { cell: 'actions', colKey: 'actions', title: '操作', width: 100 },
 ];
 
-const fixedTemplates = computed<SystemApi.PromptTemplate[]>(() =>
-  fixedPromptTemplates.map((definition) => {
-    const saved = templates.value.find((item) => item.code === definition.code);
-    return {
-      agentEnvironment: 'codex',
-      code: definition.code,
-      content: saved?.content || '',
-      description: saved?.description || definition.description,
-      id: saved?.id || '',
-      name: saved?.name || definition.name,
-      sort: saved?.sort ?? definition.sort,
-      status: saved?.status ?? 1,
-    };
-  }),
-);
-const filteredTemplates = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return fixedTemplates.value.filter((item) => {
-    const matchesKeyword =
-      !keyword ||
-      item.code.toLowerCase().includes(keyword) ||
-      item.name.toLowerCase().includes(keyword) ||
-      item.content.toLowerCase().includes(keyword) ||
-      (item.description || '').toLowerCase().includes(keyword);
-    const matchesStatus = query.status === undefined || item.status === query.status;
-    return matchesKeyword && matchesStatus;
-  });
+const promptTabs = computed(() => {
+  const source = platformItems.value.length > 0 ? platformItems.value : fallbackPlatformItems;
+  return [...source]
+    .filter((item) => item.status === 1)
+    .sort((left, right) => left.sort - right.sort || left.code.localeCompare(right.code))
+    .map((item) => ({ label: item.name, value: item.code }));
+});
+const currentPlatformLabel = computed(() => {
+  return promptTabs.value.find((item) => item.value === form.agentEnvironment)?.label || form.agentEnvironment || '-';
 });
 
-function openTemplate(row: SystemApi.PromptTemplate) {
-  const definition = fixedPromptTemplates.find((item) => item.code === row.code);
-  if (!definition) {
-    MessagePlugin.warning('只能维护固定提示词模板');
-    return;
-  }
+watch(
+  promptTabs,
+  (tabs) => {
+    if (tabs.length === 0) return;
+    if (!tabs.some((item) => item.value === activePromptTab.value)) {
+      activePromptTab.value = tabs.some((item) => item.value === CODEX_PLATFORM_CODE)
+        ? CODEX_PLATFORM_CODE
+        : tabs[0]!.value;
+    }
+  },
+  { immediate: true },
+);
 
+watch(
+  activePromptTab,
+  async (platform) => {
+    if (platform.toLowerCase() === CODEX_PLATFORM_CODE) {
+      await loadTemplates();
+    }
+  },
+);
+
+function resetForm(row: SystemApi.PromptTemplate) {
   Object.assign(form, {
-    agentEnvironment: 'codex',
-    code: definition.code,
+    agentEnvironment: row.agentEnvironment || activePromptTab.value,
+    code: row.code || '',
     content: row.content || '',
-    description: row.description || definition.description,
-    id: row.id || undefined,
-    name: row.name || definition.name,
-    sort: row.sort ?? definition.sort,
+    description: row.description || '',
+    id: row.id,
+    name: row.name || '',
+    sort: row.sort ?? 10,
     status: row.status ?? 1,
   });
+}
+
+function openTemplate(row: SystemApi.PromptTemplate) {
+  resetForm(row);
   visible.value = true;
+}
+
+async function loadPlatformItems() {
+  const dictionaryTypes = await listDictionaryTypesApi();
+  const aiPlatformType = dictionaryTypes.find((item) =>
+    item.status === 1 &&
+    (item.code === AI_PLATFORM_DICTIONARY_CODE || item.name === 'AI平台支持' || item.name === 'AI 平台支持'),
+  );
+  platformItems.value = aiPlatformType ? await listDictionaryItemsApi(aiPlatformType.id) : fallbackPlatformItems;
 }
 
 async function loadTemplates() {
   loading.value = true;
   try {
-    const data = await listPromptTemplatesApi('codex');
-    templates.value = data.filter((item) => fixedPromptCodes.has(item.code));
+    templates.value = await listPromptTemplatesApi(activePromptTab.value);
   } finally {
     loading.value = false;
   }
 }
 
-function search() {
-  Object.assign(query, filters);
-}
-
-function reset() {
-  Object.assign(filters, { keyword: '', status: undefined });
-  search();
-}
-
 async function saveTemplate() {
   if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
-  const definition = fixedPromptTemplates.find((item) => item.code === form.code);
-  if (!definition) {
-    MessagePlugin.warning('只能维护固定提示词模板');
+  if (!form.id) {
+    MessagePlugin.warning('请选择要编辑的提示词模板');
     return;
   }
 
@@ -160,10 +191,9 @@ async function saveTemplate() {
   try {
     await savePromptTemplateApi({
       ...form,
-      agentEnvironment: 'codex',
-      code: definition.code,
-      name: definition.name,
-      sort: Number(form.sort || definition.sort),
+      agentEnvironment: form.agentEnvironment,
+      code: form.code,
+      sort: Number(form.sort || 0),
     });
     MessagePlugin.success('提示词模板已保存');
     visible.value = false;
@@ -173,47 +203,69 @@ async function saveTemplate() {
   }
 }
 
-onMounted(loadTemplates);
+onMounted(async () => {
+  await loadPlatformItems();
+  await loadTemplates();
+});
 </script>
 
 <template>
   <div class="prompt-page">
-    <SystemPage
-      title="提示词设置"
-      description="Codex 当前固定维护 MCP 接入提示词和任务推进提示词。"
-      :columns="columns"
-      :data="filteredTemplates"
-      :loading="loading"
-      :addable="false"
-    >
-      <template #filters>
-        <TInput v-model="filters.keyword" clearable placeholder="模板编码 / 名称 / 内容" class="filter-control" />
-        <TSelect v-model="filters.status" clearable placeholder="状态" :options="statusOptions" class="filter-control small" />
-        <TSpace>
-          <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-          <TButton @click="reset">重置</TButton>
-        </TSpace>
-      </template>
-      <template #toolbar>
-        <TTag theme="primary" variant="light">固定 2 个模板</TTag>
-      </template>
-      <template #action></template>
-      <template #actions="{ row }">
-        <TLink theme="primary" @click="openTemplate(row)">编辑</TLink>
-      </template>
-    </SystemPage>
+    <TTabs v-model="activePromptTab" class="prompt-tabs" theme="card" :destroy-on-hide="false">
+      <TTabPanel v-for="tab in promptTabs" :key="tab.value" :value="tab.value" :label="tab.label">
+        <SystemPage
+          v-if="tab.value.toLowerCase() === CODEX_PLATFORM_CODE"
+          title="提示词设置"
+          description="维护 Codex 可复用的提示词模板，模板可使用 {{...}} 占位符注入令牌、端点和任务上下文。"
+          :addable="false"
+          :columns="columns"
+          :data="templates"
+          :loading="loading"
+          :show-filter-form="false"
+          @refresh="loadTemplates"
+        >
+          <template #toolbar>
+            <TTag theme="primary" variant="light">变量</TTag>
+            <TTag v-for="variable in templateVariables" :key="variable" variant="light">
+              {{ variable }}
+            </TTag>
+          </template>
+          <template #actions="{ row }">
+            <TSpace>
+              <RowAction icon="lucide:pencil" label="编辑" @click="openTemplate(row)" />
+            </TSpace>
+          </template>
+        </SystemPage>
 
-    <TDialog v-model:visible="visible" header="提示词模板维护" width="760px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="saveTemplate">
-      <TForm ref="formRef" :data="form" :rules="rules" label-width="104px">
-        <TFormItem label="Agent 环境"><TInput value="Codex" disabled /></TFormItem>
-        <TFormItem label="模板编码"><TInput v-model="form.code" disabled /></TFormItem>
-        <TFormItem label="模板名称"><TInput v-model="form.name" disabled /></TFormItem>
-        <TFormItem label="提示词内容" name="content">
-          <TTextarea v-model="form.content" :autosize="{ minRows: 10, maxRows: 18 }" />
+        <section v-else class="developing-panel">
+          <TTag theme="warning" variant="light">正在开发</TTag>
+        </section>
+      </TTabPanel>
+    </TTabs>
+
+    <TDialog
+      v-model:visible="visible"
+      header="提示词模板"
+      width="960px"
+      :confirm-btn="{ content: '保存', loading: saving }"
+      @confirm="saveTemplate"
+    >
+      <TForm ref="formRef" :data="form" :rules="rules" label-width="112px">
+        <TFormItem label="AI 平台">
+          <TInput :model-value="currentPlatformLabel" disabled />
         </TFormItem>
-        <TFormItem label="说明"><TTextarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 4 }" /></TFormItem>
-        <TFormItem label="排序" name="sort"><TInput v-model="form.sort" type="number" /></TFormItem>
-        <TFormItem label="状态"><TSelect v-model="form.status" :options="statusOptions" /></TFormItem>
+        <TFormItem label="模板编码" name="code">
+          <TInput v-model="form.code" disabled />
+        </TFormItem>
+        <TFormItem label="模板名称" name="name">
+          <TInput v-model="form.name" placeholder="任务执行提示词" />
+        </TFormItem>
+        <TFormItem label="提示词内容" name="content">
+          <MarkdownEditor v-model="form.content" :height="520" placeholder="请输入提示词内容" />
+        </TFormItem>
+        <TFormItem label="说明">
+          <TTextarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 4 }" />
+        </TFormItem>
       </TForm>
     </TDialog>
   </div>
@@ -226,11 +278,21 @@ onMounted(loadTemplates);
   gap: 16px;
 }
 
-.filter-control {
-  width: 260px;
+.prompt-tabs {
+  background: var(--td-bg-color-container);
+  border-radius: 6px;
 }
 
-.filter-control.small {
-  width: 160px;
+.prompt-tabs :deep(.t-tabs__content) {
+  padding-top: 12px;
+}
+
+.developing-panel {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
 }
 </style>

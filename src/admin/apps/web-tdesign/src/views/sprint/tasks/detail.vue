@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { SprintMvpApi } from '#/api/sprint/mvp';
 
-import { CircleAlert, RotateCw } from '@vben/icons';
+import { CircleAlert, IconifyIcon, RotateCw } from '@vben/icons';
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -28,6 +28,7 @@ import {
   listProjectsApi,
   listRequirementsApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
 
 import {
   buildAgentsprintMcpSetupPrompt,
@@ -195,7 +196,12 @@ onMounted(loadDetail);
         <h2>{{ task?.title || '任务详情' }}</h2>
         <p>{{ project?.name || '未找到任务' }}</p>
       </div>
-      <TButton @click="loadDetail">刷新</TButton>
+      <TButton @click="loadDetail">
+        <template #icon>
+          <IconifyIcon icon="lucide:refresh-cw" />
+        </template>
+        刷新
+      </TButton>
     </section>
 
     <TEmpty v-if="!loading && !task" description="任务不存在或已被删除" />
@@ -214,9 +220,9 @@ onMounted(loadDetail);
           <TDescriptionsItem label="负责人">{{ task.assigneeId || '未指派' }}</TDescriptionsItem>
           <TDescriptionsItem label="指派人">{{ task.assignedBy || '-' }}</TDescriptionsItem>
           <TDescriptionsItem label="创建人">{{ task.createdBy }}</TDescriptionsItem>
-          <TDescriptionsItem label="指派时间">{{ task.assignedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="完成时间">{{ task.completedAt || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ task.createTime }}</TDescriptionsItem>
+          <TDescriptionsItem label="指派时间">{{ formatDateTime(task.assignedAt) }}</TDescriptionsItem>
+          <TDescriptionsItem label="完成时间">{{ formatDateTime(task.completedAt) }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建时间">{{ formatDateTime(task.createTime) }}</TDescriptionsItem>
         </TDescriptions>
       </section>
 
@@ -250,6 +256,9 @@ onMounted(loadDetail);
                 <h4>{{ promptResult.mcpSetupPrompt.title }}</h4>
               </div>
               <TButton theme="primary" @click="openMcpCopy">
+                <template #icon>
+                  <IconifyIcon icon="lucide:settings" />
+                </template>
                 初次接入配置
               </TButton>
             </div>
@@ -281,13 +290,16 @@ onMounted(loadDetail);
                 </div>
               </div>
               <TButton theme="primary" @click="copyPrompt(promptResult.taskExecutionPrompt.content)">
+                <template #icon>
+                  <IconifyIcon icon="lucide:copy" />
+                </template>
                 任务推进提示词
               </TButton>
             </div>
             <p class="prompt-usage">
               <strong>日常推进</strong>只复制此段，Codex 会按
               <strong>任务 ID</strong> 通过 <strong>MCP</strong> 拉取任务、需求和 Skill 上下文，并按
-              <strong>next_work</strong> 继续接取后续缺陷或任务。
+              <strong>next_work</strong> 仅作为状态参考，完成当前任务后停止接取新任务。
             </p>
             <div class="prompt-content">
               {{ promptResult.taskExecutionPrompt.content }}

@@ -1,9 +1,12 @@
 <script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
+import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+
+import { IconifyIcon } from '@vben/icons';
 
 import {
   Button as TButton,
@@ -16,6 +19,7 @@ import {
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
+  Switch as TSwitch,
   Table as TTable,
   Tag as TTag,
   Textarea as TTextarea,
@@ -49,9 +53,13 @@ import {
   requiredRule,
   validateForm,
 } from '#/views/_shared/form-rules';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
 
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
 import MarkdownEditor from '../_shared/markdown-editor.vue';
 import { renderMarkdown } from '../_shared/markdown';
+import SkillSelectOption from '../_shared/skill-select-option.vue';
 import '../_shared/table-layout.css';
 
 const convertingFeedback = ref(false);
@@ -63,6 +71,7 @@ const reviewSubmitting = ref(false);
 const router = useRouter();
 const selectedProjectId = ref('');
 const selectedRequirement = ref<SprintMvpApi.Requirement>();
+const selectedRequirementKeys = ref<Array<number | string>>([]);
 const editorVisible = ref(false);
 const requirementFormRef = ref<FormInstanceFunctions>();
 const detailVisible = ref(false);
@@ -99,6 +108,7 @@ const requirementForm = reactive({
   moduleId: '',
   priority: 3,
   projectId: '',
+  requiresReview: true,
   skillIds: [] as string[],
   stakeholderIds: [] as string[],
   title: '',
@@ -107,6 +117,7 @@ const reviewForm = reactive({
   reviewerIds: [] as string[],
 });
 const decomposeForm = reactive({
+  assigneeId: '',
   assignmentMode: 'auto' as 'auto' | 'manual',
   instruction: '',
 });
@@ -157,8 +168,25 @@ const userOptions = computed(() =>
     value: user.id,
   })),
 );
+const decomposeAssigneeOptions = computed(() => {
+  const developerIds = selectedRequirement.value
+    ? resolveRequirementDeveloperIds(selectedRequirement.value)
+    : [];
+  const optionIds = developerIds.length > 0 ? developerIds : users.value.map((user) => user.id);
+
+  return optionIds.map((id) => ({
+    label: userMap.value[id]
+      ? `${userMap.value[id].displayName} (${userMap.value[id].username})`
+      : id,
+    value: id,
+  }));
+});
 const skillOptions = computed(() =>
-  skills.value.map((skill) => ({ label: `${skill.code} - ${skill.name}`, value: skill.id })),
+  skills.value.map((skill) => ({
+    label: `${skill.code} - ${skill.name}`,
+    skill,
+    value: skill.id,
+  })),
 );
 const priorityOptions = [
   { label: '加急', value: 1 },
@@ -166,6 +194,9 @@ const priorityOptions = [
   { label: '可延后', value: 3 },
 ];
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+const endpointMap = computed(() =>
+  Object.fromEntries(endpoints.value.map((endpoint) => [endpoint.id, endpoint])),
+);
 const endpointOptions = computed(() =>
   endpoints.value
     .filter((endpoint) => !requirementForm.projectId || endpoint.projectId === requirementForm.projectId)
@@ -188,6 +219,9 @@ const moduleOptions = computed(() =>
 );
 const selectedProjectName = computed(
   () => projects.value.find((item) => item.id === selectedProjectId.value)?.name,
+);
+const selectedProject = computed(() =>
+  projects.value.find((item) => item.id === selectedProjectId.value),
 );
 const convertFeedbackOptions = computed(() =>
   (selectedRequirement.value ? getRequirementFeedback(selectedRequirement.value.id) : [])
@@ -230,18 +264,18 @@ const developmentTasksByRequirement = computed(() => {
   return map;
 });
 const visibleRequirementIds = computed(() =>
-  new Set(filteredRequirements.value.map((requirement) => requirement.id)),
+  new Set(requirements.value.map((requirement) => requirement.id)),
 );
 
 const statusText: Record<string, string> = {
-  approved: '评审通过',
+  approved: '待拆解',
   completed: '已完成',
-  decomposed: '已拆解',
-  developing: '进行中',
+  decomposed: '待推进',
+  developing: '已推进',
   draft: '草稿',
   pending_fix: '待修复',
   pending_review: '待评审',
-  ready_development: '待开发',
+  ready_development: '待拆解',
   ready_test: '待测试',
   rejected: '评审驳回',
   tested: '已测试',
@@ -282,14 +316,16 @@ const feedbackAllowedStatuses = new Set(['tested', 'completed']);
 const editAllowedStatuses = new Set(['draft']);
 const reviewAllowedStatuses = new Set(['draft', 'rejected']);
 
-const columns = [
+const columns: PrimaryTableCol[] = [
+  { colKey: 'row-select', type: 'single', width: 48 },
   { colKey: 'title', ellipsis: true, title: '需求名' },
+  { colKey: 'endpointId', title: '所属端', width: 140 },
   { colKey: 'status', title: '状态', width: 120 },
   { colKey: 'health', title: '健康', width: 90 },
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'createdBy', title: '产品经理', width: 130 },
   { colKey: 'stakeholders', title: '干系人', width: 160 },
-  { colKey: 'actions', title: '操作', width: 280 },
+  { colKey: 'actions', title: '操作', width: 100 },
 ];
 const statusOptions = computed(() =>
   Object.entries(statusText).map(([value, label]) => ({ label, value })),
@@ -297,18 +333,30 @@ const statusOptions = computed(() =>
 const healthOptions = computed(() =>
   Object.entries(healthText).map(([value, label]) => ({ label, value })),
 );
-const filteredRequirements = computed(() => {
-  const requirementInfo = filters.requirementInfo.trim().toLowerCase();
-  return requirements.value.filter(
-    (requirement) =>
-      (!requirementInfo ||
-        requirement.title.toLowerCase().includes(requirementInfo) ||
-        (requirement.description || '').toLowerCase().includes(requirementInfo) ||
-        (requirement.stakeholders || '').toLowerCase().includes(requirementInfo)) &&
-      (!filters.status || requirement.status === filters.status) &&
-      (!filters.health || requirement.health === filters.health),
-  );
-});
+const selectedRequirementForAction = computed(() =>
+  requirements.value.find((requirement) => requirement.id === selectedRequirementKeys.value[0]),
+);
+const canSubmitSelectedRequirement = computed(() =>
+  Boolean(selectedRequirementForAction.value && canSubmitReview(selectedRequirementForAction.value)),
+);
+const canDecomposeSelectedRequirement = computed(() =>
+  Boolean(
+    selectedRequirementForAction.value &&
+      decomposeAllowedStatuses.has(selectedRequirementForAction.value.status),
+  ),
+);
+const canDeleteDraftSelectedRequirement = computed(() =>
+  selectedRequirementForAction.value?.status === 'draft',
+);
+const canVoidSelectedRequirement = computed(() =>
+  selectedRequirementForAction.value?.status === 'rejected',
+);
+const canCloseSelectedRequirement = computed(() =>
+  selectedRequirementForAction.value?.status === 'tested',
+);
+const canCreateSelectedFeedback = computed(() =>
+  Boolean(selectedRequirementForAction.value && canCreateFeedback(selectedRequirementForAction.value)),
+);
 
 const tablePagination = computed(() => ({
   current: pagination.current,
@@ -317,7 +365,7 @@ const tablePagination = computed(() => ({
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
-  total: filteredRequirements.value.length,
+  total: requirements.value.length,
 }));
 
 function handlePageChange(pageInfo: { current: number; pageSize: number }) {
@@ -352,6 +400,17 @@ function getRequirementTasks(requirementId: string) {
   return developmentTasksByRequirement.value[requirementId] || [];
 }
 
+function resolveRequirementDeveloperIds(requirement: SprintMvpApi.Requirement) {
+  const moduleDevelopers = modules.value.find((module) => module.id === requirement.moduleId)?.developerIds || [];
+  if (moduleDevelopers.length > 0) return [...new Set(moduleDevelopers)];
+
+  const endpointDevelopers = endpoints.value.find((endpoint) => endpoint.id === requirement.endpointId)?.developerIds || [];
+  if (endpointDevelopers.length > 0) return [...new Set(endpointDevelopers)];
+
+  const projectDevelopers = projects.value.find((project) => project.id === requirement.projectId)?.developerIds || [];
+  return [...new Set(projectDevelopers)];
+}
+
 function deserializeStakeholders(value?: string) {
   if (!value) return [];
   const userByUsername = Object.fromEntries(users.value.map((user) => [user.username, user.id]));
@@ -377,6 +436,15 @@ function resolveStakeholderNames(value?: string) {
   return ids
     .map((id) => userMap.value[id]?.displayName || userMap.value[id]?.username || id)
     .join('、');
+}
+
+function resolveUserName(userId?: string) {
+  return userId ? userMap.value[userId]?.displayName || userMap.value[userId]?.username || userId : '未指定';
+}
+
+function resolveEndpointName(endpointId?: string) {
+  if (!endpointId) return '未归属';
+  return endpointMap.value[endpointId]?.name || endpointId;
 }
 
 function resolvePriorityText(priority: number) {
@@ -447,6 +515,7 @@ function resetForm() {
       )?.id || '',
     priority: 3,
     projectId,
+    requiresReview: true,
     skillIds: [...(endpoint?.skillIds || [])],
     stakeholderIds: [],
     title: '',
@@ -471,6 +540,7 @@ function openEdit(requirement: SprintMvpApi.Requirement) {
     moduleId: requirement.moduleId || '',
     priority: requirement.priority,
     projectId: requirement.projectId,
+    requiresReview: true,
     skillIds: [...(requirement.skillIds || [])],
     stakeholderIds: deserializeStakeholders(requirement.stakeholders),
     title: requirement.title,
@@ -507,6 +577,7 @@ function openDecompose(requirement: SprintMvpApi.Requirement) {
     return;
   }
   selectedRequirement.value = requirement;
+  decomposeForm.assigneeId = '';
   decomposeForm.assignmentMode = 'auto';
   decomposeForm.instruction = '';
   decomposeVisible.value = true;
@@ -570,11 +641,18 @@ async function loadRequirements() {
   loading.value = true;
   try {
     const [nextRequirements, nextTasks] = await Promise.all([
-      listRequirementsApi(selectedProjectId.value || undefined),
+      listRequirementsApi(selectedProjectId.value || undefined, {
+        health: filters.health || undefined,
+        keyword: filters.requirementInfo || undefined,
+        status: filters.status || undefined,
+      }),
       listDevelopmentTasksApi({ projectId: selectedProjectId.value || undefined }),
     ]);
     requirements.value = nextRequirements;
     developmentTasks.value = nextTasks;
+    selectedRequirementKeys.value = selectedRequirementKeys.value.filter((id) =>
+      nextRequirements.some((requirement) => requirement.id === id),
+    );
     pagination.current = 1;
     const feedbackEntries = await Promise.all(
       requirements.value
@@ -613,11 +691,13 @@ function goTaskAdvance(task: SprintMvpApi.DevelopmentTask) {
 }
 
 async function queryRequirements() {
+  handleLocalFilterChange();
   await loadRequirements();
 }
 
 async function resetFilters() {
   selectedProjectId.value = projects.value[0]?.id || '';
+  selectedRequirementKeys.value = [];
   Object.assign(filters, {
     health: '',
     requirementInfo: '',
@@ -627,7 +707,52 @@ async function resetFilters() {
 }
 
 function handleLocalFilterChange() {
+  selectedRequirementKeys.value = [];
   pagination.current = 1;
+}
+
+function getSelectedRequirementOrWarn() {
+  if (!selectedRequirementForAction.value) {
+    MessagePlugin.warning('请先选择一条需求');
+    return undefined;
+  }
+  return selectedRequirementForAction.value;
+}
+
+function openSelectedDecompose() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canDecomposeSelectedRequirement.value) return;
+  openDecompose(requirement);
+}
+
+function openSelectedFeedback() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canCreateSelectedFeedback.value) return;
+  openFeedback(requirement);
+}
+
+function openSelectedReview() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canSubmitSelectedRequirement.value) return;
+  openReview(requirement);
+}
+
+function deleteSelectedDraftRequirement() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canDeleteDraftSelectedRequirement.value) return;
+  deleteDraftRequirement(requirement);
+}
+
+function voidSelectedRequirement() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canVoidSelectedRequirement.value) return;
+  voidRequirement(requirement);
+}
+
+function closeSelectedRequirement() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canCloseSelectedRequirement.value) return;
+  closeRequirement(requirement);
 }
 
 async function saveRequirement() {
@@ -668,6 +793,7 @@ async function saveRequirement() {
         moduleId: requirementForm.moduleId,
         priority: requirementForm.priority,
         projectId: requirementForm.projectId,
+        requiresReview: requirementForm.requiresReview,
         skillIds: [...requirementForm.skillIds],
         stakeholders: serializeStakeholders(requirementForm.stakeholderIds),
         title: requirementForm.title,
@@ -707,10 +833,16 @@ async function submitReview() {
 async function decomposeRequirement() {
   if (decomposing.value) return;
   if (!selectedRequirement.value) return;
+  const manualAssigneeId = decomposeForm.assigneeId.trim();
+  if (decomposeForm.assignmentMode === 'manual' && !manualAssigneeId) {
+    MessagePlugin.warning('请选择研发人员');
+    return;
+  }
   decomposing.value = true;
   try {
     await decomposeRequirementApi(selectedRequirement.value.id, {
       assignmentMode: decomposeForm.assignmentMode,
+      assigneeId: decomposeForm.assignmentMode === 'manual' ? manualAssigneeId : undefined,
       instruction: decomposeForm.instruction,
     });
     MessagePlugin.success('任务拆解已生成');
@@ -881,7 +1013,11 @@ watch(
   },
 );
 
-watch(filteredRequirements, syncExpandedRequirementIds);
+watch(selectedProjectId, async () => {
+  await loadRequirements();
+});
+
+watch(requirements, syncExpandedRequirementIds);
 
 onActivated(async () => {
   await loadRequirements();
@@ -889,24 +1025,42 @@ onActivated(async () => {
 </script>
 
 <template>
-  <div class="requirements-page sprint-list-page">
-    <section class="sprint-page-title">
-      <h2>需求管理</h2>
-      <p>维护需求、评审、拆解、测试闭环和验收后的产品回馈。</p>
-    </section>
+  <ProjectSecondaryListShell
+    v-model:selected-project-id="selectedProjectId"
+    class="requirements-page"
+    :loading="loading"
+    :projects="projects"
+    @refresh="loadRequirements"
+  >
+    <template #header>
+      <section class="sprint-page-title">
+        <h2>需求管理</h2>
+        <p>维护需求、评审、拆解、测试闭环和验收后的产品回馈。</p>
+      </section>
+    </template>
+
+    <template #project-meta="{ project }">
+      <span>经理 {{ resolveUserName(project.projectManagerId) }}</span>
+    </template>
+
+    <template #workspace-header>
+        <div class="workspace-head">
+          <div>
+            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
+            <p>{{ selectedProject?.code || '-' }}</p>
+          </div>
+          <TButton theme="primary" :disabled="!selectedProjectId" @click="openCreate">
+            <template #icon>
+              <IconifyIcon icon="lucide:plus" />
+            </template>
+            新增需求
+          </TButton>
+        </div>
+    </template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>当前项目</span>
-          <TSelect
-            v-model="selectedProjectId"
-            :options="projectOptions"
-            clearable
-            placeholder="全部项目"
-          />
-        </label>
-        <label class="sprint-filter-field">
+        <div class="sprint-filter-field">
           <span>状态</span>
           <TSelect
             v-model="filters.status"
@@ -915,8 +1069,8 @@ onActivated(async () => {
             placeholder="全部状态"
             @change="handleLocalFilterChange"
           />
-        </label>
-        <label class="sprint-filter-field">
+        </div>
+        <div class="sprint-filter-field">
           <span>健康度</span>
           <TSelect
             v-model="filters.health"
@@ -925,8 +1079,8 @@ onActivated(async () => {
             placeholder="全部健康状态"
             @change="handleLocalFilterChange"
           />
-        </label>
-        <label class="sprint-filter-field">
+        </div>
+        <div class="sprint-filter-field">
           <span>需求信息</span>
           <TInput
             v-model="filters.requirementInfo"
@@ -934,10 +1088,20 @@ onActivated(async () => {
             placeholder="需求名、内容、干系人"
             @change="handleLocalFilterChange"
           />
-        </label>
+        </div>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :loading="loading" @click="queryRequirements">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :loading="loading" @click="queryRequirements">
+            <template #icon>
+              <IconifyIcon icon="lucide:search" />
+            </template>
+            查询
+          </TButton>
+          <TButton :disabled="loading" @click="resetFilters">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            重置
+          </TButton>
         </div>
       </div>
     </section>
@@ -946,26 +1110,92 @@ onActivated(async () => {
       <div class="sprint-table-header">
         <h3>{{ selectedProjectName || '需求列表' }}</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">
-            刷新
+          <TButton
+            theme="primary"
+            :disabled="!canSubmitSelectedRequirement"
+            @click="openSelectedReview"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:clipboard-check" />
+            </template>
+            立项推进
           </TButton>
-          <TButton theme="primary" @click="openCreate">新增需求</TButton>
+          <TButton
+            theme="primary"
+            :disabled="!canDecomposeSelectedRequirement"
+            @click="openSelectedDecompose"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:list-tree" />
+            </template>
+            任务拆解
+          </TButton>
+          <TButton
+            theme="success"
+            :disabled="!canCloseSelectedRequirement"
+            @click="closeSelectedRequirement"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:check-circle" />
+            </template>
+            验收关闭
+          </TButton>
+          <TButton
+            theme="primary"
+            variant="outline"
+            :disabled="!canCreateSelectedFeedback"
+            @click="openSelectedFeedback"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:message-square" />
+            </template>
+            记录回馈
+          </TButton>
+          <TButton
+            theme="danger"
+            variant="outline"
+            :disabled="!canDeleteDraftSelectedRequirement"
+            @click="deleteSelectedDraftRequirement"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:trash-2" />
+            </template>
+            删除
+          </TButton>
+          <TButton
+            theme="danger"
+            :disabled="!canVoidSelectedRequirement"
+            @click="voidSelectedRequirement"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:ban" />
+            </template>
+            作废
+          </TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </TButton>
         </div>
       </div>
 
       <TTable
         row-key="id"
         class="sprint-compact-table"
-        :columns="columns"
-        :data="filteredRequirements"
+        :columns="withSerialColumn(columns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
+        :data="requirements"
         :expand-on-row-click="false"
         :expanded-row-keys="expandedRequirementIds"
         :loading="loading"
         :pagination="tablePagination"
+        :selected-row-keys="selectedRequirementKeys"
         size="small"
+        row-selection-type="single"
+        select-on-row-click
         hover
+        stripe
         @expand-change="handleExpandedRowKeysChange"
         @page-change="handlePageChange"
+        @select-change="selectedRequirementKeys = $event"
       >
         <template #expandedRow="{ row }">
           <div class="requirement-expanded">
@@ -984,13 +1214,9 @@ onActivated(async () => {
                 <span>{{ task.assigneeId || '未指派' }}</span>
                 <span>优先级 {{ task.priority }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
-                  <TLink theme="primary" @click="goTaskAdvance(task)">任务推进</TLink>
-                  <TLink
-                    v-if="task.status === 'completed' && canCreateFeedback(row)"
-                    theme="warning"
-                    @click="openFeedback(row, task)"
-                  >
-                    记录回馈
+                  <TLink v-if="task.status !== 'completed'" theme="primary" @click="goTaskAdvance(task)">
+                    <IconifyIcon icon="lucide:play" />
+                    任务推进
                   </TLink>
                 </TSpace>
                 <p>{{ task.description || '暂无任务说明' }}</p>
@@ -1018,13 +1244,14 @@ onActivated(async () => {
                   }}
                 </TTag>
                 <strong>{{ item.title }}</strong>
-                <span>{{ item.createdAt }}</span>
+                <span>{{ formatDateTime(item.createdAt) }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
                   <TLink
                     v-if="item.type === 'feedback' && item.feedback.status === 'open'"
                     theme="primary"
                     @click="openConvertFeedbackFromRequirement(row, item.feedback)"
                   >
+                    <IconifyIcon icon="lucide:arrow-right" />
                     转需求
                   </TLink>
                   <TLink
@@ -1032,6 +1259,7 @@ onActivated(async () => {
                     theme="primary"
                     @click="openReview(item.child)"
                   >
+                    <IconifyIcon icon="lucide:clipboard-check" />
                     提交评审
                   </TLink>
                   <TLink
@@ -1039,6 +1267,7 @@ onActivated(async () => {
                     theme="primary"
                     @click="openDecompose(item.child)"
                   >
+                    <IconifyIcon icon="lucide:list-tree" />
                     任务拆解
                   </TLink>
                   <TLink
@@ -1049,6 +1278,7 @@ onActivated(async () => {
                     theme="success"
                     @click="completeRequirementDevelopment(item.child)"
                   >
+                    <IconifyIcon icon="lucide:check" />
                     完成开发
                   </TLink>
                   <TLink
@@ -1056,6 +1286,7 @@ onActivated(async () => {
                     theme="success"
                     @click="closeRequirement(item.child)"
                   >
+                    <IconifyIcon icon="lucide:check-circle" />
                     验收关闭
                   </TLink>
                   <TLink
@@ -1063,6 +1294,7 @@ onActivated(async () => {
                     theme="primary"
                     @click="openDetail(item.child)"
                   >
+                    <IconifyIcon icon="lucide:eye" />
                     详情
                   </TLink>
                 </TSpace>
@@ -1070,6 +1302,9 @@ onActivated(async () => {
               </div>
             </section>
           </div>
+        </template>
+        <template #endpointId="{ row }">
+          {{ resolveEndpointName(row.endpointId) }}
         </template>
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
@@ -1088,30 +1323,12 @@ onActivated(async () => {
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
             <TLink v-if="canEditRequirement(row)" theme="primary" @click="openEdit(row)">
+              <IconifyIcon icon="lucide:pencil" />
               编辑
             </TLink>
-            <TLink v-else theme="primary" @click="openDetail(row)">详情</TLink>
-            <TLink
-              v-if="decomposeAllowedStatuses.has(row.status)"
-              theme="primary"
-              @click="openDecompose(row)"
-            >
-              任务拆解
-            </TLink>
-            <TLink v-if="canSubmitReview(row)" theme="primary" @click="openReview(row)">
-              立项推进
-            </TLink>
-            <TLink v-if="row.status === 'draft'" theme="danger" @click="deleteDraftRequirement(row)">
-              删除
-            </TLink>
-            <TLink v-if="row.status === 'rejected'" theme="danger" @click="voidRequirement(row)">
-              作废
-            </TLink>
-            <TLink v-if="row.status === 'tested'" theme="success" @click="closeRequirement(row)">
-              验收关闭
-            </TLink>
-            <TLink v-if="canCreateFeedback(row)" theme="primary" @click="openFeedback(row)">
-              记录回馈
+            <TLink v-else theme="primary" @click="openDetail(row)">
+              <IconifyIcon icon="lucide:eye" />
+              详情
             </TLink>
           </TSpace>
         </template>
@@ -1126,29 +1343,31 @@ onActivated(async () => {
       @confirm="saveRequirement"
     >
       <TForm ref="requirementFormRef" :data="requirementForm" :rules="requirementRules" label-width="90px">
-        <TFormItem label="所属项目" name="projectId">
-          <TSelect
-            v-model="requirementForm.projectId"
-            :disabled="!!selectedRequirement"
-            :options="projectOptions"
-          />
-        </TFormItem>
-        <TFormItem label="端点" name="endpointId">
-          <TSelect
-            v-model="requirementForm.endpointId"
-            :disabled="!!selectedRequirement"
-            :options="endpointOptions"
-            placeholder="请选择端点"
-          />
-        </TFormItem>
-        <TFormItem label="功能模块" name="moduleId">
-          <TSelect
-            v-model="requirementForm.moduleId"
-            :disabled="!!selectedRequirement"
-            :options="moduleOptions"
-            placeholder="请选择功能模块"
-          />
-        </TFormItem>
+        <div class="requirement-relation-row">
+          <TFormItem label="所属项目" name="projectId">
+            <TSelect
+              v-model="requirementForm.projectId"
+              :disabled="!!selectedRequirement"
+              :options="projectOptions"
+            />
+          </TFormItem>
+          <TFormItem label="端" name="endpointId">
+            <TSelect
+              v-model="requirementForm.endpointId"
+              :disabled="!!selectedRequirement"
+              :options="endpointOptions"
+              placeholder="请选择端"
+            />
+          </TFormItem>
+          <TFormItem label="功能模块" name="moduleId">
+            <TSelect
+              v-model="requirementForm.moduleId"
+              :disabled="!!selectedRequirement"
+              :options="moduleOptions"
+              placeholder="请选择功能模块"
+            />
+          </TFormItem>
+        </div>
         <TFormItem label="需求标题" name="title">
           <TInput v-model="requirementForm.title" />
         </TFormItem>
@@ -1175,12 +1394,19 @@ onActivated(async () => {
           />
         </TFormItem>
         <TFormItem label="Skill">
-          <TSelect v-model="requirementForm.skillIds" multiple filterable :options="skillOptions" />
+          <TSelect v-model="requirementForm.skillIds" multiple filterable :options="skillOptions">
+            <template #option="{ option }">
+              <SkillSelectOption :skill="option.skill" />
+            </template>
+          </TSelect>
+        </TFormItem>
+        <TFormItem v-if="!selectedRequirement" label="需要评审">
+          <TSwitch v-model="requirementForm.requiresReview" />
         </TFormItem>
         <TFormItem label="需求内容" class="markdown-form-item">
           <MarkdownEditor
             v-model="requirementForm.description"
-            :height="420"
+            :height="560"
             placeholder="使用 Markdown 编写需求背景、目标、验收标准。"
           />
         </TFormItem>
@@ -1221,7 +1447,7 @@ onActivated(async () => {
             <strong>
               {{ userMap[review.reviewerId]?.displayName || review.reviewerId }}
             </strong>
-            <span>{{ review.reviewedAt || review.createTime }}</span>
+            <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
             <p>{{ review.comment || '暂无意见' }}</p>
           </div>
         </section>
@@ -1239,7 +1465,7 @@ onActivated(async () => {
               {{ feedbackStatusText[feedback.status] || feedback.status }}
             </TTag>
             <strong>{{ feedback.title }}</strong>
-            <span>{{ feedback.createTime }}</span>
+            <span>{{ formatDateTime(feedback.createTime) }}</span>
             <p>{{ feedback.content || '暂无内容' }}</p>
             <TButton
               v-if="feedback.status === 'open'"
@@ -1248,6 +1474,9 @@ onActivated(async () => {
               variant="outline"
               @click="openConvertFeedback(feedback)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:arrow-right" />
+              </template>
               转后续需求
             </TButton>
           </div>
@@ -1259,6 +1488,9 @@ onActivated(async () => {
               theme="primary"
               @click="openEdit(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:pencil" />
+              </template>
               编辑
             </TButton>
             <TButton
@@ -1266,6 +1498,9 @@ onActivated(async () => {
               theme="primary"
               @click="openDecompose(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:list-tree" />
+              </template>
               任务拆解
             </TButton>
             <TButton
@@ -1273,6 +1508,9 @@ onActivated(async () => {
               theme="primary"
               @click="openReview(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:clipboard-check" />
+              </template>
               立项推进
             </TButton>
             <TButton
@@ -1281,6 +1519,9 @@ onActivated(async () => {
               variant="outline"
               @click="deleteDraftRequirement(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:trash-2" />
+              </template>
               删除草稿
             </TButton>
             <TButton
@@ -1288,6 +1529,9 @@ onActivated(async () => {
               theme="danger"
               @click="voidRequirement(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:ban" />
+              </template>
               作废需求
             </TButton>
             <TButton
@@ -1295,6 +1539,9 @@ onActivated(async () => {
               theme="success"
               @click="closeRequirement(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:check-circle" />
+              </template>
               验收关闭
             </TButton>
             <TButton
@@ -1303,6 +1550,9 @@ onActivated(async () => {
               variant="outline"
               @click="openFeedback(selectedRequirement)"
             >
+              <template #icon>
+                <IconifyIcon icon="lucide:message-square" />
+              </template>
               记录回馈
             </TButton>
           </TSpace>
@@ -1331,12 +1581,12 @@ onActivated(async () => {
 
     <TDrawer
       v-model:visible="decomposeVisible"
-      :size="'40%'"
+      :size="'60%'"
       header="AI 任务拆解"
       :confirm-btn="{ content: '生成任务', loading: decomposing }"
       @confirm="decomposeRequirement"
     >
-      <TForm :data="decomposeForm" label-width="90px">
+      <TForm :data="decomposeForm" label-width="110px">
         <TFormItem label="任务分派">
           <TSelect
             v-model="decomposeForm.assignmentMode"
@@ -1346,17 +1596,27 @@ onActivated(async () => {
             ]"
           />
         </TFormItem>
+        <TFormItem v-if="decomposeForm.assignmentMode === 'manual'" label="研发人员">
+          <TSelect
+            v-model="decomposeForm.assigneeId"
+            filterable
+            :options="decomposeAssigneeOptions"
+            placeholder="选择研发人员"
+          />
+        </TFormItem>
+        <TFormItem label="拆解补充要求" class="markdown-form-item">
+          <MarkdownEditor
+            v-model="decomposeForm.instruction"
+            :height="420"
+            placeholder="填写拆解补充要求，留空则按需求内容生成默认任务。"
+          />
+        </TFormItem>
       </TForm>
-      <TTextarea
-        v-model="decomposeForm.instruction"
-        class="drawer-textarea"
-        placeholder="填写拆解补充要求，留空则按需求内容生成默认任务。"
-      />
     </TDrawer>
 
     <TDrawer
       v-model:visible="feedbackVisible"
-      :size="'40%'"
+      :size="'60%'"
       header="记录产品回馈"
       :confirm-btn="{ content: '保存', loading: feedbackSaving }"
       @confirm="saveFeedback"
@@ -1365,10 +1625,10 @@ onActivated(async () => {
         <TFormItem label="标题" name="title">
           <TInput v-model="feedbackForm.title" />
         </TFormItem>
-        <TFormItem label="内容">
-          <TTextarea
+        <TFormItem label="内容" class="markdown-form-item">
+          <MarkdownEditor
             v-model="feedbackForm.content"
-            class="drawer-textarea"
+            :height="420"
             placeholder="记录验收后的新想法、补充范围或优化建议"
           />
         </TFormItem>
@@ -1445,12 +1705,18 @@ onActivated(async () => {
         </TFormItem>
       </TForm>
     </TDrawer>
-  </div>
+  </ProjectSecondaryListShell>
 </template>
 <style scoped>
 .requirements-page {
   display: flex;
   flex-direction: column;
+}
+
+.requirement-relation-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .requirement-expanded {
@@ -1498,6 +1764,10 @@ onActivated(async () => {
 
 .markdown-form-item :deep(.t-form__controls-content) {
   display: block;
+}
+
+.markdown-form-item :deep(.md-editor-content) {
+  min-height: 480px;
 }
 
 .markdown-preview {
@@ -1602,6 +1872,10 @@ onActivated(async () => {
 }
 
 @media (max-width: 960px) {
+  .requirement-relation-row {
+    grid-template-columns: 1fr;
+  }
+
   .expanded-item {
     grid-template-columns: 1fr;
   }

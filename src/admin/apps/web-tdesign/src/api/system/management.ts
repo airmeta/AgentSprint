@@ -1,6 +1,8 @@
 import { requestClient } from '#/api/request';
 
 export namespace SystemApi {
+  export type ManagementQuery = Record<string, number | string | undefined>;
+
   export interface Association {
     associationType: string;
     id: string;
@@ -135,18 +137,23 @@ export namespace SystemApi {
     name: string;
     projectId?: string;
     remotePackagePath?: string;
+    serverIps?: string;
     sort: number;
     status: number;
   }
 
   export interface RuntimeEnvironmentContainer {
     containerPort: number;
+    containerType: number;
+    deployScript?: string;
     description?: string;
     hostPort: number;
     id: string;
     name: string;
+    prompt?: string;
     protocol: string;
     runtimeEnvironmentId: string;
+    serverIp?: string;
     sort: number;
     status: number;
   }
@@ -163,8 +170,20 @@ export namespace SystemApi {
   }
 }
 
-export function listSystemUsersApi() {
-  return requestClient.get<SystemApi.User[]>('/system/users');
+function normalizeQuery(params?: SystemApi.ManagementQuery) {
+  if (!params) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
+  );
+}
+
+export function listSystemUsersApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.User[]>('/system/users', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveSystemUserApi(data: Partial<SystemApi.User> & { password?: string }) {
@@ -175,8 +194,10 @@ export function deleteSystemUserApi(id: string) {
   return requestClient.delete<boolean>(`/system/users/${id}`);
 }
 
-export function listSystemRolesApi() {
-  return requestClient.get<SystemApi.Role[]>('/system/roles');
+export function listSystemRolesApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.Role[]>('/system/roles', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveSystemRoleApi(data: Partial<SystemApi.Role>) {
@@ -187,8 +208,10 @@ export function deleteSystemRoleApi(id: string) {
   return requestClient.delete<boolean>(`/system/roles/${id}`);
 }
 
-export function listSystemMenusApi() {
-  return requestClient.get<SystemApi.Menu[]>('/system/menus');
+export function listSystemMenusApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.Menu[]>('/system/menus', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveSystemMenuApi(data: Partial<SystemApi.Menu>) {
@@ -199,8 +222,10 @@ export function deleteSystemMenuApi(id: string) {
   return requestClient.delete<boolean>(`/system/menus/${id}`);
 }
 
-export function listSystemPermissionsApi() {
-  return requestClient.get<SystemApi.Permission[]>('/system/permissions');
+export function listSystemPermissionsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.Permission[]>('/system/permissions', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveSystemPermissionApi(data: Partial<SystemApi.Permission>) {
@@ -211,8 +236,10 @@ export function deleteSystemPermissionApi(id: string) {
   return requestClient.delete<boolean>(`/system/permissions/${id}`);
 }
 
-export function listAgentTokensApi() {
-  return requestClient.get<SystemApi.AgentToken[]>('/system/agent-tokens');
+export function listAgentTokensApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.AgentToken[]>('/system/agent-tokens', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function createAgentTokenApi(data: {
@@ -228,8 +255,10 @@ export function revokeAgentTokenApi(id: string) {
   return requestClient.delete<boolean>(`/system/agent-tokens/${id}`);
 }
 
-export function listSystemConfigurationsApi() {
-  return requestClient.get<SystemApi.Configuration[]>('/system/configurations');
+export function listSystemConfigurationsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.Configuration[]>('/system/configurations', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveSystemConfigurationApi(data: Partial<SystemApi.Configuration>) {
@@ -264,8 +293,10 @@ export function deleteRoleGroupApi(id: string) {
   return requestClient.delete<boolean>(`/system/role-groups/${id}`);
 }
 
-export function listDepartmentsApi() {
-  return requestClient.get<SystemApi.Department[]>('/system/departments');
+export function listDepartmentsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.Department[]>('/system/departments', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveDepartmentApi(data: Partial<SystemApi.Department>) {
@@ -276,8 +307,10 @@ export function deleteDepartmentApi(id: string) {
   return requestClient.delete<boolean>(`/system/departments/${id}`);
 }
 
-export function listAssignmentsApi() {
-  return requestClient.get<SystemApi.CodeName[]>('/system/assignments');
+export function listAssignmentsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.CodeName[]>('/system/assignments', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveAssignmentApi(data: Partial<SystemApi.CodeName>) {
@@ -288,8 +321,10 @@ export function deleteAssignmentApi(id: string) {
   return requestClient.delete<boolean>(`/system/assignments/${id}`);
 }
 
-export function listDictionaryTypesApi() {
-  return requestClient.get<SystemApi.DictionaryType[]>('/system/dictionary-types');
+export function listDictionaryTypesApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.DictionaryType[]>('/system/dictionary-types', {
+    params: normalizeQuery(params),
+  });
 }
 
 export function saveDictionaryTypeApi(data: Partial<SystemApi.DictionaryType>) {
@@ -300,9 +335,9 @@ export function deleteDictionaryTypeApi(id: string) {
   return requestClient.delete<boolean>(`/system/dictionary-types/${id}`);
 }
 
-export function listDictionaryItemsApi(dictionaryTypeId?: string) {
+export function listDictionaryItemsApi(dictionaryTypeId?: string, params?: SystemApi.ManagementQuery) {
   return requestClient.get<SystemApi.DictionaryItem[]>('/system/dictionary-items', {
-    params: dictionaryTypeId ? { dictionaryTypeId } : undefined,
+    params: normalizeQuery({ ...params, dictionaryTypeId }),
   });
 }
 
@@ -346,9 +381,9 @@ export function deleteRuntimeEnvironmentContainerApi(id: string) {
   return requestClient.delete<boolean>(`/system/runtime-environment-containers/${id}`);
 }
 
-export function listPromptTemplatesApi(agentEnvironment = 'codex') {
+export function listPromptTemplatesApi(agentEnvironment?: string, params?: SystemApi.ManagementQuery) {
   return requestClient.get<SystemApi.PromptTemplate[]>('/system/prompt-templates', {
-    params: { agentEnvironment },
+    params: normalizeQuery({ ...params, agentEnvironment }),
   });
 }
 

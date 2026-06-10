@@ -13,6 +13,7 @@ public sealed class AgentSprintMcpServer
     private const int PollingBaseIntervalSeconds = 30;
     private const int PollingStepSeconds = 30;
     private const int PollingMaxIntervalSeconds = 180;
+    private const string ProjectTestDeploymentNotice = "你必须按照提示词和脚本来进行部署系统,如果脚本出现异常,直接提示用户异常原因是什么,不要尝试更换方式去绕过脚本";
     private static readonly Dictionary<string, int> MyTaskStatusPriority = new(StringComparer.Ordinal)
     {
         ["in_progress"] = 0,
@@ -35,6 +36,7 @@ public sealed class AgentSprintMcpServer
             ["get_agent_skill_pack"] = GetAgentSkillPackAsync,
             ["get_project_bootstrap"] = GetProjectBootstrapAsync,
             ["get_runtime_environment"] = GetRuntimeEnvironmentAsync,
+            ["get_project_test_deployment"] = GetProjectTestDeploymentAsync,
             ["list_task_hall"] = ListTaskHallAsync,
             ["list_my_tasks"] = ListMyTasksAsync,
             ["get_task_prompt"] = GetTaskPromptAsync,
@@ -198,7 +200,7 @@ public sealed class AgentSprintMcpServer
                 "Call get_agent_skill_pack to load required skills, backend rules, frontend rules, and verification commands.",
                 "Call get_task_prompt with task_id for task-specific work; use get_project_bootstrap when a project-level overview is needed.",
                 "Run relevant backend tests and frontend checks before calling complete_my_task.",
-                "Read complete_my_task.next_work, or call get_next_work / claim_next_work with the current project_id to continue with related bugs or new tasks."
+                "Read complete_my_task.next_work as status context, then stop by default; do not call get_next_work or claim_next_work unless the user explicitly asks to continue."
             },
             ["next_work_priority"] = new JsonArray
             {
@@ -208,7 +210,7 @@ public sealed class AgentSprintMcpServer
             },
             ["delivery_options"] = new JsonArray
             {
-                CreateDeliveryOption("prompt", "Use for short startup flow and next_work instructions; avoid embedding the full guide in every task prompt."),
+                CreateDeliveryOption("prompt", "Use for short startup flow and current-task completion instructions; avoid embedding the full guide in every task prompt."),
                 CreateDeliveryOption("http_link", "Use for the full human-readable guide when Codex can access the documentation URL."),
                 CreateDeliveryOption("skill", "Use for long-lived AgentSprint workflow rules installed in the Codex client."),
                 CreateDeliveryOption("tools_list", "Use as the authoritative live schema after Codex connects to MCP.")
@@ -218,8 +220,8 @@ public sealed class AgentSprintMcpServer
                 "Do not include SSH private keys, database passwords, Agent Tokens, or server connection strings in prompts, logs, code, or MCP responses.",
                 "Do not call complete_my_task until local verification has passed.",
                 "Prefer structuredContent over text content when reading MCP tool results.",
-                "Do not call get_next_work or claim_next_work without project_id; no project context means no cross-project polling or claiming.",
-                "When next_work.kind is none, follow next_work.polling instead of treating none as a forced session close."
+                "Do not call get_next_work or claim_next_work without an explicit user request and project_id; no project context means no cross-project polling or claiming.",
+                "After completing the current task, close the session or stop the workflow instead of polling for new work by default."
             },
             ["tools"] = CreateMcpToolGuideTools()
         };
@@ -227,7 +229,7 @@ public sealed class AgentSprintMcpServer
         if (string.Equals(format, "full", StringComparison.OrdinalIgnoreCase))
         {
             result["return_shapes"] = CreateMcpToolGuideReturnShapes();
-            result["prompt_snippet"] = "Complete the current task, run local verification, call agentsprint.complete_my_task, then inspect next_work. If next_work.kind is bug, prioritize fixing the test bug in next_work.scope.project_id. If it is task, continue or claim the task in next_work.scope.project_id. If it is none, follow next_work.polling.next_interval_seconds and poll again with next_work.scope.project_id unless session.offline_requested is true or polling.should_continue is false. Never poll or claim without project_id.";
+            result["prompt_snippet"] = "Complete the current task, run local verification, call agentsprint.complete_my_task, inspect next_work as status context, then stop. Do not poll get_next_work or call claim_next_work unless the user explicitly asks to continue with another item.";
         }
 
         return Task.FromResult<JsonNode?>(result);
@@ -354,6 +356,48 @@ public sealed class AgentSprintMcpServer
                 ["task_id"] = GetString(arguments, "task_id"),
                 ["endpoint_id"] = endpointId,
                 ["module_id"] = moduleId
+            }
+        };
+    }
+
+    private async Task<JsonNode?> GetProjectTestDeploymentAsync(JsonObject arguments, CancellationToken cancellationToken)
+    {
+        var projectId = RequireString(arguments, "project_id");
+        var projects = await _client.ListProjectsAsync(cancellationToken);
+        var selectedProject = FindById(projects, projectId);
+        var environments = await _client.ListRuntimeEnvironmentsAsync(
+            projectId,
+            null,
+            null,
+            cancellationToken);
+        var selectedEnvironment = SelectRuntimeEnvironment(
+            environments,
+            GetString(selectedProject, "testEnvironmentId"));
+        var selectedEnvironmentId = GetString(selectedEnvironment, "id");
+        var containers = string.IsNullOrWhiteSpace(selectedEnvironmentId)
+            ? new JsonArray()
+            : CloneArray(await _client.ListRuntimeEnvironmentContainersAsync(
+                selectedEnvironmentId,
+                cancellationToken));
+
+        return new JsonObject
+        {
+            ["project"] = selectedProject?.DeepClone(),
+            ["project_id"] = projectId,
+            ["selected_environment"] = selectedEnvironment?.DeepClone(),
+            ["deployment"] = CreateDeploymentInfo(selectedProject, selectedEnvironment),
+            ["containers"] = containers.DeepClone(),
+            ["test_url"] = ResolveRuntimeEnvironmentUrl(selectedEnvironment) ??
+                GetString(selectedProject, "testEnvironmentUrl"),
+            ["notice"] = ProjectTestDeploymentNotice,
+            ["resolution"] = new JsonObject
+            {
+                ["project_id"] = projectId,
+                ["environment_id"] = selectedEnvironmentId,
+                ["environment_code"] = GetString(selectedEnvironment, "code"),
+                ["environment_type"] = GetString(selectedEnvironment, "environmentType"),
+                ["container_count"] = containers.Count,
+                ["active_container_count"] = CountActiveContainers(containers)
             }
         };
     }
@@ -563,6 +607,10 @@ public sealed class AgentSprintMcpServer
             ["endpoint_id"] = StringSchema("Optional endpoint id."),
             ["module_id"] = StringSchema("Optional module id.")
         });
+        AddTool(tools, "get_project_test_deployment", "Return the selected test runtime environment deployment configuration and container port mappings for a project.", new JsonObject
+        {
+            ["project_id"] = StringSchema("Project id.")
+        }, ["project_id"]);
         AddTool(tools, "list_task_hall", "List task hall items visible to the authenticated AgentSprint user.", TaskFilterSchema());
         AddTool(tools, "list_my_tasks", "List tasks assigned to the authenticated AgentSprint user.", new JsonObject());
         AddTool(tools, "get_task_prompt", "Return the task prompt, task detail, requirement detail, and AgentSprint Skill pack by task id for local Codex execution.", new JsonObject
@@ -654,6 +702,7 @@ public sealed class AgentSprintMcpServer
             CreateToolGuideItem("get_agent_skill_pack", "Return required skills, backend rules, frontend rules, and verification commands.", [], ["project_code"], ["project_code", "workspace_path", "required_skills", "backend_rules", "frontend_rules", "verification_commands"]),
             CreateToolGuideItem("get_project_bootstrap", "Return project-level context for Codex startup.", [], ["project_code"], ["project", "project_code", "project_id", "workspace_path", "api_base_url", "current_user", "skill_pack", "requirements", "tasks"]),
             CreateToolGuideItem("get_runtime_environment", "Resolve runtime environment configuration by project, task, or requirement id.", [], ["project_id", "project_code", "task_id", "requirement_id", "endpoint_id", "module_id"], ["project", "task", "requirement", "selected_environment", "environments", "test_url", "resolution"]),
+            CreateToolGuideItem("get_project_test_deployment", "Return selected project test-environment deployment details and container mappings.", ["project_id"], [], ["project", "project_id", "selected_environment", "deployment", "containers", "test_url", "notice", "resolution"]),
             CreateToolGuideItem("list_task_hall", "List task-hall items visible to the current user.", [], ["project_id", "requirement_id", "assignee_id", "status", "primary_only"], ["SprintDevelopmentTaskResult[]"]),
             CreateToolGuideItem("list_my_tasks", "List tasks assigned to the current user.", [], [], ["SprintDevelopmentTaskResult[]"]),
             CreateToolGuideItem("get_task_prompt", "Return task prompt, task detail, requirement detail, and skill pack by task id.", ["task_id"], [], ["task_id", "task_prompt", "task_detail", "requirement_detail", "skill_pack", "workspace_path", "codex_instruction"]),
@@ -745,6 +794,17 @@ public sealed class AgentSprintMcpServer
                 "completedAt",
                 "createTime"
             },
+            ["ProjectTestDeploymentInfo"] = new JsonArray
+            {
+                "project",
+                "project_id",
+                "selected_environment",
+                "deployment",
+                "containers",
+                "test_url",
+                "notice",
+                "resolution"
+            },
             ["next_work"] = new JsonArray
             {
                 "kind",
@@ -809,7 +869,9 @@ public sealed class AgentSprintMcpServer
         return new JsonObject
         {
             ["project_id"] = StringSchema("Optional project id."),
-            ["requirement_id"] = StringSchema("Optional requirement id.")
+            ["requirement_id"] = StringSchema("Optional requirement id."),
+            ["endpoint_id"] = StringSchema("Optional endpoint id used to keep next work within the same project endpoint."),
+            ["module_id"] = StringSchema("Optional module id.")
         };
     }
 
@@ -944,6 +1006,57 @@ public sealed class AgentSprintMcpServer
         return result;
     }
 
+    private static JsonObject CreateDeploymentInfo(JsonNode? project, JsonNode? environment)
+    {
+        return new JsonObject
+        {
+            ["frontend_url"] = GetString(environment, "frontendUrl") ??
+                GetString(project, "testEnvironmentUrl"),
+            ["api_base_url"] = GetString(environment, "apiBaseUrl"),
+            ["frontend_proxy_api_url"] = GetString(environment, "frontendProxyApiUrl"),
+            ["mcp_endpoint"] = GetString(environment, "mcpEndpoint"),
+            ["server_ips"] = SplitStringValues(GetString(environment, "serverIps")),
+            ["deploy_root"] = GetString(environment, "deployRoot"),
+            ["docker_directory"] = GetString(environment, "dockerDirectory"),
+            ["remote_package_path"] = GetString(environment, "remotePackagePath"),
+            ["compose_file_path"] = GetString(environment, "composeFilePath"),
+            ["local_package_paths"] = SplitStringValues(GetString(environment, "localPackagePaths"))
+        };
+    }
+
+    private static JsonArray SplitStringValues(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : new JsonArray(value.Split([',', ';', '\r', '\n'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(item => JsonValue.Create(item))
+                .ToArray<JsonNode?>());
+    }
+
+    private static JsonArray CloneArray(JsonNode? node)
+    {
+        var result = new JsonArray();
+        if (node is not JsonArray array)
+        {
+            return result;
+        }
+
+        foreach (var item in array)
+        {
+            result.Add(item?.DeepClone());
+        }
+
+        return result;
+    }
+
+    private static int CountActiveContainers(JsonArray containers)
+    {
+        return containers
+            .OfType<JsonObject>()
+            .Count(container => GetInteger(container, "status", 0) == 1);
+    }
+
     private async Task<JsonNode?> ResolveTaskByIdAsync(string taskId, CancellationToken cancellationToken)
     {
         var myTasks = await _client.ListMyTasksAsync(cancellationToken);
@@ -1004,6 +1117,7 @@ public sealed class AgentSprintMcpServer
     {
         var projectId = GetString(arguments, "project_id");
         var requirementId = GetString(arguments, "requirement_id");
+        var endpointId = GetString(arguments, "endpoint_id");
         var sessionState = CreateSessionState(arguments, "idle");
         if (string.IsNullOrWhiteSpace(projectId))
         {
@@ -1021,9 +1135,10 @@ public sealed class AgentSprintMcpServer
             throw new InvalidOperationException("Current user id is required to resolve next work.");
         }
 
-        var relatedBugs = await ResolveRelatedBugsAsync(
+        var relatedBugs = await ResolveNextWorkBugsAsync(
             projectId,
             requirementId,
+            endpointId,
             currentUserId,
             cancellationToken);
         var bug = FirstObject(relatedBugs);
@@ -1045,7 +1160,15 @@ public sealed class AgentSprintMcpServer
         var activeTask = FirstObject(FilterMyPendingTasks(
             myTasks,
             projectId,
-            requirementId));
+            requirementId,
+            null));
+        activeTask ??= string.IsNullOrWhiteSpace(requirementId)
+            ? null
+            : FirstObject(FilterMyPendingTasks(
+                myTasks,
+                projectId,
+                null,
+                endpointId));
         if (activeTask is not null)
         {
             var result = CreateNextWorkResult("task", "Incomplete task from the current user's task list is ready to continue.", activeTask, arguments, sessionState);
@@ -1073,6 +1196,18 @@ public sealed class AgentSprintMcpServer
             GetBoolean(arguments, "primary_only", true),
             cancellationToken);
         var pendingTask = FirstObject(pendingTasks);
+        if (pendingTask is null && !string.IsNullOrWhiteSpace(requirementId))
+        {
+            pendingTasks = await _client.ListTaskHallAsync(
+                projectId,
+                null,
+                null,
+                "pending_assign",
+                GetBoolean(arguments, "primary_only", true),
+                cancellationToken);
+            pendingTask = FirstObject(FilterPendingTaskHallByEndpoint(pendingTasks, projectId, endpointId));
+        }
+
         if (pendingTask is not null)
         {
             var result = CreateNextWorkResult("task", "Pending task-hall item can be assigned by a task manager.", pendingTask, arguments, sessionState);
@@ -1106,8 +1241,10 @@ public sealed class AgentSprintMcpServer
     private static JsonObject EnsureNextWorkProjectContext(JsonObject arguments, JsonNode? task)
     {
         var result = (JsonObject)arguments.DeepClone();
-        result["project_id"] ??= GetString(task, "projectId");
-        result["requirement_id"] ??= GetString(task, "requirementId");
+        result["project_id"] = GetString(task, "projectId") ?? GetString(arguments, "project_id");
+        result["requirement_id"] = GetString(task, "requirementId") ?? GetString(arguments, "requirement_id");
+        result["endpoint_id"] = GetString(task, "endpointId") ?? GetString(arguments, "endpoint_id");
+        result["module_id"] = GetString(task, "moduleId") ?? GetString(arguments, "module_id");
         return result;
     }
 
@@ -1134,6 +1271,20 @@ public sealed class AgentSprintMcpServer
 
         var allBugs = await _client.ListBugsAsync(projectId, null, cancellationToken);
         return FilterBugs(allBugs, projectId, relatedRequirementIds, includeFixingOwnedBy: currentUserId);
+    }
+
+    private async Task<JsonArray> ResolveNextWorkBugsAsync(
+        string projectId,
+        string? preferredRequirementId,
+        string? endpointId,
+        string currentUserId,
+        CancellationToken cancellationToken)
+    {
+        var allBugs = await _client.ListBugsAsync(projectId, null, cancellationToken);
+        var requirements = string.IsNullOrWhiteSpace(endpointId)
+            ? null
+            : await _client.ListRequirementsAsync(projectId, cancellationToken);
+        return FilterProjectBugs(allBugs, requirements, projectId, preferredRequirementId, endpointId, currentUserId);
     }
 
     private static JsonObject CreateNextWorkResult(
@@ -1175,7 +1326,9 @@ public sealed class AgentSprintMcpServer
         return new JsonObject
         {
             ["project_id"] = GetString(arguments, "project_id"),
-            ["requirement_id"] = GetString(arguments, "requirement_id")
+            ["requirement_id"] = GetString(arguments, "requirement_id"),
+            ["endpoint_id"] = GetString(arguments, "endpoint_id"),
+            ["module_id"] = GetString(arguments, "module_id")
         };
     }
 
@@ -1251,7 +1404,8 @@ public sealed class AgentSprintMcpServer
     private static JsonArray FilterMyPendingTasks(
         JsonNode? tasks,
         string? projectId,
-        string? requirementId)
+        string? requirementId,
+        string? endpointId)
     {
         var result = new JsonArray();
         if (tasks is not JsonArray taskArray)
@@ -1260,7 +1414,7 @@ public sealed class AgentSprintMcpServer
         }
 
         foreach (var task in taskArray.OfType<JsonObject>()
-            .Where(task => IsTaskInScope(task, projectId, requirementId))
+            .Where(task => IsTaskInScope(task, projectId, requirementId, endpointId))
             .Select(task => new
             {
                 Task = task,
@@ -1275,10 +1429,31 @@ public sealed class AgentSprintMcpServer
         return result;
     }
 
-    private static bool IsTaskInScope(JsonObject task, string? projectId, string? requirementId)
+    private static JsonArray FilterPendingTaskHallByEndpoint(
+        JsonNode? tasks,
+        string? projectId,
+        string? endpointId)
+    {
+        var result = new JsonArray();
+        if (tasks is not JsonArray taskArray)
+        {
+            return result;
+        }
+
+        foreach (var task in taskArray.OfType<JsonObject>()
+            .Where(task => IsTaskInScope(task, projectId, null, endpointId)))
+        {
+            result.Add(task.DeepClone());
+        }
+
+        return result;
+    }
+
+    private static bool IsTaskInScope(JsonObject task, string? projectId, string? requirementId, string? endpointId = null)
     {
         return (string.IsNullOrWhiteSpace(projectId) || GetString(task, "projectId") == projectId) &&
-            (string.IsNullOrWhiteSpace(requirementId) || GetString(task, "requirementId") == requirementId);
+            (string.IsNullOrWhiteSpace(requirementId) || GetString(task, "requirementId") == requirementId) &&
+            (string.IsNullOrWhiteSpace(endpointId) || GetString(task, "endpointId") == endpointId);
     }
 
     private static int? GetMyTaskStatusPriority(string? status)
@@ -1317,6 +1492,56 @@ public sealed class AgentSprintMcpServer
         }
 
         return result;
+    }
+
+    private static JsonArray FilterProjectBugs(
+        JsonNode? bugs,
+        JsonNode? requirements,
+        string projectId,
+        string? preferredRequirementId,
+        string? endpointId,
+        string includeFixingOwnedBy)
+    {
+        var result = new JsonArray();
+        if (bugs is not JsonArray bugArray)
+        {
+            return result;
+        }
+
+        foreach (var bug in bugArray.OfType<JsonObject>()
+            .Where(bug =>
+            {
+                var bugStatus = GetString(bug, "status");
+                var developerId = GetString(bug, "developerId");
+                return GetString(bug, "projectId") == projectId &&
+                    IsBugInEndpointScope(bug, requirements, endpointId) &&
+                    (bugStatus == "open" || (bugStatus == "fixing" && developerId == includeFixingOwnedBy));
+            })
+            .OrderByDescending(bug =>
+                !string.IsNullOrWhiteSpace(preferredRequirementId) &&
+                GetString(bug, "requirementId") == preferredRequirementId))
+        {
+            result.Add(bug.DeepClone());
+        }
+
+        return result;
+    }
+
+    private static bool IsBugInEndpointScope(JsonObject bug, JsonNode? requirements, string? endpointId)
+    {
+        if (string.IsNullOrWhiteSpace(endpointId))
+        {
+            return true;
+        }
+
+        var directEndpointId = GetString(bug, "endpointId");
+        if (!string.IsNullOrWhiteSpace(directEndpointId))
+        {
+            return directEndpointId == endpointId;
+        }
+
+        var requirement = FindById(requirements, GetString(bug, "requirementId"));
+        return GetString(requirement, "endpointId") == endpointId;
     }
 
     private static HashSet<string> CollectRequirementIds(

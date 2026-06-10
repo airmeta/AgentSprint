@@ -11,7 +11,7 @@ AgentSprint MCP 是本地 Codex 客户端连接平台的必需通道。它负责
 API 必须先运行：
 
 ```powershell
-$env:ConnectionStrings__AgentSprintConnectionString='server=192.168.100.162;port=3306;database=agentsprint;user=root;password=Aa123456!;Allow User Variables=True;UseAffectedRows=False;CharSet=utf8mb4;'
+$env:ConnectionStrings__AgentSprintConnectionString='server=192.168.80.101;port=3306;database=agentsprint;user=root;password=<DB_PASSWORD>;Allow User Variables=True;UseAffectedRows=False;CharSet=utf8mb4;'
 $env:Database__AutoInitialize='true'
 $env:Database__UseInMemorySecurity='true'
 dotnet run --project F:\AI\AgentSprint\src\api\AgentSprint.Entry\AgentSprint.Entry.csproj --urls http://localhost:5000
@@ -59,7 +59,7 @@ http_headers = {
 - `list_task_hall`：查询当前登录人可见的任务大厅。
 - `list_my_tasks`：查询当前登录人的任务。
 - `get_task_prompt`：按任务 ID 返回任务推进提示词、任务详情、需求详情和 Skill 包；Codex 应以返回的 `task_detail`、`requirement_detail` 为准，不从复制提示词正文解析需求内容。
-- `assign_task`：把任务指派给开发人员。
+- `assign_task`：把任务指派给研发人员。
 - `complete_my_task`：开发完成并通过本地验证后回写任务完成，并返回推荐的下一工作项。
 - `get_next_work`：不改变平台状态，按“我完成过的需求缺陷、我已分配任务、可见待分配任务”的顺序返回下一工作项。
 - `claim_next_work`：按同一优先级自动领取下一工作项；缺陷会调用缺陷领取，待分配任务会尝试指派给当前 Codex 用户。

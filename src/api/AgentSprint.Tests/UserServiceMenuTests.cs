@@ -24,9 +24,14 @@ public sealed class UserServiceMenuTests
         var productGroup = CreateMenu("menu-product-group", string.Empty, "ProductGroup", "/sprint/product", string.Empty, 20, 0);
         var workerGroup = CreateMenu("menu-worker-group", string.Empty, "WorkerGroup", "/sprint/worker", string.Empty, 30, 0);
         var testGroup = CreateMenu("menu-test-group", string.Empty, "TestGroup", "/sprint/test", string.Empty, 40, 0);
+        var operationManagement = CreateMenu("menu-operation-management", string.Empty, "OperationManagement", "/operations", string.Empty, 91, 0);
+        var globalConfig = CreateMenu("menu-global-config", string.Empty, "GlobalConfig", "/global-config", string.Empty, 92, 0);
         var projects = CreateMenu("menu-projects", projectGroup.Id, "SprintProjects", "/sprint/projects", "/sprint/projects/index", 10, 1);
         var multiEndpoints = CreateMenu("menu-multi-endpoints", projectGroup.Id, "SprintMultiEndpoints", "/sprint/multi-endpoints", "/sprint/multi-endpoints/index", 11, 1);
-        var skills = CreateMenu("menu-skills", projectGroup.Id, "SprintSkills", "/sprint/skills", "/sprint/skills/index", 12, 1);
+        var operationScripts = CreateMenu("menu-operation-scripts", operationManagement.Id, "OperationScripts", "/operations/scripts", "/operations/scripts/index", 10, 1);
+        var operationEnvironments = CreateMenu("menu-operation-environments", operationManagement.Id, "OperationEnvironments", "/operations/environments", "/system/runtime-environments/index", 20, 1);
+        var promptTemplates = CreateMenu("menu-prompt-templates", globalConfig.Id, "GlobalConfigPromptTemplates", "/global-config/prompt-templates", "/system/prompt-templates/index", 20, 1);
+        var skills = CreateMenu("menu-skills", globalConfig.Id, "GlobalConfigSkills", "/global-config/skills", "/sprint/skills/index", 30, 1);
         var projectDetail = CreateMenu(
             "menu-project-detail",
             projectGroup.Id,
@@ -87,7 +92,6 @@ public sealed class UserServiceMenuTests
                 projectGroup,
                 projects,
                 multiEndpoints,
-                skills,
                 projectDetail,
                 productGroup,
                 requirements,
@@ -100,7 +104,13 @@ public sealed class UserServiceMenuTests
                 testGroup,
                 tests,
                 defects,
-                defectDetail
+                defectDetail,
+                operationManagement,
+                operationScripts,
+                operationEnvironments,
+                globalConfig,
+                promptTemplates,
+                skills
             ]);
         var roleMenuDomain = new InMemoryRoleMenuDomain(
             [
@@ -111,7 +121,6 @@ public sealed class UserServiceMenuTests
                 new RoleMenuEntity { RoleId = role.Id, MenuId = projectGroup.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = projects.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = multiEndpoints.Id },
-                new RoleMenuEntity { RoleId = role.Id, MenuId = skills.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = projectDetail.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = productGroup.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = requirements.Id },
@@ -124,7 +133,13 @@ public sealed class UserServiceMenuTests
                 new RoleMenuEntity { RoleId = role.Id, MenuId = testGroup.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = tests.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = defects.Id },
-                new RoleMenuEntity { RoleId = role.Id, MenuId = defectDetail.Id }
+                new RoleMenuEntity { RoleId = role.Id, MenuId = defectDetail.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = operationManagement.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = operationScripts.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = operationEnvironments.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = globalConfig.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = promptTemplates.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = skills.Id }
             ]);
         var service = new UserService(
             userDomain,
@@ -139,7 +154,7 @@ public sealed class UserServiceMenuTests
 
         var menus = await service.GetMenusAsync(user.Id);
 
-        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup"], menus.Select(menu => menu.Name));
+        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "OperationManagement", "GlobalConfig"], menus.Select(menu => menu.Name));
         Assert.DoesNotContain(menus, menu => menu.Name == "Sprint");
         Assert.DoesNotContain(menus, menu => menu.Name.Contains("Decomposition", StringComparison.Ordinal));
         Assert.DoesNotContain(menus, menu => menu.Name == "SprintMvp");
@@ -148,7 +163,7 @@ public sealed class UserServiceMenuTests
             .Where(menu => menu.Meta.HideInMenu != true)
             .Select(menu => menu.Meta.Title)
             .ToList();
-        Assert.Equal(["工作台", "项目管理", "产品管理", "研发执行", "测试验证"], visibleMenus);
+        Assert.Equal(["工作台", "项目管理", "产品管理", "研发执行", "测试验证", "运维管理", "全局配置"], visibleMenus);
 
         var workspaceMenu = menus.Single(menu => menu.Name == "Workspace");
         Assert.Equal("/dashboard/workspace", workspaceMenu.Path);
@@ -157,7 +172,7 @@ public sealed class UserServiceMenuTests
 
         var projectGroupMenu = menus.Single(menu => menu.Name == "ProjectGroup");
         Assert.Equal("/sprint/projects", projectGroupMenu.Redirect);
-        Assert.Equal(["SprintProjects", "SprintMultiEndpoints", "SprintSkills", "SprintProjectDetail"], projectGroupMenu.Children.Select(menu => menu.Name));
+        Assert.Equal(["SprintProjects", "SprintMultiEndpoints", "SprintProjectDetail"], projectGroupMenu.Children.Select(menu => menu.Name));
 
         var productGroupMenu = menus.Single(menu => menu.Name == "ProductGroup");
         Assert.Equal(["SprintRequirements", "SprintRequirementDetail", "SprintRequirementReviews"], productGroupMenu.Children.Select(menu => menu.Name));
@@ -167,6 +182,14 @@ public sealed class UserServiceMenuTests
 
         var testGroupMenu = menus.Single(menu => menu.Name == "TestGroup");
         Assert.Equal(["SprintTests", "SprintDefects", "SprintDefectDetail"], testGroupMenu.Children.Select(menu => menu.Name));
+
+        var operationMenu = menus.Single(menu => menu.Name == "OperationManagement");
+        Assert.Equal("/operations/scripts", operationMenu.Redirect);
+        Assert.Equal(["OperationScripts", "OperationEnvironments"], operationMenu.Children.Select(menu => menu.Name));
+
+        var globalConfigMenu = menus.Single(menu => menu.Name == "GlobalConfig");
+        Assert.Equal("/global-config/prompt-templates", globalConfigMenu.Redirect);
+        Assert.Equal(["GlobalConfigPromptTemplates", "GlobalConfigSkills"], globalConfigMenu.Children.Select(menu => menu.Name));
 
         var projectMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintProjects");
         Assert.Equal("项目配置", projectMenu.Meta.Title);
@@ -180,11 +203,32 @@ public sealed class UserServiceMenuTests
         Assert.Equal("/sprint/multi-endpoints", multiEndpointMenu.Path);
         Assert.Equal("/sprint/multi-endpoints/index", multiEndpointMenu.Component);
 
-        var skillMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintSkills");
+        var scriptMenu = operationMenu.Children.Single(menu => menu.Name == "OperationScripts");
+        Assert.Equal("脚本管理", scriptMenu.Meta.Title);
+        Assert.Null(scriptMenu.Meta.AffixTab);
+        Assert.Null(scriptMenu.Meta.HideInMenu);
+        Assert.Equal("/operations/scripts", scriptMenu.Path);
+        Assert.Equal("/operations/scripts/index", scriptMenu.Component);
+
+        var environmentMenu = operationMenu.Children.Single(menu => menu.Name == "OperationEnvironments");
+        Assert.Equal("环境配置", environmentMenu.Meta.Title);
+        Assert.Null(environmentMenu.Meta.AffixTab);
+        Assert.Null(environmentMenu.Meta.HideInMenu);
+        Assert.Equal("/operations/environments", environmentMenu.Path);
+        Assert.Equal("/system/runtime-environments/index", environmentMenu.Component);
+
+        var promptMenu = globalConfigMenu.Children.Single(menu => menu.Name == "GlobalConfigPromptTemplates");
+        Assert.Equal("提示词设置", promptMenu.Meta.Title);
+        Assert.Null(promptMenu.Meta.AffixTab);
+        Assert.Null(promptMenu.Meta.HideInMenu);
+        Assert.Equal("/global-config/prompt-templates", promptMenu.Path);
+        Assert.Equal("/system/prompt-templates/index", promptMenu.Component);
+
+        var skillMenu = globalConfigMenu.Children.Single(menu => menu.Name == "GlobalConfigSkills");
         Assert.Equal("Skill配置", skillMenu.Meta.Title);
-        Assert.True(skillMenu.Meta.AffixTab);
+        Assert.Null(skillMenu.Meta.AffixTab);
         Assert.Null(skillMenu.Meta.HideInMenu);
-        Assert.Equal("/sprint/skills", skillMenu.Path);
+        Assert.Equal("/global-config/skills", skillMenu.Path);
         Assert.Equal("/sprint/skills/index", skillMenu.Component);
 
         var detailMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintProjectDetail");

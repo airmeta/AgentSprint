@@ -4,19 +4,28 @@ namespace AgentSprint.Service.Services.SecurityServices;
 
 public interface ISystemManagementService
 {
-    Task<IReadOnlyList<UserManagementResult>> ListUsersAsync();
+    Task<IReadOnlyList<UserManagementResult>> ListUsersAsync(
+        string? keyword = null,
+        string? roleId = null,
+        int? status = null);
 
     Task<UserManagementResult> UpsertUserAsync(UpsertUserRequest request);
 
     Task<bool> DeleteUserAsync(string id);
 
-    Task<IReadOnlyList<RoleManagementResult>> ListRolesAsync();
+    Task<IReadOnlyList<RoleManagementResult>> ListRolesAsync(
+        string? keyword = null,
+        int? status = null,
+        int? grantState = null);
 
     Task<RoleManagementResult> UpsertRoleAsync(UpsertRoleRequest request);
 
     Task<bool> DeleteRoleAsync(string id);
 
-    Task<IReadOnlyList<MenuManagementResult>> ListMenusAsync();
+    Task<IReadOnlyList<MenuManagementResult>> ListMenusAsync(
+        string? keyword = null,
+        int? type = null,
+        int? status = null);
 
     Task<MenuManagementResult> UpsertMenuAsync(UpsertMenuRequest request);
 
@@ -26,7 +35,9 @@ public interface ISystemManagementService
     /// </summary>
     Task<bool> DeleteMenuAsync(string id);
 
-    Task<IReadOnlyList<PermissionManagementResult>> ListPermissionsAsync();
+    Task<IReadOnlyList<PermissionManagementResult>> ListPermissionsAsync(
+        string? keyword = null,
+        string? menuId = null);
 
     /// <summary>
     /// zh-cn: 新增或更新菜单下的按钮权限；请求必须携带有效 MenuId，使权限码始终归属到一个菜单。
@@ -56,7 +67,7 @@ public interface ISystemManagementService
     /// </summary>
     Task<bool> DeleteRoleGroupAsync(string id);
 
-    Task<IReadOnlyList<DepartmentManagementResult>> ListDepartmentsAsync();
+    Task<IReadOnlyList<DepartmentManagementResult>> ListDepartmentsAsync(string? keyword = null, int? status = null);
 
     Task<DepartmentManagementResult> UpsertDepartmentAsync(UpsertDepartmentRequest request);
 
@@ -66,7 +77,7 @@ public interface ISystemManagementService
     /// </summary>
     Task<bool> DeleteDepartmentAsync(string id);
 
-    Task<IReadOnlyList<AssignmentManagementResult>> ListAssignmentsAsync();
+    Task<IReadOnlyList<AssignmentManagementResult>> ListAssignmentsAsync(string? keyword = null, int? status = null);
 
     Task<AssignmentManagementResult> UpsertAssignmentAsync(UpsertAssignmentRequest request);
 
@@ -80,7 +91,9 @@ public interface ISystemManagementService
     /// <para>zh-cn:查询未删除的字典类型，按排序和编码稳定返回，供系统管理页面维护可复用枚举分类。</para>
     /// <para>en-us:Lists non-deleted dictionary types in a stable sort/code order for maintaining reusable enum categories in system management.</para>
     /// </summary>
-    Task<IReadOnlyList<DictionaryTypeManagementResult>> ListDictionaryTypesAsync();
+    Task<IReadOnlyList<DictionaryTypeManagementResult>> ListDictionaryTypesAsync(
+        string? keyword = null,
+        int? status = null);
 
     /// <summary>
     /// <para>zh-cn:新增或更新字典类型；编码在字典类型范围内唯一，软删除记录可通过相同 Id 恢复。</para>
@@ -98,7 +111,10 @@ public interface ISystemManagementService
     /// <para>zh-cn:查询字典项；传入字典类型编号时仅返回该类型下的条目，否则返回全部未删除条目。</para>
     /// <para>en-us:Lists dictionary items; when a dictionary type id is supplied, only entries under that type are returned, otherwise all non-deleted entries are returned.</para>
     /// </summary>
-    Task<IReadOnlyList<DictionaryItemManagementResult>> ListDictionaryItemsAsync(string? dictionaryTypeId = null);
+    Task<IReadOnlyList<DictionaryItemManagementResult>> ListDictionaryItemsAsync(
+        string? dictionaryTypeId = null,
+        string? keyword = null,
+        int? status = null);
 
     /// <summary>
     /// <para>zh-cn:新增或更新字典项；必须归属到存在的字典类型，且同一字典类型内编码唯一。</para>
@@ -129,39 +145,42 @@ public interface ISystemManagementService
 
     /// <summary>
     /// <para>zh-cn:软删除运行环境，并同步软删除该环境下的容器映射，避免留下无法维护的部署明细。</para>
-    /// <para>en-us:Soft-deletes a runtime environment and its container mappings together so deployment details do not remain without a maintainable parent.</para>
+    /// <para>en-us:Soft-deletes a runtime environment and its service configurations together so deployment details do not remain without a maintainable parent.</para>
     /// </summary>
     Task<bool> DeleteRuntimeEnvironmentAsync(string id);
 
     /// <summary>
     /// <para>zh-cn:查询指定运行环境下的容器端口映射，按排序和容器名称稳定返回。</para>
-    /// <para>en-us:Lists container port mappings under the specified runtime environment in a stable sort/name order.</para>
+    /// <para>en-us:Lists service configurations under the specified runtime environment in a stable sort/name order.</para>
     /// </summary>
     Task<IReadOnlyList<RuntimeEnvironmentContainerManagementResult>> ListRuntimeEnvironmentContainersAsync(
         string runtimeEnvironmentId);
 
     /// <summary>
     /// <para>zh-cn:新增或更新运行环境容器映射；同一运行环境内容器名称唯一，端口必须为有效 TCP/UDP 端口号。</para>
-    /// <para>en-us:Creates or updates a runtime environment container mapping; names are unique within one environment and ports must be valid TCP/UDP port numbers.</para>
+    /// <para>en-us:Creates or updates a runtime environment service configuration; names are unique within one environment and ports must be valid TCP/UDP port numbers.</para>
     /// </summary>
     Task<RuntimeEnvironmentContainerManagementResult> UpsertRuntimeEnvironmentContainerAsync(
         UpsertRuntimeEnvironmentContainerRequest request);
 
     /// <summary>
     /// <para>zh-cn:软删除指定容器映射，不影响运行环境主数据和其他容器。</para>
-    /// <para>en-us:Soft-deletes the specified container mapping without changing the runtime environment or sibling containers.</para>
+    /// <para>en-us:Soft-deletes the specified service configuration without changing the runtime environment or sibling services.</para>
     /// </summary>
     Task<bool> DeleteRuntimeEnvironmentContainerAsync(string id);
 
     /// <summary>
-    /// <para>zh-cn:查询提示词模板；当前仅 Codex 环境可维护，其他 Agent 环境由前端展示为正在开发。</para>
-    /// <para>en-us:Lists prompt templates; currently only Codex templates are maintainable while other agent environments are shown as in development by the frontend.</para>
+    /// <para>zh-cn:查询提示词模板；可按 AI 平台过滤，未传平台时返回全部未删除模板。</para>
+    /// <para>en-us:Lists prompt templates; filters by AI platform when supplied and returns all non-deleted templates when omitted.</para>
     /// </summary>
-    Task<IReadOnlyList<PromptTemplateManagementResult>> ListPromptTemplatesAsync(string? agentEnvironment = null);
+    Task<IReadOnlyList<PromptTemplateManagementResult>> ListPromptTemplatesAsync(
+        string? agentEnvironment = null,
+        string? keyword = null,
+        int? status = null);
 
     /// <summary>
-    /// <para>zh-cn:新增或更新提示词模板；当前只接受 Codex 环境，避免为尚未适配的执行器保存无效模板。</para>
-    /// <para>en-us:Creates or updates a prompt template; only the Codex environment is accepted currently to avoid storing templates for unsupported executors.</para>
+    /// <para>zh-cn:新增或更新提示词模板；同一 AI 平台下模板编码唯一，内容应使用模板变量承载令牌、地址和任务上下文。</para>
+    /// <para>en-us:Creates or updates a prompt template; template code is unique within one AI platform and content should use placeholders for tokens, URLs, and task context.</para>
     /// </summary>
     Task<PromptTemplateManagementResult> UpsertPromptTemplateAsync(UpsertPromptTemplateRequest request);
 

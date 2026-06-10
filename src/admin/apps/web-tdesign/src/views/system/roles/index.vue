@@ -1,6 +1,7 @@
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref } from 'vue';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
+
+import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
   deleteSystemRoleApi,
@@ -10,22 +11,21 @@ import {
   saveSystemRoleApi,
   type SystemApi,
 } from '#/api';
-import SystemPage from '#/views/system/_shared/system-page.vue';
-import { getCellRow } from '#/views/system/_shared/table-cell';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Button as TButton,
   Dialog as TDialog,
   DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
+  Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
-import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -53,35 +53,35 @@ const filters = reactive({
   status: undefined as number | undefined,
 });
 const query = reactive({ ...filters });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
+
+const statusOptions = [
+  { label: '启用', value: 1 },
+  { label: '停用', value: 0 },
+];
+const grantStateOptions = [
+  { label: '已授权', value: 1 },
+  { label: '未授权', value: 0 },
+];
 const columns = [
   { colKey: 'code', title: '角色编码', width: 160 },
   { colKey: 'name', title: '角色名称', width: 160 },
   { colKey: 'description', title: '说明' },
-  { colKey: 'menuIds', title: '菜单数', width: 100, cell: (...args: any[]) => asArray(getCellRow(args[0], args[1])?.menuIds).length },
-  { colKey: 'permissionIds', title: '按钮权限数', width: 120, cell: (...args: any[]) => asArray(getCellRow(args[0], args[1])?.permissionIds).length },
-  {
-    colKey: 'status',
-    title: '状态',
-    width: 100,
-    cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用'),
-  },
-  { colKey: 'actions', title: '操作', width: 160, cell: 'actions' },
+  { colKey: 'menuIds', title: '菜单数', width: 100 },
+  { colKey: 'permissionIds', title: '按钮权限数', width: 120 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'actions', title: '操作', width: 160 },
 ];
 
-const filteredRoles = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return roles.value.filter((role) => {
-    const hasGrant = asArray(role.menuIds).length > 0 || asArray(role.permissionIds).length > 0;
-    const matchesKeyword =
-      !keyword ||
-      role.code.toLowerCase().includes(keyword) ||
-      role.name.toLowerCase().includes(keyword) ||
-      (role.description || '').toLowerCase().includes(keyword);
-    const matchesStatus = query.status === undefined || role.status === query.status;
-    const matchesGrant = query.grantState === undefined || (query.grantState === 1 ? hasGrant : !hasGrant);
-    return matchesKeyword && matchesStatus && matchesGrant;
-  });
-});
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: roles.value.length,
+}));
 
 function asArray<T>(value: T[] | null | undefined) {
   return Array.isArray(value) ? value : [];
@@ -95,13 +95,20 @@ function normalizeRole(role: SystemApi.Role): SystemApi.Role {
   };
 }
 
-function search() {
-  Object.assign(query, filters);
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
 }
 
-function reset() {
+async function search() {
+  Object.assign(query, filters);
+  pagination.current = 1;
+  await load();
+}
+
+async function reset() {
   Object.assign(filters, { grantState: undefined, keyword: '', status: undefined });
-  search();
+  await search();
 }
 
 function open(row?: SystemApi.Role) {
@@ -121,7 +128,7 @@ async function load() {
   loading.value = true;
   try {
     const [roleRows, menus, permissions] = await Promise.all([
-      listSystemRolesApi(),
+      listSystemRolesApi(query),
       listSystemMenusApi(),
       listSystemPermissionsApi(),
     ]);
@@ -173,64 +180,56 @@ onMounted(load);
 </script>
 
 <template>
-  <SystemPage
+  <AdminListPage
     title="角色管理"
     description="维护角色基础信息，并为角色分配菜单和菜单下的按钮权限。"
+    table-title="角色列表"
+    add-button-text="新增角色"
     :columns="columns"
-    :data="filteredRoles"
+    :data="roles"
     :loading="loading"
+    :pagination="tablePagination"
+    :refreshable="false"
     @add="open()"
+    @page-change="handlePageChange"
+    @reset="reset"
+    @search="search"
   >
     <template #filters>
-      <TInput v-model="filters.keyword" clearable placeholder="角色编码 / 名称 / 说明" class="filter-control" />
-      <TSelect
-        v-model="filters.status"
-        clearable
-        placeholder="状态"
-        :options="[
-          { label: '启用', value: 1 },
-          { label: '停用', value: 0 },
-        ]"
-        class="filter-control"
-      />
-      <TSelect
-        v-model="filters.grantState"
-        clearable
-        placeholder="授权状态"
-        :options="[
-          { label: '已授权', value: 1 },
-          { label: '未授权', value: 0 },
-        ]"
-        class="filter-control"
-      />
-      <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-        <TButton @click="reset">重置</TButton>
-      </TSpace>
+      <label class="filter-field">
+        <span>角色信息</span>
+        <TInput v-model="filters.keyword" clearable placeholder="角色编码 / 名称 / 说明" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+      </label>
+      <label class="filter-field">
+        <span>授权状态</span>
+        <TSelect v-model="filters.grantState" clearable placeholder="全部授权状态" :options="grantStateOptions" />
+      </label>
     </template>
-    <template #action>新增角色</template>
+    <template #menuIds="{ row }">{{ asArray(row.menuIds).length }}</template>
+    <template #permissionIds="{ row }">{{ asArray(row.permissionIds).length }}</template>
+    <template #status="{ row }">
+      <TTag :theme="row.status === 1 ? 'success' : 'default'" variant="light">
+        {{ row.status === 1 ? '启用' : '停用' }}
+      </TTag>
+    </template>
     <template #actions="{ row }">
       <TSpace>
-        <TLink v-if="row" theme="primary" @click="open(row)">编辑授权</TLink>
-        <TLink v-if="row" theme="danger" @click="remove(row)">删除</TLink>
+        <RowAction v-if="row" label="编辑授权" @click="open(row)" />
+        <RowAction v-if="row" label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
-  </SystemPage>
+  </AdminListPage>
 
   <TDialog v-model:visible="visible" header="角色维护" width="720px" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="角色编码" name="code"><TInput v-model="form.code" /></TFormItem>
       <TFormItem label="角色名称" name="name"><TInput v-model="form.name" /></TFormItem>
       <TFormItem label="说明"><TTextarea v-model="form.description" /></TFormItem>
-      <TFormItem label="状态">
-        <TSelect
-          v-model="form.status"
-          :options="[
-            { label: '启用', value: 1 },
-            { label: '停用', value: 0 },
-          ]"
-        />
-      </TFormItem>
+      <TFormItem label="状态"><TSelect v-model="form.status" :options="statusOptions" /></TFormItem>
       <TFormItem label="菜单授权"><TSelect v-model="form.menuIds" multiple filterable :options="menuOptions" /></TFormItem>
       <TFormItem label="按钮权限"><TSelect v-model="form.permissionIds" multiple filterable :options="permissionOptions" /></TFormItem>
     </TForm>
@@ -238,7 +237,18 @@ onMounted(load);
 </template>
 
 <style scoped>
-.filter-control {
-  width: 240px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 </style>

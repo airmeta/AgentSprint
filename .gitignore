@@ -3,7 +3,8 @@
 ################################################################################
 
 /.tmp
-/deploy/docker
+/deploy/docker/*
+!/deploy/docker/deploy.sh
 /src/admin/.github
 /src/admin/.vscode
 /src/api/.vs/AgentSprint.slnx
@@ -28,3 +29,7 @@
 *.pid
 *.prev
 /lefthook.yml
+/docs/node_modules
+/docs/.vuepress/.cache
+/docs/.vuepress/.temp
+/docs/.vuepress/dist

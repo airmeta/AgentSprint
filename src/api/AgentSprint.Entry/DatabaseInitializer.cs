@@ -1,3 +1,5 @@
+using System.Data.Common;
+
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Repository.DbContexts;
@@ -31,8 +33,8 @@ public sealed class DatabaseInitializer : IHostedService
     }
 
     /// <summary>
-    /// zh-cn: 应用启动时执行数据库初始化。禁用 AutoInitialize 时不产生副作用；启用后会创建缺失数据库、补齐测试模块表，并在管理员不存在时写入默认管理员、角色、菜单和权限。
-    /// en-us: Runs database initialization during application startup. When AutoInitialize is disabled it has no side effects; when enabled it creates the missing database, ensures test-module tables exist, and seeds the default administrator, role, menus, and permission only when the administrator is absent.
+    /// zh-cn: 应用启动时执行数据库初始化。禁用 AutoInitialize 时不产生副作用；启用后会先只读检查 admin 用户，已存在则只执行菜单和授权关联演进；只有 admin 不存在，或数据库/用户表尚不存在导致检查失败时，才执行首次初始化。
+    /// en-us: Runs database initialization during application startup. When AutoInitialize is disabled it has no side effects; when enabled it first performs a read-only admin-user check and only applies menu and authorization-association evolution when admin exists; first-time initialization only runs when admin is absent or the database/user table does not yet exist.
     /// </summary>
     /// <param name="cancellationToken">
     /// zh-cn: 启动取消令牌，会传递给 EF Core 数据库操作。
@@ -51,6 +53,12 @@ public sealed class DatabaseInitializer : IHostedService
 
         await using var scope = _serviceProvider.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DefaultDbContext>();
+        if (await AdminUserExistsAsync(dbContext, cancellationToken))
+        {
+            await ApplyExistingDatabaseEvolutionAsync(dbContext, cancellationToken);
+            return;
+        }
+
         await dbContext.Database.EnsureCreatedAsync(cancellationToken);
         await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
         await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
@@ -61,6 +69,33 @@ public sealed class DatabaseInitializer : IHostedService
         await SeedDashboardMenuAsync(dbContext, cancellationToken);
         await SeedMvpMenuAsync(dbContext, cancellationToken);
         await SeedSecurityEvolutionAsync(dbContext, cancellationToken);
+    }
+
+    private static async Task ApplyExistingDatabaseEvolutionAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await SeedDashboardMenuAsync(dbContext, cancellationToken);
+        await SeedMvpMenuAsync(dbContext, cancellationToken);
+        await SeedSystemMenuAsync(dbContext, cancellationToken);
+        await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<bool> AdminUserExistsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await dbContext.Users
+                .AsNoTracking()
+                .AnyAsync(entity => entity.Username == "admin", cancellationToken);
+        }
+        catch (DbException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -328,6 +363,7 @@ public sealed class DatabaseInitializer : IHostedService
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
               EnvironmentType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               Description varchar(1024) CHARACTER SET utf8mb4 NULL,
+              ServerIps varchar(1024) CHARACTER SET utf8mb4 NULL,
               FrontendUrl varchar(512) CHARACTER SET utf8mb4 NULL,
               ApiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL,
               FrontendProxyApiUrl varchar(512) CHARACTER SET utf8mb4 NULL,
@@ -353,10 +389,14 @@ public sealed class DatabaseInitializer : IHostedService
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
               RuntimeEnvironmentId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              ContainerType int NOT NULL,
+              ServerIp varchar(64) CHARACTER SET utf8mb4 NULL,
               HostPort int NOT NULL,
               ContainerPort int NOT NULL,
               Protocol varchar(16) CHARACTER SET utf8mb4 NOT NULL,
               Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Prompt text CHARACTER SET utf8mb4 NULL,
+              DeployScript text CHARACTER SET utf8mb4 NULL,
               Sort int NOT NULL,
               Status int NOT NULL,
               CreateTime datetime(6) NOT NULL,
@@ -389,6 +429,7 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(runtimeEnvironmentSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(runtimeContainerSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(promptTemplateSql, cancellationToken);
+        await EnsureRuntimeEnvironmentColumnsAsync(dbContext, cancellationToken);
     }
 
     private static async Task EnsureAgileMvpTablesAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
@@ -425,6 +466,7 @@ public sealed class DatabaseInitializer : IHostedService
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
               Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              Type varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'development',
               Description varchar(512) CHARACTER SET utf8mb4 NULL,
               Content varchar(8192) CHARACTER SET utf8mb4 NOT NULL,
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
@@ -656,6 +698,7 @@ public sealed class DatabaseInitializer : IHostedService
 
         await dbContext.Database.ExecuteSqlRawAsync(projectSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(skillSql, cancellationToken);
+        await EnsureSkillColumnsAsync(dbContext, cancellationToken);
         await EnsureProjectColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(endpointSql, cancellationToken);
         await EnsureEndpointColumnsAsync(dbContext, cancellationToken);
@@ -921,6 +964,54 @@ public sealed class DatabaseInitializer : IHostedService
             "sprint_project",
             "SkillIds",
             "ALTER TABLE sprint_project ADD COLUMN SkillIds varchar(1024) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+    }
+
+    private static async Task EnsureSkillColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_skill",
+            "Type",
+            "ALTER TABLE sprint_skill ADD COLUMN Type varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'development';",
+            cancellationToken);
+    }
+
+    private static async Task EnsureRuntimeEnvironmentColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "sys_runtime_environment",
+            "ServerIps",
+            "ALTER TABLE sys_runtime_environment ADD COLUMN ServerIps varchar(1024) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sys_runtime_environment_container",
+            "ContainerType",
+            "ALTER TABLE sys_runtime_environment_container ADD COLUMN ContainerType int NOT NULL DEFAULT 0;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sys_runtime_environment_container",
+            "ServerIp",
+            "ALTER TABLE sys_runtime_environment_container ADD COLUMN ServerIp varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sys_runtime_environment_container",
+            "Prompt",
+            "ALTER TABLE sys_runtime_environment_container ADD COLUMN Prompt text CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sys_runtime_environment_container",
+            "DeployScript",
+            "ALTER TABLE sys_runtime_environment_container ADD COLUMN DeployScript text CHARACTER SET utf8mb4 NULL;",
             cancellationToken);
     }
 
@@ -1331,7 +1422,8 @@ public sealed class DatabaseInitializer : IHostedService
             "/vben-admin",
             "/vben-admin/about",
             "/sprint",
-            "/sprint/mvp"
+            "/sprint/mvp",
+            "/sprint/skills"
         })
         {
             await DisableMenuAsync(dbContext, removedPath, cancellationToken);
@@ -1414,19 +1506,6 @@ public sealed class DatabaseInitializer : IHostedService
             1,
             cancellationToken);
         await EnsureAssociationAsync(dbContext, role.Id, multiEndpointsMenu.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
-
-        var skillsMenu = await EnsureMenuAsync(
-            dbContext,
-            role.Id,
-            projectGroup.Id,
-            "/sprint/skills",
-            "SprintSkills",
-            "/sprint/skills/index",
-            "lucide:brain-circuit",
-            12,
-            1,
-            cancellationToken);
-        await EnsureAssociationAsync(dbContext, role.Id, skillsMenu.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
 
         var projectDetailRoute = await EnsureMenuAsync(
             dbContext,
@@ -1615,13 +1694,14 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.RuntimeEnvironments.Add(environment);
         }
 
-        environment.Name = "测试环境";
+        environment.Name = "娴嬭瘯鐜";
         environment.EnvironmentType = "test";
         environment.Description = "AgentSprint 默认测试环境，按前端、API、MCP 与部署路径拆分维护。";
         environment.FrontendUrl = "http://192.168.80.101:5999";
         environment.ApiBaseUrl = "http://192.168.80.101:5000";
         environment.FrontendProxyApiUrl = "http://192.168.80.101:5999/api";
         environment.McpEndpoint = "http://192.168.80.101:5010/mcp";
+        environment.ServerIps = "192.168.80.101";
         environment.DeployRoot = "/opt/agentsprint-deploy";
         environment.DockerDirectory = "/opt/agentsprint-deploy/docker";
         environment.RemotePackagePath = "/opt/agentsprint-deploy/agentsprint-docker-deploy.tgz";
@@ -1635,15 +1715,15 @@ public sealed class DatabaseInitializer : IHostedService
         environment.Status = 1;
         environment.IsDelete = 0;
 
-        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-admin", 5999, 80, 10, cancellationToken);
-        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-api", 5000, 5000, 20, cancellationToken);
-        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-mcp", 5010, 5010, 30, cancellationToken);
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-admin", "192.168.80.101", 5999, 80, 10, cancellationToken);
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-api", "192.168.80.101", 5000, 5000, 20, cancellationToken);
+        await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-mcp", "192.168.80.101", 5010, 5010, 30, cancellationToken);
 
         await EnsurePromptTemplateAsync(
             dbContext,
             "mcp_setup",
             "MCP 接入提示词",
-            "请按 AgentSprint MCP 接入说明配置 Codex HTTP MCP，并确保请求头使用 http_headers。",
+            BuildCodexMcpSetupPromptTemplate(),
             "Codex agentsprint MCP 接入配置提示词。",
             10,
             cancellationToken);
@@ -1651,7 +1731,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext,
             "task_execution",
             "任务推进提示词",
-            "请读取任务上下文、按项目规范实现变更、运行相关测试，并在完成后报告修改点与验证命令。",
+            BuildCodexTaskExecutionPromptTemplate(),
             "Codex 任务推进提示词。",
             20,
             cancellationToken);
@@ -1674,23 +1754,96 @@ public sealed class DatabaseInitializer : IHostedService
             prompt = new PromptTemplateEntity
             {
                 AgentEnvironment = "codex",
-                Code = code
+                Code = code,
+                Name = name,
+                Content = content,
+                Description = description,
+                Sort = sort,
+                Status = 1,
+                IsDelete = 0
             };
             dbContext.PromptTemplates.Add(prompt);
+            return;
         }
 
-        prompt.Name = name;
-        prompt.Content = content;
-        prompt.Description = description;
-        prompt.Sort = sort;
-        prompt.Status = 1;
-        prompt.IsDelete = 0;
+        if (prompt.IsDelete == 1)
+        {
+            prompt.IsDelete = 0;
+        }
+    }
+
+    private static string BuildCodexMcpSetupPromptTemplate()
+    {
+        return """
+               你现在位于 AgentSprint 项目工作区，请只完成 Codex 的 agentsprint MCP 接入配置，不修改项目代码。
+
+               目标：
+               将 agentsprint 远程 HTTP MCP 配置到 Codex，使后续任务可以通过 MCP 自动拉取任务上下文并推进。
+
+               请按下面流程执行：
+               1. 检查当前项目工作区是否为 AgentSprint 项目。
+               2. 检查 `~/.codex/config.toml` 中是否已有 `[mcp_servers.agentsprint]`。
+               3. 如果不存在则新增；如果已存在则更新为下面配置。
+               4. 保留现有其他 MCP 配置，不要覆盖 `node_repl` 等已有配置。
+               5. 默认只配置 MCP endpoint 和 Authorization，不要默认写入 `X-AgentSprint-Api-Base-Url`。
+               6. 只有在用户明确提供“远程 MCP 服务可访问的 AgentSprint API 地址”时，才写入 `X-AgentSprint-Api-Base-Url`。
+               7. 不要把 `http://localhost:5000` 固定写入 `X-AgentSprint-Api-Base-Url`。
+               8. Codex HTTP MCP 请求头必须使用 `http_headers` 字段，不要使用 `[mcp_servers.agentsprint.headers]` 子表。
+               9. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确说明。
+
+               需要写入的 Codex TOML 配置为：
+
+               ```toml
+               [mcp_servers.agentsprint]
+               url = "{{mcpEndpoint}}"
+               http_headers = { Authorization = "{{agentToken}}" }
+               ```
+
+               可选覆盖配置：
+               仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加到 `http_headers`：
+
+               ```toml
+               http_headers = {
+                 Authorization = "{{agentToken}}",
+                 "X-AgentSprint-Api-Base-Url" = "<远程 MCP 服务可访问的 AgentSprint API 地址>"
+               }
+               ```
+
+               如果当前 Codex 版本不支持 HTTP MCP 的 `http_headers` 字段，请不要继续猜测配置方式，直接说明阻塞点。
+               """;
+    }
+
+    private static string BuildCodexTaskExecutionPromptTemplate()
+    {
+        return """
+               你正在推进 AgentSprint 平台任务，请通过 agentsprint MCP 按任务 ID 加载上下文，不要依赖这段静态文本获取需求详情。
+
+               任务标识：
+               项目编码：{{projectCode}}
+               任务 ID：{{taskId}}
+               仓库引用：{{repositoryReference}}
+
+               执行顺序：
+               1. 调用 agentsprint.register_session，参数包含 project_code = "{{projectCode}}"。
+               2. 调用 agentsprint.get_mcp_tool_guide，参数包含 format = "full"，读取工具用途、参数、返回结果和推荐流程。
+               3. 调用 agentsprint.get_agent_skill_pack，参数包含 project_code = "{{projectCode}}"，获取 Skill、后端规则、前端规则和验证命令。
+               4. 调用 agentsprint.get_task_prompt，参数包含 task_id = "{{taskId}}"，加载 task_detail、requirement_detail 和任务提示上下文。
+               5. 按 MCP 返回的任务、需求、Skill 包和验证命令完成实现，不从这段静态提示词解析需求正文。
+               6. 完成后运行相关后端测试和前端类型检查，并调用 agentsprint.complete_my_task，参数包含 task_id = "{{taskId}}" 回写任务状态。
+               7. 读取 complete_my_task 返回的 next_work 作为平台状态参考，但不要调用 agentsprint.claim_next_work，也不要继续处理新的 bug 或 task。
+               8. 回写完成后停止接取新的任务；如已注册 session，请调用 agentsprint.close_session 结束当前会话。
+               9. 最终回复只报告当前任务的修改点、验证命令和完成状态，不主动轮询 agentsprint.get_next_work。
+               10. 只有用户再次明确要求继续推进或接取新任务时，才重新查询或领取下一项工作。
+
+               约束：不要在提示词、代码、日志或 MCP 响应中写入 SSH 私钥、数据库密码、Agent Token 等敏感明文。
+               """;
     }
 
     private static async Task EnsureRuntimeContainerAsync(
         DefaultDbContext dbContext,
         string runtimeEnvironmentId,
         string name,
+        string serverIp,
         int hostPort,
         int containerPort,
         int sort,
@@ -1709,6 +1862,8 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.RuntimeEnvironmentContainers.Add(container);
         }
 
+        container.ContainerType = 0;
+        container.ServerIp = serverIp;
         container.HostPort = hostPort;
         container.ContainerPort = containerPort;
         container.Protocol = "tcp";
@@ -1755,6 +1910,30 @@ public sealed class DatabaseInitializer : IHostedService
             ("ef-core", "EF Core", 20),
             ("mysql", "MySQL", 30),
             ("mcp", "MCP", 40));
+        await EnsureDictionaryTypeAsync(
+            dbContext,
+            "runtime_container_type",
+            "运行服务类型",
+            "Runtime service host/container type options used by environment service management.",
+            30,
+            cancellationToken,
+            ("0", "Docker", 10),
+            ("1", "K3S", 20),
+            ("2", "K8S", 30),
+            ("3", "Tomcat", 40),
+            ("4", "Nginx", 50),
+            ("9", "Other", 90));
+        await EnsureDictionaryTypeAsync(
+            dbContext,
+            "ai_platform_support",
+            "AI平台支持",
+            "AI platform options used by prompt template management.",
+            40,
+            cancellationToken,
+            ("codex", "Codex", 10),
+            ("claude_code", "ClaudeCode", 20),
+            ("work_buddy", "WorkBuddy", 30),
+            ("open_claw", "OpenClaw", 40));
     }
 
     private static async Task<DictionaryTypeEntity> EnsureDictionaryTypeAsync(
@@ -1827,6 +2006,7 @@ public sealed class DatabaseInitializer : IHostedService
         system.Sort = 90;
         system.Type = 0;
         system.Status = 1;
+        system.IsDelete = 0;
 
         await EnsureRoleMenuAsync(dbContext, role.Id, system.Id, cancellationToken);
         await EnsureAssociationAsync(
@@ -1848,6 +2028,34 @@ public sealed class DatabaseInitializer : IHostedService
         await DisableMenuAsync(dbContext, "/system/runtime-environments", cancellationToken);
         await DisableMenuAsync(dbContext, "/system/prompt-templates", cancellationToken);
 
+        await MoveMenuAsync(dbContext, "/global-config/environments", "/operations/environments", cancellationToken);
+
+        var operationManagement = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/operations", cancellationToken);
+        if (operationManagement is null)
+        {
+            operationManagement = new MenuEntity { Path = "/operations" };
+            dbContext.Menus.Add(operationManagement);
+        }
+
+        operationManagement.Name = "OperationManagement";
+        operationManagement.Icon = "lucide:server-cog";
+        operationManagement.Sort = 91;
+        operationManagement.Type = 0;
+        operationManagement.Status = 1;
+        operationManagement.IsDelete = 0;
+
+        await EnsureRoleMenuAsync(dbContext, role.Id, operationManagement.Id, cancellationToken);
+        await EnsureAssociationAsync(
+            dbContext,
+            role.Id,
+            operationManagement.Id,
+            SecurityAssociationTypes.RoleMenu,
+            cancellationToken);
+
+        await EnsureSystemMenuAsync(dbContext, role.Id, operationManagement.Id, "/operations/scripts", "OperationScripts", "/operations/scripts/index", "lucide:file-terminal", 10, cancellationToken);
+        var runtimeEnvironmentsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, operationManagement.Id, "/operations/environments", "OperationEnvironments", "/system/runtime-environments/index", "lucide:server-cog", 20, cancellationToken);
+        await DisableMenuAsync(dbContext, "/global-config/environments", cancellationToken);
+
         var globalConfig = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/global-config", cancellationToken);
         if (globalConfig is null)
         {
@@ -1860,6 +2068,7 @@ public sealed class DatabaseInitializer : IHostedService
         globalConfig.Sort = 92;
         globalConfig.Type = 0;
         globalConfig.Status = 1;
+        globalConfig.IsDelete = 0;
 
         await EnsureRoleMenuAsync(dbContext, role.Id, globalConfig.Id, cancellationToken);
         await EnsureAssociationAsync(
@@ -1869,8 +2078,8 @@ public sealed class DatabaseInitializer : IHostedService
             SecurityAssociationTypes.RoleMenu,
             cancellationToken);
 
-        var runtimeEnvironmentsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/environments", "GlobalConfigEnvironments", "/system/runtime-environments/index", "lucide:server-cog", 10, cancellationToken);
         var promptTemplatesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 20, cancellationToken);
+        var skillsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/skills", "GlobalConfigSkills", "/sprint/skills/index", "lucide:brain-circuit", 30, cancellationToken);
 
         var security = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/security", cancellationToken);
         if (security is null)
@@ -1884,6 +2093,7 @@ public sealed class DatabaseInitializer : IHostedService
         security.Sort = 95;
         security.Type = 0;
         security.Status = 1;
+        security.IsDelete = 0;
 
         await EnsureRoleMenuAsync(dbContext, role.Id, security.Id, cancellationToken);
         await EnsureAssociationAsync(
@@ -2090,9 +2300,40 @@ public sealed class DatabaseInitializer : IHostedService
         menu.Sort = sort;
         menu.Type = type;
         menu.Status = 1;
+        menu.IsDelete = 0;
 
         await EnsureRoleMenuAsync(dbContext, roleId, menu.Id, cancellationToken);
         return menu;
+    }
+
+    private static async Task MoveMenuAsync(
+        DefaultDbContext dbContext,
+        string oldPath,
+        string newPath,
+        CancellationToken cancellationToken)
+    {
+        var oldMenu = await dbContext.Menus.FirstOrDefaultAsync(
+            entity => entity.Path == oldPath,
+            cancellationToken);
+        if (oldMenu is null)
+        {
+            return;
+        }
+
+        var newMenu = await dbContext.Menus.FirstOrDefaultAsync(
+            entity => entity.Path == newPath,
+            cancellationToken);
+        if (newMenu is null)
+        {
+            oldMenu.Path = newPath;
+            return;
+        }
+
+        if (oldMenu.Id != newMenu.Id)
+        {
+            oldMenu.Status = 0;
+            oldMenu.Type = 2;
+        }
     }
 
     private static async Task DisableMenuAsync(
@@ -2119,9 +2360,19 @@ public sealed class DatabaseInitializer : IHostedService
         CancellationToken cancellationToken)
     {
         if (await dbContext.RoleMenus.AnyAsync(
-            entity => entity.RoleId == roleId && entity.MenuId == menuId,
+            entity => entity.RoleId == roleId && entity.MenuId == menuId && entity.IsDelete == 0,
             cancellationToken))
         {
+            return;
+        }
+
+        var deleted = await dbContext.RoleMenus.FirstOrDefaultAsync(
+            entity => entity.RoleId == roleId && entity.MenuId == menuId,
+            cancellationToken);
+        if (deleted is not null)
+        {
+            deleted.IsDelete = 0;
+            deleted.UpdateTime = DateTime.UtcNow;
             return;
         }
 

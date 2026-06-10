@@ -36,6 +36,7 @@ public sealed class AgentSprintMcpServerTests
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_mcp_tool_guide");
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_agent_skill_pack");
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_project_bootstrap");
+        Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_project_test_deployment");
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_task_prompt");
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "complete_my_task");
         Assert.Contains(tools.OfType<JsonObject>(), tool => tool["name"]?.GetValue<string>() == "get_next_work");
@@ -417,6 +418,195 @@ public sealed class AgentSprintMcpServerTests
     }
 
     [Fact]
+    public async Task CompleteMyTask_UsesCompletedTaskProjectWhenProjectArgumentIsProjectCode()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-id-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-2", "project-id-1", "req-2", "dev-1", "assigned", "endpoint-admin")
+            },
+            Bugs = [],
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1","project_id":"PROJECT-CODE"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("task", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("task-2", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+        Assert.Equal("project-id-1", structured["next_work"]?["scope"]?["project_id"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CompleteMyTask_FallsBackToSameEndpointWhenCompletedRequirementHasNoNextTask()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+                CreateTask("task-2", "project-1", "req-2", "dev-1", "assigned", "endpoint-admin"),
+                CreateTask("task-3", "project-1", "req-3", "dev-1", "in_progress", "endpoint-api")
+            },
+            Bugs = [],
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("task", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("task-2", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+        Assert.Equal("project-1", structured["next_work"]?["scope"]?["project_id"]?.GetValue<string>());
+        Assert.Equal("req-1", structured["next_work"]?["scope"]?["requirement_id"]?.GetValue<string>());
+        Assert.Equal("endpoint-admin", structured["next_work"]?["scope"]?["endpoint_id"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CompleteMyTask_ReturnsSameRequirementTaskBeforeOtherProjectTasks()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-1", "project-1", "req-1", "dev-1", "completed"),
+                CreateTask("task-2", "project-1", "req-2", "dev-1", "in_progress"),
+                CreateTask("task-3", "project-1", "req-1", "dev-1", "assigned")
+            },
+            Bugs = [],
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("task", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("task-3", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+        Assert.Equal("assigned", structured["next_work"]?["item"]?["status"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CompleteMyTask_ReturnsSameEndpointBugBeforeSameEndpointTask()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+                CreateTask("task-2", "project-1", "req-1", "dev-1", "assigned", "endpoint-admin")
+            },
+            Bugs = new JsonArray
+            {
+                CreateBug("bug-1", "project-1", "req-2", "open", null)
+            },
+            Requirements = new JsonArray
+            {
+                CreateRequirement("req-1", "project-1", "endpoint-admin"),
+                CreateRequirement("req-2", "project-1", "endpoint-admin")
+            },
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("bug", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("bug-1", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CompleteMyTask_DoesNotUseDifferentEndpointBugOrTaskAsNextWork()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-1", "project-1", "req-1", "dev-1", "completed", "endpoint-admin"),
+                CreateTask("task-2", "project-1", "req-2", "dev-1", "in_progress", "endpoint-api"),
+                CreateTask("task-3", "project-1", "req-3", "dev-1", "assigned", "endpoint-admin")
+            },
+            Bugs = new JsonArray
+            {
+                CreateBug("bug-1", "project-1", "req-2", "open", null)
+            },
+            Requirements = new JsonArray
+            {
+                CreateRequirement("req-1", "project-1", "endpoint-admin"),
+                CreateRequirement("req-2", "project-1", "endpoint-api"),
+                CreateRequirement("req-3", "project-1", "endpoint-admin")
+            },
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("task", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("task-3", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task CompleteMyTask_ReturnsSameRequirementBugBeforeOtherProjectBugs()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            CurrentUser = new JsonObject { ["id"] = "dev-1", ["userId"] = "dev-1", ["username"] = "developer" },
+            CompletedTask = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed"),
+            MyTasks = new JsonArray
+            {
+                CreateTask("task-1", "project-1", "req-1", "dev-1", "completed")
+            },
+            Bugs = new JsonArray
+            {
+                CreateBug("bug-1", "project-1", "req-2", "open", null),
+                CreateBug("bug-2", "project-1", "req-1", "open", null)
+            },
+            TaskHall = []
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"complete_my_task","arguments":{"task_id":"task-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("bug", structured["next_work"]?["kind"]?.GetValue<string>());
+        Assert.Equal("bug-2", structured["next_work"]?["item"]?["id"]?.GetValue<string>());
+    }
+
+    [Fact]
     public async Task Heartbeat_ReturnsPollingAndSessionState()
     {
         var server = CreateServer();
@@ -469,6 +659,97 @@ public sealed class AgentSprintMcpServerTests
         Assert.Equal("Full requirement content returned through MCP", structured["requirement_detail"]?["description"]?.GetValue<string>());
         Assert.Equal("task-1", structured["task_prompt"]?["taskId"]?.GetValue<string>());
         Assert.Contains("same task_id", structured["codex_instruction"]?.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetProjectTestDeployment_ReturnsSelectedEnvironmentAndContainers()
+    {
+        var apiHandler = new FakeAgentSprintApiHandler
+        {
+            Projects = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["id"] = "project-1",
+                    ["code"] = "AGENTSPRINT",
+                    ["testEnvironmentId"] = "env-test",
+                    ["testEnvironmentUrl"] = "http://fallback.test"
+                }
+            },
+            RuntimeEnvironments = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["id"] = "env-test",
+                    ["projectId"] = "project-1",
+                    ["code"] = "test",
+                    ["name"] = "Test",
+                    ["environmentType"] = "test",
+                    ["frontendUrl"] = "http://192.168.80.101:6010",
+                    ["apiBaseUrl"] = "http://192.168.80.101:5000",
+                    ["frontendProxyApiUrl"] = "http://192.168.80.101:5000",
+                    ["mcpEndpoint"] = "http://192.168.80.101:5010/mcp",
+                    ["serverIps"] = "192.168.80.101\r\n192.168.80.102",
+                    ["deployRoot"] = "/opt/agentsprint-deploy",
+                    ["dockerDirectory"] = "/opt/agentsprint-deploy/docker",
+                    ["remotePackagePath"] = "/opt/agentsprint-deploy/agentsprint-docker-deploy.tgz",
+                    ["composeFilePath"] = "/opt/agentsprint-deploy/docker/docker-compose.yml",
+                    ["localPackagePaths"] = "F:\\AI\\AgentSprint\\agentsprint-docker-deploy.tgz",
+                    ["sort"] = 1,
+                    ["status"] = 1
+                }
+            },
+            RuntimeEnvironmentContainers = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["id"] = "container-admin",
+                    ["runtimeEnvironmentId"] = "env-test",
+                    ["name"] = "agentsprint-admin",
+                    ["containerType"] = 1,
+                    ["serverIp"] = "192.168.80.101",
+                    ["hostPort"] = 6010,
+                    ["containerPort"] = 80,
+                    ["protocol"] = "tcp",
+                    ["prompt"] = "Deploy the admin service with the service script.",
+                    ["deployScript"] = "docker compose up -d agentsprint-admin",
+                    ["status"] = 1
+                },
+                new JsonObject
+                {
+                    ["id"] = "container-api",
+                    ["runtimeEnvironmentId"] = "env-test",
+                    ["name"] = "agentsprint-api",
+                    ["containerType"] = 2,
+                    ["serverIp"] = "192.168.80.101",
+                    ["hostPort"] = 5000,
+                    ["containerPort"] = 5000,
+                    ["protocol"] = "tcp",
+                    ["status"] = 0
+                }
+            }
+        };
+        var server = CreateServer(apiHandler);
+
+        var response = await server.HandleLineAsync(
+            """{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"get_project_test_deployment","arguments":{"project_id":"project-1"}}}""",
+            CancellationToken.None);
+
+        var structured = response?["result"]?["structuredContent"];
+        Assert.NotNull(structured);
+        Assert.Equal("project-1", structured["project_id"]?.GetValue<string>());
+        Assert.Equal("env-test", structured["selected_environment"]?["id"]?.GetValue<string>());
+        Assert.Equal("http://192.168.80.101:6010", structured["deployment"]?["frontend_url"]?.GetValue<string>());
+        Assert.Equal("/opt/agentsprint-deploy/docker/docker-compose.yml", structured["deployment"]?["compose_file_path"]?.GetValue<string>());
+        Assert.Equal("192.168.80.101", structured["deployment"]?["server_ips"]?[0]?.GetValue<string>());
+        Assert.Equal(2, structured["containers"]?.AsArray().Count);
+        Assert.Equal("agentsprint-admin", structured["containers"]?[0]?["name"]?.GetValue<string>());
+        Assert.Equal("Deploy the admin service with the service script.", structured["containers"]?[0]?["prompt"]?.GetValue<string>());
+        Assert.Equal("docker compose up -d agentsprint-admin", structured["containers"]?[0]?["deployScript"]?.GetValue<string>());
+        Assert.Equal("你必须按照提示词和脚本来进行部署系统,如果脚本出现异常,直接提示用户异常原因是什么,不要尝试更换方式去绕过脚本", structured["notice"]?.GetValue<string>());
+        Assert.Equal(2, structured["resolution"]?["container_count"]?.GetValue<int>());
+        Assert.Equal(1, structured["resolution"]?["active_container_count"]?.GetValue<int>());
+        Assert.Equal("/system/runtime-environment-containers?runtimeEnvironmentId=env-test", apiHandler.LastRequestPath);
     }
 
     [Fact]
@@ -629,16 +910,33 @@ public sealed class AgentSprintMcpServerTests
         string projectId,
         string requirementId,
         string assigneeId,
-        string status)
+        string status,
+        string? endpointId = null)
     {
         return new JsonObject
         {
             ["id"] = id,
             ["projectId"] = projectId,
             ["requirementId"] = requirementId,
+            ["endpointId"] = endpointId,
             ["assigneeId"] = assigneeId,
             ["status"] = status,
             ["priority"] = 1
+        };
+    }
+
+    private static JsonObject CreateRequirement(
+        string id,
+        string projectId,
+        string? endpointId)
+    {
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["projectId"] = projectId,
+            ["endpointId"] = endpointId,
+            ["title"] = id,
+            ["status"] = "developing"
         };
     }
 
@@ -684,11 +982,17 @@ public sealed class AgentSprintMcpServerTests
 
         public JsonArray MyTasks { get; init; } = [];
 
+        public JsonArray Projects { get; init; } = [];
+
         public JsonArray Bugs { get; init; } = [];
 
         public JsonArray TaskHall { get; init; } = [];
 
         public JsonArray Requirements { get; init; } = [];
+
+        public JsonArray RuntimeEnvironments { get; init; } = [];
+
+        public JsonArray RuntimeEnvironmentContainers { get; init; } = [];
 
         public JsonObject CompletedTask { get; init; } = CreateTask("task-1", "project-1", "req-1", "dev-1", "completed");
 
@@ -725,10 +1029,13 @@ public sealed class AgentSprintMcpServerTests
             {
                 "/auth/login" => new JsonObject { ["accessToken"] = "access-token" },
                 "/user/info" => CurrentUser.DeepClone(),
+                "/mvp/projects" => Projects.DeepClone(),
                 "/mvp/tasks/my" => MyTasks.DeepClone(),
                 "/mvp/tasks" => TaskHall.DeepClone(),
                 "/mvp/requirements" => Requirements.DeepClone(),
                 "/mvp/bugs" => Bugs.DeepClone(),
+                "/system/runtime-environments" => RuntimeEnvironments.DeepClone(),
+                "/system/runtime-environment-containers" => RuntimeEnvironmentContainers.DeepClone(),
                 var value when value.StartsWith("/mvp/tasks/", StringComparison.Ordinal) &&
                     value.EndsWith("/prompt", StringComparison.Ordinal) => TaskPrompt.DeepClone(),
                 var value when value.StartsWith("/mvp/tasks/", StringComparison.Ordinal) &&

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
@@ -18,6 +18,9 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private const string DefaultWorkspacePath = @"F:\AI\AgentSprint";
     private const string DefaultMcpEndpoint = "http://localhost:5010/mcp";
     private const string SyncTestEnvironmentOnCompletionKey = "Sprint:Requirement:SyncTestEnvironmentOnCompletion";
+    private const string CodexAgentEnvironment = "codex";
+    private const string McpSetupPromptTemplateCode = "mcp_setup";
+    private const string TaskExecutionPromptTemplateCode = "task_execution";
 
     private readonly ISprintProjectDomain _projectDomain;
     private readonly ISprintProjectMemberDomain _projectMemberDomain;
@@ -32,6 +35,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private readonly ISprintBugDomain _bugDomain;
     private readonly ISprintTaskLeaseDomain _leaseDomain;
     private readonly IRuntimeEnvironmentDomain _runtimeEnvironmentDomain;
+    private readonly IPromptTemplateDomain _promptTemplateDomain;
     private readonly ITestPlanDomain _testPlanDomain;
     private readonly IRequirementDecompositionService _decompositionService;
     private readonly ISystemConfigurationService _configurationService;
@@ -82,6 +86,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         ISprintBugDomain bugDomain,
         ISprintTaskLeaseDomain leaseDomain,
         IRuntimeEnvironmentDomain runtimeEnvironmentDomain,
+        IPromptTemplateDomain promptTemplateDomain,
         ITestPlanDomain testPlanDomain,
         IRequirementDecompositionService decompositionService,
         ISystemConfigurationService configurationService)
@@ -99,6 +104,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         _bugDomain = bugDomain;
         _leaseDomain = leaseDomain;
         _runtimeEnvironmentDomain = runtimeEnvironmentDomain;
+        _promptTemplateDomain = promptTemplateDomain;
         _testPlanDomain = testPlanDomain;
         _decompositionService = decompositionService;
         _configurationService = configurationService;
@@ -206,38 +212,43 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     /// <inheritdoc />
     public async Task<SprintSkillResult> CreateSkillAsync(CreateSprintSkillRequest request, string userId)
     {
-        if (string.IsNullOrWhiteSpace(request.Code) ||
-            string.IsNullOrWhiteSpace(request.Name) ||
+        if (string.IsNullOrWhiteSpace(request.Name) ||
             string.IsNullOrWhiteSpace(request.Content))
         {
-            throw new InvalidOperationException("Skill code, name and content are required.");
-        }
-
-        var code = request.Code.Trim();
-        var duplicated = await _skillDomain.ListAsync(entity => entity.Code == code);
-        if (duplicated.Count > 0)
-        {
-            throw new InvalidOperationException("Skill code already exists.");
+            throw new InvalidOperationException("Skill name and content are required.");
         }
 
         var entity = new SprintSkillEntity
         {
-            Code = code,
             Name = request.Name.Trim(),
+            Type = NormalizeSkillType(request.Type),
             Description = NormalizeOptional(request.Description),
             Content = request.Content.Trim(),
             CreatedBy = userId
         };
+        entity.Code = await ResolveUniqueSkillCodeAsync(request.Code, entity.Id);
         await _skillDomain.CreateAsync(entity);
         return ToResult(entity);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<SprintSkillResult>> ListSkillsAsync(bool activeOnly = false)
+    public async Task<IReadOnlyList<SprintSkillResult>> ListSkillsAsync(
+        bool activeOnly = false,
+        string? keyword = null,
+        string? type = null,
+        string? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var normalizedType = NormalizeOptional(type);
+        var normalizedStatus = NormalizeOptional(status);
         var entities = await _skillDomain.ListAsync(entity =>
-            !activeOnly || entity.Status == SprintSkillStatuses.Active);
+            (!activeOnly || entity.Status == SprintSkillStatuses.Active) &&
+            (string.IsNullOrWhiteSpace(normalizedType) || entity.Type == normalizedType) &&
+            (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus));
         return entities
+            .Where(entity =>
+                string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Content, entity.Description))
             .OrderBy(entity => entity.Code)
             .Select(ToResult)
             .ToList();
@@ -253,6 +264,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         var entity = await GetSkillOrThrowAsync(id);
         entity.Name = request.Name.Trim();
+        entity.Type = NormalizeSkillType(request.Type ?? entity.Type);
         entity.Description = NormalizeOptional(request.Description);
         entity.Content = request.Content.Trim();
         entity.Status = NormalizeSkillStatus(request.Status ?? entity.Status);
@@ -413,6 +425,25 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     /// <inheritdoc />
+    public async Task<bool> DeleteFeatureModuleAsync(string id)
+    {
+        var entity = await _moduleDomain.GetAsync(id);
+        if (entity is null)
+        {
+            return true;
+        }
+
+        var requirements = await _requirementDomain.ListAsync(requirement =>
+            requirement.ModuleId == entity.Id);
+        if (requirements.Count > 0)
+        {
+            throw new InvalidOperationException("Module is used by requirements and cannot be deleted.");
+        }
+
+        return await _moduleDomain.DeleteAsync(entity.Id);
+    }
+
+    /// <inheritdoc />
     public async Task<SprintRequirementResult> CreateRequirementAsync(
         CreateSprintRequirementRequest request,
         string userId)
@@ -438,9 +469,14 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             ModuleId = moduleId,
             Title = request.Title.Trim(),
             Description = NormalizeOptional(request.Description),
+            Status = request.RequiresReview
+                ? SprintRequirementStatuses.Draft
+                : SprintRequirementStatuses.Approved,
             Priority = Math.Clamp(request.Priority ?? 3, 1, 5),
             CreatedBy = userId,
             Stakeholders = NormalizeOptional(request.Stakeholders),
+            ReviewedBy = request.RequiresReview ? null : userId,
+            ApprovedAt = request.RequiresReview ? null : DateTime.UtcNow,
             SourceRequirementId = NormalizeOptional(request.SourceRequirementId),
             SourceFeedbackId = NormalizeOptional(request.SourceFeedbackId),
             SkillIds = SerializeIds(skillIds)
@@ -489,17 +525,38 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<SprintRequirementResult>> ListRequirementsAsync(string? projectId)
+    public async Task<IReadOnlyList<SprintRequirementResult>> ListRequirementsAsync(
+        string? projectId,
+        string? keyword = null,
+        string? status = null,
+        string? health = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var normalizedStatus = NormalizeOptional(status);
+        var normalizedHealth = NormalizeOptional(health);
         var entities = await _requirementDomain.ListAsync(entity =>
-            string.IsNullOrWhiteSpace(projectId) || entity.ProjectId == projectId);
+            (string.IsNullOrWhiteSpace(projectId) || entity.ProjectId == projectId) &&
+            (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus) &&
+            (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                TextContains(
+                    normalizedKeyword,
+                    entity.Title,
+                    entity.Description,
+                    entity.Stakeholders,
+                    entity.CreatedBy,
+                    entity.ReviewedBy)));
         var results = new List<SprintRequirementResult>();
 
         foreach (var entity in entities
-            .OrderBy(entity => entity.Priority)
+            .OrderBy(entity => entity.Status)
             .ThenByDescending(entity => entity.CreateTime))
         {
-            results.Add(await ToRequirementResultAsync(entity));
+            var result = await ToRequirementResultAsync(entity);
+            if (string.IsNullOrWhiteSpace(normalizedHealth) ||
+                string.Equals(result.Health, normalizedHealth, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(result);
+            }
         }
 
         return results;
@@ -820,11 +877,19 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<SprintRequirementReviewItemResult>> ListMyPendingReviewsAsync(string reviewerId)
+    public async Task<IReadOnlyList<SprintRequirementReviewItemResult>> ListMyPendingReviewsAsync(
+        string reviewerId,
+        string? projectId = null,
+        string? status = null,
+        string? keyword = null)
     {
+        var normalizedProjectId = NormalizeOptional(projectId);
+        var normalizedStatus = NormalizeOptional(status);
+        var normalizedKeyword = NormalizeOptional(keyword);
         var reviews = await _reviewDomain.ListAsync(entity =>
             entity.ReviewerId == reviewerId &&
-            entity.Status == SprintRequirementReviewStatuses.Pending);
+            entity.Status == SprintRequirementReviewStatuses.Pending &&
+            (string.IsNullOrWhiteSpace(normalizedProjectId) || entity.ProjectId == normalizedProjectId));
         var results = new List<SprintRequirementReviewItemResult>();
 
         foreach (var group in reviews.GroupBy(entity => entity.RequirementId))
@@ -842,10 +907,30 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             }
 
             var allReviews = await _reviewDomain.ListAsync(entity => entity.RequirementId == requirement.Id);
-            results.Add(new SprintRequirementReviewItemResult(
+            var result = new SprintRequirementReviewItemResult(
                 await ToRequirementResultAsync(requirement),
                 ToResult(project),
-                allReviews.OrderBy(entity => entity.CreateTime).Select(ToResult).ToList()));
+                allReviews.OrderBy(entity => entity.CreateTime).Select(ToResult).ToList());
+            var currentStatus = ResolveCurrentReviewStatus(result);
+            if (!string.IsNullOrWhiteSpace(normalizedStatus) &&
+                !string.Equals(currentStatus, normalizedStatus, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedKeyword) &&
+                !TextContains(
+                    normalizedKeyword,
+                    result.Requirement.Title,
+                    result.Requirement.Description,
+                    result.Requirement.Stakeholders,
+                    result.Project.Name,
+                    result.Project.Code))
+            {
+                continue;
+            }
+
+            results.Add(result);
         }
 
         return results.OrderByDescending(item => item.Requirement.SubmittedAt).ToList();
@@ -919,7 +1004,13 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             SprintRequirementStatuses.ReadyForDevelopment,
             SprintRequirementStatuses.Decomposed);
 
-        await EnsureDevelopmentTasksAsync(requirement, request.Instruction, request.AssignmentMode, userId, request.TaskCount);
+        await EnsureDevelopmentTasksAsync(
+            requirement,
+            request.Instruction,
+            request.AssignmentMode,
+            request.AssigneeId,
+            userId,
+            request.TaskCount);
 
         if (requirement.Status != SprintRequirementStatuses.Developing)
         {
@@ -936,12 +1027,16 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         string? projectId,
         string? requirementId,
         string? assigneeId,
+        string? relatedUserId = null,
         string? status = null)
     {
         var entities = await _taskDomain.ListAsync(entity =>
             (string.IsNullOrWhiteSpace(projectId) || entity.ProjectId == projectId) &&
             (string.IsNullOrWhiteSpace(requirementId) || entity.RequirementId == requirementId) &&
             (string.IsNullOrWhiteSpace(assigneeId) || entity.AssigneeId == assigneeId) &&
+            (string.IsNullOrWhiteSpace(relatedUserId) ||
+                entity.AssigneeId == relatedUserId ||
+                entity.AssignedBy == relatedUserId) &&
             (string.IsNullOrWhiteSpace(status) || entity.Status == status));
 
         return await ToTaskResultsAsync(entities
@@ -954,6 +1049,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         string? projectId,
         string? requirementId,
         string? assigneeId,
+        string? relatedUserId,
         string? status,
         bool primaryOnly,
         string userId)
@@ -975,6 +1071,9 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             participatingProjectIds.Contains(entity.ProjectId) &&
             (string.IsNullOrWhiteSpace(requirementId) || entity.RequirementId == requirementId) &&
             (string.IsNullOrWhiteSpace(assigneeId) || entity.AssigneeId == assigneeId) &&
+            (string.IsNullOrWhiteSpace(relatedUserId) ||
+                entity.AssigneeId == relatedUserId ||
+                entity.AssignedBy == relatedUserId) &&
             (string.IsNullOrWhiteSpace(status) || entity.Status == status));
 
         if (primaryOnly)
@@ -1018,7 +1117,6 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         await EnsureProjectMemberAsync(task.ProjectId, task.AssigneeId, SprintProjectMemberRoles.Developer);
 
         var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
-        requirement.Status = SprintRequirementStatuses.Developing;
         requirement.DeveloperId = task.AssigneeId;
         await _requirementDomain.UpdateAsync(requirement);
 
@@ -1042,12 +1140,14 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             SprintDevelopmentTaskStatuses.Assigned,
             SprintDevelopmentTaskStatuses.InProgress);
 
-        return await CreateTargetLeaseAsync(
+        var lease = await CreateTargetLeaseAsync(
             task.ProjectId,
             SprintTaskTargetTypes.DevelopmentTask,
             task.Id,
             userId,
             request.OwnerDevice);
+        await MarkRequirementDevelopingFromTaskAsync(task, userId);
+        return lease;
     }
 
     /// <inheritdoc />
@@ -1061,6 +1161,9 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         var taskPrompt = await BuildTaskPromptAsync(task);
         task.Prompt = taskPrompt.Prompt;
+        var shouldMarkRequirementDeveloping = task.Status is
+            SprintDevelopmentTaskStatuses.Assigned or
+            SprintDevelopmentTaskStatuses.InProgress;
         if (task.Status == SprintDevelopmentTaskStatuses.Assigned)
         {
             task.Status = SprintDevelopmentTaskStatuses.InProgress;
@@ -1068,6 +1171,11 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         await _taskDomain.UpdateAsync(task);
+        if (shouldMarkRequirementDeveloping)
+        {
+            await MarkRequirementDevelopingFromTaskAsync(task, userId);
+        }
+
         return taskPrompt;
     }
 
@@ -1416,6 +1524,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         SprintRequirementEntity requirement,
         string? instruction,
         string? assignmentMode,
+        string? assigneeId,
         string userId,
         int? taskCount)
     {
@@ -1427,20 +1536,30 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         var tasks = await _decompositionService.DecomposeAsync(requirement, instruction, userId, taskCount);
         var normalizedAssignmentMode = NormalizeAssignmentMode(assignmentMode);
+        var normalizedAssigneeId = NormalizeOptional(assigneeId);
         var developers = await ResolveRequirementDevelopersAsync(requirement);
         var developerIndex = 0;
         foreach (var task in tasks)
         {
             if (normalizedAssignmentMode == SprintTaskAssignmentModes.Auto && developers.Count > 0)
             {
-                var assigneeId = developers[developerIndex % developers.Count];
+                var autoAssigneeId = developers[developerIndex % developers.Count];
                 developerIndex++;
-                task.AssigneeId = assigneeId;
+                task.AssigneeId = autoAssigneeId;
                 task.AssignedBy = userId;
                 task.AssignedAt = DateTime.UtcNow;
                 task.Status = SprintDevelopmentTaskStatuses.Assigned;
                 task.Prompt = (await BuildTaskPromptAsync(task)).Prompt;
-                await EnsureProjectMemberAsync(task.ProjectId, assigneeId, SprintProjectMemberRoles.Developer);
+                await EnsureProjectMemberAsync(task.ProjectId, autoAssigneeId, SprintProjectMemberRoles.Developer);
+            }
+            else if (normalizedAssignmentMode == SprintTaskAssignmentModes.Manual && normalizedAssigneeId is not null)
+            {
+                task.AssigneeId = normalizedAssigneeId;
+                task.AssignedBy = userId;
+                task.AssignedAt = DateTime.UtcNow;
+                task.Status = SprintDevelopmentTaskStatuses.Assigned;
+                task.Prompt = (await BuildTaskPromptAsync(task)).Prompt;
+                await EnsureProjectMemberAsync(task.ProjectId, normalizedAssigneeId, SprintProjectMemberRoles.Developer);
             }
             else
             {
@@ -1455,8 +1574,11 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         if (normalizedAssignmentMode == SprintTaskAssignmentModes.Auto && developers.Count > 0)
         {
-            requirement.Status = SprintRequirementStatuses.Developing;
             requirement.DeveloperId = developers[0];
+        }
+        else if (normalizedAssignmentMode == SprintTaskAssignmentModes.Manual && normalizedAssigneeId is not null)
+        {
+            requirement.DeveloperId = normalizedAssigneeId;
         }
     }
 
@@ -1465,8 +1587,22 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var project = await GetProjectOrThrowAsync(task.ProjectId);
         var workspacePath = SanitizeRepositoryReference(project.RepositoryUrl) ?? DefaultWorkspacePath;
         var mcpEndpoint = await _configurationService.GetValueAsync("Mcp:Endpoint", DefaultMcpEndpoint);
-        var mcpSetupPrompt = BuildMcpSetupPromptV2(mcpEndpoint);
-        var taskExecutionPrompt = BuildTaskExecutionPrompt(task, project, workspacePath);
+        var templates = await LoadCodexPromptTemplatesAsync();
+        var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["projectCode"] = project.Code,
+            ["projectId"] = project.Id,
+            ["projectName"] = project.Name,
+            ["taskId"] = task.Id,
+            ["taskTitle"] = task.Title,
+            ["requirementId"] = task.RequirementId,
+            ["repositoryReference"] = workspacePath,
+            ["workspacePath"] = workspacePath,
+            ["mcpEndpoint"] = EscapeTomlString(mcpEndpoint),
+            ["agentToken"] = "Bearer <这里填令牌>"
+        };
+        var mcpSetupPrompt = BuildPromptSection(templates[McpSetupPromptTemplateCode], variables);
+        var taskExecutionPrompt = BuildPromptSection(templates[TaskExecutionPromptTemplateCode], variables);
         var mergedPrompt = string.Join(
             Environment.NewLine + Environment.NewLine,
             [
@@ -1479,105 +1615,58 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         return new SprintTaskPromptResult(task.Id, mergedPrompt, mcpSetupPrompt, taskExecutionPrompt);
     }
 
-    private static SprintTaskPromptSectionResult BuildMcpSetupPromptV2(string mcpEndpoint)
+    private async Task<IReadOnlyDictionary<string, PromptTemplateEntity>> LoadCodexPromptTemplatesAsync()
     {
-        var builder = new StringBuilder();
-        builder.AppendLine("你现在位于 AgentSprint 项目工作区，请只完成 Codex 的 agentsprint MCP 接入配置，不修改项目代码。");
-        builder.AppendLine();
-        builder.AppendLine("目标：");
-        builder.AppendLine("将 agentsprint 远程 HTTP MCP 配置到 Codex，使后续任务可以通过 MCP 自动拉取任务上下文并推进。");
-        builder.AppendLine();
-        builder.AppendLine("请按下面流程执行：");
-        builder.AppendLine("1. 检查当前项目工作区是否为 AgentSprint 项目。");
-        builder.AppendLine("2. 检查 `~/.codex/config.toml` 中是否已有 `[mcp_servers.agentsprint]`。");
-        builder.AppendLine("3. 如果不存在则新增；如果已存在则更新为下面配置。");
-        builder.AppendLine("4. 保留现有其他 MCP 配置，不要覆盖 `node_repl` 等已有配置。");
-        builder.AppendLine("5. 默认只配置 MCP endpoint 和 Authorization，不要默认写入 `X-AgentSprint-Api-Base-Url`。");
-        builder.AppendLine("6. 只有在用户明确提供“远程 MCP 服务可访问的 AgentSprint API 地址”时，才写入 `X-AgentSprint-Api-Base-Url`。");
-        builder.AppendLine("7. 不要把 `http://localhost:5000` 固定写入 `X-AgentSprint-Api-Base-Url`。因为这里的 localhost 对远程 MCP 服务来说通常表示 MCP 服务所在机器，不一定是当前 Codex 开发机。");
-        builder.AppendLine("8. Codex HTTP MCP 请求头必须使用 `http_headers` 字段，不要使用 `[mcp_servers.agentsprint.headers]` 子表。");
-        builder.AppendLine("9. 配置完成后，验证 Codex 是否能识别 agentsprint MCP；如果需要新对话或重启 Codex 才能生效，请明确告诉我。");
-        builder.AppendLine();
-        builder.AppendLine("需要写入的 Codex TOML 配置为：");
-        builder.AppendLine();
-        builder.AppendLine("```toml");
-        builder.AppendLine("[mcp_servers.agentsprint]");
-        builder.AppendLine($"url = \"{EscapeTomlString(mcpEndpoint)}\"");
-        builder.AppendLine("http_headers = { Authorization = \"Bearer <这里填令牌>\" }");
-        builder.AppendLine("```");
-        builder.AppendLine();
-        builder.AppendLine("可选覆盖配置：");
-        builder.AppendLine("仅当用户明确提供远程 MCP 服务可访问的 AgentSprint API 地址时，才追加到 `http_headers`：");
-        builder.AppendLine();
-        builder.AppendLine("```toml");
-        builder.AppendLine("http_headers = {");
-        builder.AppendLine("  Authorization = \"Bearer <这里填令牌>\",");
-        builder.AppendLine("  \"X-AgentSprint-Api-Base-Url\" = \"<远程 MCP 服务可访问的 AgentSprint API 地址>\"");
-        builder.AppendLine("}");
-        builder.AppendLine("```");
-        builder.AppendLine();
-        builder.AppendLine("如果当前 Codex 版本不支持 HTTP MCP 的 `http_headers` 字段，请不要继续猜测配置方式，直接说明阻塞点。");
+        var templates = (await _promptTemplateDomain.ListAsync(entity =>
+                entity.AgentEnvironment == CodexAgentEnvironment &&
+                entity.Status == 1))
+            .GroupBy(entity => entity.Code, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(entity => entity.Sort).First(),
+                StringComparer.OrdinalIgnoreCase);
 
-        return new SprintTaskPromptSectionResult(
-            "MCP 接入配置",
-            builder.ToString().Trim(),
-            [
-                "首次接入或 Codex 提示未发现 agentsprint MCP 时使用。",
-                "在任务推进弹框中选择一个有效 Agent Token 并确认后，系统会把最终接入提示词写入剪切板。",
-                "接入提示词只用于修改 Codex MCP 配置，不用于修改项目代码。"
-            ],
-            [
-                "Agent Token 只在创建时展示一次，请保存到本机安全位置。",
-                "不要把 Agent Token、数据库密码、SSH 私钥、账号密码或服务器连接串写入任务提示词正文、Git 仓库或聊天记录。",
-                "复制接入配置后，请在基于项目的新对话中发送，再复制任务推进提示词继续自动化。"
-            ]);
+        EnsurePromptTemplateExists(templates, McpSetupPromptTemplateCode);
+        EnsurePromptTemplateExists(templates, TaskExecutionPromptTemplateCode);
+        return templates;
     }
 
-    private static SprintTaskPromptSectionResult BuildMcpSetupPrompt()
+    private static void EnsurePromptTemplateExists(
+        IReadOnlyDictionary<string, PromptTemplateEntity> templates,
+        string code)
     {
-        return BuildMcpSetupPromptV2(DefaultMcpEndpoint);
+        if (!templates.ContainsKey(code))
+        {
+            throw new InvalidOperationException($"Codex prompt template '{code}' is not configured.");
+        }
     }
 
-    private static SprintTaskPromptSectionResult BuildTaskExecutionPrompt(
-        SprintDevelopmentTaskEntity task,
-        SprintProjectEntity project,
-        string workspacePath)
+    private static SprintTaskPromptSectionResult BuildPromptSection(
+        PromptTemplateEntity template,
+        IReadOnlyDictionary<string, string> variables)
     {
-        var builder = new StringBuilder();
-        builder.AppendLine("你正在推进 AgentSprint 平台任务，请通过 agentsprint MCP 按任务 ID 加载上下文，不要依赖这段静态文本获取需求详情。");
-        builder.AppendLine();
-        builder.AppendLine("任务标识：");
-        builder.AppendLine($"项目编码：{project.Code}");
-        builder.AppendLine($"任务 ID：{task.Id}");
-        builder.AppendLine($"仓库引用：{workspacePath}");
-        builder.AppendLine();
-        builder.AppendLine("执行顺序：");
-        builder.AppendLine($"1. 调用 agentsprint.register_session，参数包含 project_code = \"{project.Code}\"。");
-        builder.AppendLine("2. 调用 agentsprint.get_mcp_tool_guide，参数包含 format = \"full\"，读取工具用途、参数、返回结构和推荐流程。");
-        builder.AppendLine($"3. 调用 agentsprint.get_agent_skill_pack，参数包含 project_code = \"{project.Code}\"，获取 Skill、后端规则、前端规则和验证命令。");
-        builder.AppendLine($"4. 调用 agentsprint.get_task_prompt，参数包含 task_id = \"{task.Id}\"，加载 task_detail、requirement_detail 和任务提示上下文。");
-        builder.AppendLine("5. 按 MCP 返回的任务、需求、Skill 包和验证命令完成实现，不从这段静态提示词解析需求正文。");
-        builder.AppendLine($"6. 完成后运行相关后端测试和前端类型检查，并调用 agentsprint.complete_my_task，参数包含 task_id = \"{task.Id}\" 回写任务状态。");
-        builder.AppendLine("7. 必须读取 complete_my_task 返回的 next_work；如果 next_work.kind = bug 或 task，继续处理，或调用 agentsprint.claim_next_work 领取。");
-        builder.AppendLine("8. 如果 next_work.kind = none，不要把会话视为结束；读取 next_work.polling.next_interval_seconds，等待后再次调用 agentsprint.get_next_work。");
-        builder.AppendLine("9. 连续空闲轮询时将 idle_round 加 1 后传回 get_next_work 或 heartbeat；发现工作项后将 idle_round 重置为 0。");
-        builder.AppendLine("10. 如果 session.offline_requested = true 或 polling.should_continue = false，调用 agentsprint.close_session 并停止轮询。");
-        builder.AppendLine("约束：不要在提示词、代码、日志或 MCP 响应中写入 SSH 私钥、数据库密码等敏感明文。");
-
+        var content = RenderPromptTemplate(template.Content, variables).Trim();
+        var usage = string.IsNullOrWhiteSpace(template.Description)
+            ? []
+            : new[] { RenderPromptTemplate(template.Description, variables).Trim() };
         return new SprintTaskPromptSectionResult(
-            "任务推进提示词",
-            builder.ToString().Trim(),
-            [
-                "日常推进任务时复制这一段。",
-                "Codex 已配置 agentsprint MCP 后，应使用任务 ID 通过 MCP 拉取完整任务和需求上下文。",
-                "任务完成且验证通过后，再调用 complete_my_task 并按 next_work 继续处理后续缺陷或任务。"
-            ],
-            [
-                "这段提示词只保留任务 ID 和项目编码，需求详情、任务说明、Skill 包和验证命令以 MCP 返回为准。",
-                "没有 MCP 时不要继续推进任务，先完成 MCP 接入配置。",
-                "如果任务跨前后端，后端测试和前端类型检查都需要执行。",
-                "当 next_work.kind = none 时会话仍可继续轮询，只有 session.offline_requested 或 polling.should_continue 要求停止时才调用 close_session。"
-            ]);
+            template.Name,
+            content,
+            usage,
+            []);
+    }
+
+    private static string RenderPromptTemplate(
+        string template,
+        IReadOnlyDictionary<string, string> variables)
+    {
+        var result = template;
+        foreach (var (key, value) in variables)
+        {
+            result = result.Replace("{{" + key + "}}", value, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return result;
     }
 
     private static string EscapeTomlString(string value)
@@ -1658,6 +1747,25 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         return await CreateLeaseAsync(projectId, targetType, targetId, userId, normalizedOwnerDevice);
+    }
+
+    private async Task MarkRequirementDevelopingFromTaskAsync(SprintDevelopmentTaskEntity task, string userId)
+    {
+        var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
+        if (requirement.Status is
+            SprintRequirementStatuses.Approved or
+            SprintRequirementStatuses.ReadyForDevelopment or
+            SprintRequirementStatuses.Decomposed)
+        {
+            requirement.Status = SprintRequirementStatuses.Developing;
+        }
+        else if (requirement.Status != SprintRequirementStatuses.Developing)
+        {
+            return;
+        }
+
+        requirement.DeveloperId = NormalizeOptional(task.AssigneeId) ?? NormalizeOptional(userId);
+        await _requirementDomain.UpdateAsync(requirement);
     }
 
     private async Task<bool> HasActiveTargetLeaseAsync(string targetType, string targetId)
@@ -1906,7 +2014,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 ProjectId = requirement.ProjectId,
                 RequirementId = requirement.Id,
                 TesterId = testerId,
-                Name = $"{requirement.Title} 测试计划",
+                Name = $"{requirement.Title} 娴嬭瘯璁″垝",
                 Environment = "test",
                 CreatedBy = testerId
             };
@@ -2003,16 +2111,16 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         await GetProjectOrThrowAsync(projectId);
         var defaultEndpoint = (await _endpointDomain.ListAsync(entity =>
-                entity.ProjectId == projectId && entity.Code == "DEFAULT-WEB"))
+                entity.ProjectId == projectId && entity.Code == "DEFAULT-ADMIN"))
             .FirstOrDefault();
         if (defaultEndpoint is null)
         {
             defaultEndpoint = new SprintProjectEndpointEntity
             {
                 ProjectId = projectId,
-                Code = "DEFAULT-WEB",
-                Name = "Web网站",
-                Type = SprintProjectEndpointTypes.Web,
+                Code = "DEFAULT-ADMIN",
+                Name = "管理后台",
+                Type = SprintProjectEndpointTypes.Admin,
                 CreatedBy = userId
             };
             await _endpointDomain.CreateAsync(defaultEndpoint);
@@ -2042,16 +2150,16 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private async Task EnsureDefaultEndpointAndModuleAsync(string projectId, string userId)
     {
         var existingEndpoint = (await _endpointDomain.ListAsync(entity =>
-                entity.ProjectId == projectId && entity.Code == "DEFAULT-WEB"))
+                entity.ProjectId == projectId && entity.Code == "DEFAULT-ADMIN"))
             .FirstOrDefault();
         if (existingEndpoint is null)
         {
             existingEndpoint = new SprintProjectEndpointEntity
             {
                 ProjectId = projectId,
-                Code = "DEFAULT-WEB",
-                Name = "Web网站",
-                Type = SprintProjectEndpointTypes.Web,
+                Code = "DEFAULT-ADMIN",
+                Name = "管理后台",
+                Type = SprintProjectEndpointTypes.Admin,
                 CreatedBy = userId
             };
             await _endpointDomain.CreateAsync(existingEndpoint);
@@ -2155,6 +2263,60 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    private async Task<string> ResolveUniqueSkillCodeAsync(string? requestedCode, string seedId)
+    {
+        var normalizedCode = NormalizeOptional(requestedCode);
+        if (normalizedCode is not null)
+        {
+            var duplicated = await _skillDomain.ListAsync(entity => entity.Code == normalizedCode);
+            if (duplicated.Count > 0)
+            {
+                throw new InvalidOperationException("Skill code already exists.");
+            }
+
+            return normalizedCode;
+        }
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var seed = attempt == 0 ? seedId : Guid.NewGuid().ToString("N");
+            var code = GenerateSkillCode(seed);
+            var duplicated = await _skillDomain.ListAsync(entity => entity.Code == code);
+            if (duplicated.Count == 0)
+            {
+                return code;
+            }
+        }
+
+        throw new InvalidOperationException("Unable to generate a unique skill code.");
+    }
+
+    private static string GenerateSkillCode(string seed)
+    {
+        var normalizedSeed = NormalizeOptional(seed)?.Replace("-", string.Empty, StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(normalizedSeed))
+        {
+            normalizedSeed = Guid.NewGuid().ToString("N");
+        }
+
+        var suffixLength = Math.Min(8, normalizedSeed.Length);
+        return $"SKILL-{normalizedSeed[..suffixLength].ToUpperInvariant()}";
+    }
+
+    private static bool TextContains(string keyword, params string?[] values)
+    {
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ResolveCurrentReviewStatus(SprintRequirementReviewItemResult item)
+    {
+        return item.Reviews.FirstOrDefault(review => review.Status == SprintRequirementReviewStatuses.Pending)?.Status ??
+            item.Reviews.FirstOrDefault()?.Status ??
+            SprintRequirementReviewStatuses.Pending;
+    }
+
     private static string? BuildConvertedRequirementDescription(string? description, string? remark)
     {
         var normalizedDescription = NormalizeOptional(description);
@@ -2249,6 +2411,20 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         {
             SprintSkillStatuses.Active or SprintSkillStatuses.Disabled => normalized,
             _ => SprintSkillStatuses.Active
+        };
+    }
+
+    private static string NormalizeSkillType(string? type)
+    {
+        var normalized = NormalizeOptional(type) ?? SprintSkillTypes.Development;
+        return normalized switch
+        {
+            SprintSkillTypes.Development or
+            SprintSkillTypes.Debugging or
+            SprintSkillTypes.Operations or
+            SprintSkillTypes.RequirementAnalysis or
+            SprintSkillTypes.Other => normalized,
+            _ => SprintSkillTypes.Other
         };
     }
 
@@ -2385,6 +2561,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Id,
             entity.Code,
             entity.Name,
+            NormalizeSkillType(entity.Type),
             entity.Description,
             entity.Content,
             entity.Status,

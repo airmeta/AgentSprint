@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -20,8 +21,11 @@ import {
   listRequirementsApi,
   listTestPlansApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
 
 import { renderMarkdown } from '../_shared/markdown';
+import '../_shared/table-layout.css';
 
 const route = useRoute();
 const loading = ref(false);
@@ -32,14 +36,14 @@ const bugs = ref<SprintMvpApi.Bug[]>([]);
 const testPlans = ref<SprintTestApi.TestPlan[]>([]);
 
 const statusText: Record<string, string> = {
-  approved: '评审通过',
+  approved: '待拆解',
   completed: '已完成',
-  decomposed: '已拆解',
-  developing: '进行中',
+  decomposed: '待推进',
+  developing: '已推进',
   draft: '草稿',
   pending_fix: '待修复',
   pending_review: '待评审',
-  ready_development: '待开发',
+  ready_development: '待拆解',
   ready_test: '待测试',
   rejected: '评审驳回',
   tested: '已测试',
@@ -110,7 +114,12 @@ onMounted(loadDetail);
         <h2>{{ requirement?.title || '需求详情' }}</h2>
         <p>{{ project?.name || '未找到需求' }}</p>
       </div>
-      <TButton @click="loadDetail">刷新</TButton>
+      <TButton @click="loadDetail">
+        <template #icon>
+          <IconifyIcon icon="lucide:refresh-cw" />
+        </template>
+        刷新
+      </TButton>
     </section>
 
     <TEmpty v-if="!loading && !requirement" description="需求不存在或已被删除" />
@@ -131,7 +140,7 @@ onMounted(loadDetail);
           <TDescriptionsItem label="优先级">{{ requirement.priority }}</TDescriptionsItem>
           <TDescriptionsItem label="未关闭缺陷">{{ activeBugCount }}</TDescriptionsItem>
           <TDescriptionsItem label="测试地址">{{ requirement.testUrl || '未配置' }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ requirement.createTime }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建时间">{{ formatDateTime(requirement.createTime) }}</TDescriptionsItem>
         </TDescriptions>
       </section>
 
@@ -145,7 +154,7 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>任务</h3>
-        <TTable row-key="id" :columns="taskColumns" :data="tasks" hover>
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(taskColumns)" :data="tasks" hover stripe>
           <template #assigneeId="{ row }">
             {{ row.assigneeId || '未指派' }}
           </template>
@@ -154,12 +163,12 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>测试计划</h3>
-        <TTable row-key="id" :columns="testColumns" :data="testPlans" hover />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(testColumns)" :data="testPlans" hover stripe />
       </section>
 
       <section class="panel">
         <h3>缺陷</h3>
-        <TTable row-key="id" :columns="bugColumns" :data="bugs" hover />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe />
       </section>
     </template>
   </div>

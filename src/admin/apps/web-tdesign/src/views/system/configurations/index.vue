@@ -8,15 +8,14 @@ import {
   saveSystemConfigurationApi,
   type SystemApi,
 } from '#/api';
-import SystemPage from '#/views/system/_shared/system-page.vue';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Button as TButton,
   Dialog as TDialog,
   DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
@@ -45,6 +44,10 @@ const filters = reactive({
   status: undefined as number | undefined,
 });
 const query = reactive({ ...filters });
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+});
 
 const columns = [
   { colKey: 'key', title: '配置键', width: 220 },
@@ -54,18 +57,17 @@ const columns = [
   { colKey: 'actions', title: '操作', width: 140 },
 ];
 
-const filteredRows = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return rows.value.filter((item) => {
-    const matchKeyword =
-      !keyword ||
-      item.key.toLowerCase().includes(keyword) ||
-      item.value.toLowerCase().includes(keyword) ||
-      (item.description || '').toLowerCase().includes(keyword);
-    const matchStatus = query.status === undefined || item.status === query.status;
-    return matchKeyword && matchStatus;
-  });
-});
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [10, 20, 50],
+  total: rows.value.length,
+}));
+
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
+}
 
 function resetForm() {
   Object.assign(form, {
@@ -77,19 +79,21 @@ function resetForm() {
   });
 }
 
-function applyFilters() {
+async function applyFilters() {
   Object.assign(query, filters);
+  pagination.current = 1;
+  await loadRows();
 }
 
-function resetFilters() {
+async function resetFilters() {
   Object.assign(filters, { keyword: '', status: undefined });
-  applyFilters();
+  await applyFilters();
 }
 
 async function loadRows() {
   loading.value = true;
   try {
-    rows.value = await listSystemConfigurationsApi();
+    rows.value = await listSystemConfigurationsApi(query);
   } finally {
     loading.value = false;
   }
@@ -144,41 +148,46 @@ onMounted(async () => {
 </script>
 
 <template>
-  <SystemPage
+  <AdminListPage
     title="系统配置"
     description="维护运行时动态配置，当前用于控制任务提示词中的 Streamable HTTP MCP 服务地址。"
+    table-title="系统配置列表"
+    add-button-text="新增配置"
     :columns="columns"
-    :data="filteredRows"
+    :data="rows"
     :loading="loading"
+    :pagination="tablePagination"
+    :refreshable="false"
     @add="openCreate"
+    @page-change="handlePageChange"
+    @reset="resetFilters"
+    @search="applyFilters"
   >
     <template #filters>
-      <TInput v-model="filters.keyword" clearable placeholder="配置键 / 配置值 / 说明" class="filter-control" />
-      <TSelect
-        v-model="filters.status"
-        clearable
-        placeholder="状态"
-        class="filter-control"
-        :options="[
-          { label: '启用', value: 1 },
-          { label: '停用', value: 0 },
-        ]"
-      />
-      <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="applyFilters">查询</TButton>
-        <TButton @click="resetFilters">重置</TButton>
-      </TSpace>
+      <label class="filter-field">
+        <span>配置信息</span>
+        <TInput v-model="filters.keyword" clearable placeholder="配置键 / 配置值 / 说明" />
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <TSelect
+          v-model="filters.status"
+          clearable
+          placeholder="全部状态"
+          :options="[
+            { label: '启用', value: 1 },
+            { label: '停用', value: 0 },
+          ]"
+        />
+      </label>
     </template>
-
-    <template #action>新增配置</template>
-
     <template #actions="{ row }">
       <TSpace>
-        <TLink theme="primary" @click="openEdit(row)">编辑</TLink>
-        <TLink theme="danger" @click="remove(row)">删除</TLink>
+        <RowAction label="编辑" @click="openEdit(row)" />
+        <RowAction label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
-  </SystemPage>
+  </AdminListPage>
 
   <TDialog v-model:visible="visible" header="系统配置" width="620" :confirm-on-enter="true" :confirm-btn="{ content: '保存', loading: saving }" @confirm="save">
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
@@ -205,7 +214,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.filter-control {
-  width: 220px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-secondary);
+}
+
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 </style>

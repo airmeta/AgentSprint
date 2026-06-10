@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 import type { SprintMvpApi } from '#/api/sprint/mvp';
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { IconifyIcon } from '@vben/icons';
+import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 
 import {
   Button as TButton,
@@ -11,6 +12,7 @@ import {
   Input as TInput,
   Link as TLink,
   MessagePlugin,
+  Select as TSelect,
   Space as TSpace,
   Table as TTable,
   Tag as TTag,
@@ -19,11 +21,18 @@ import {
 
 import {
   approveRequirementReviewApi,
+  listProjectsApi,
   listMyPendingReviewsApi,
   rejectRequirementReviewApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
 
+import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import MarkdownEditor from '../_shared/markdown-editor.vue';
 import '../_shared/table-layout.css';
+
+defineOptions({ name: 'SprintRequirementReviews' });
 
 const approving = ref(false);
 const loading = ref(false);
@@ -32,6 +41,7 @@ const previewVisible = ref(false);
 const reviewVisible = ref(false);
 const current = ref<SprintMvpApi.RequirementReviewItem>();
 const items = ref<SprintMvpApi.RequirementReviewItem[]>([]);
+const projects = ref<SprintMvpApi.Project[]>([]);
 const filters = reactive({
   keyword: '',
   projectId: '',
@@ -54,6 +64,9 @@ const reviewStatusTheme: Record<string, 'danger' | 'primary' | 'success' | 'warn
   pending: 'warning',
   rejected: 'danger',
 };
+const selectedProject = computed(() =>
+  projects.value.find((project) => project.id === filters.projectId),
+);
 
 const columns = [
   { colKey: 'requirement.title', title: '需求名' },
@@ -69,33 +82,6 @@ const statusOptions = [
   { label: '已通过', value: 'approved' },
   { label: '已驳回', value: 'rejected' },
 ];
-const projectOptions = computed(() =>
-  Array.from(
-    new Map(
-      items.value.map((item) => [
-        item.project.id,
-        {
-          label: item.project.name,
-          value: item.project.id,
-        },
-      ]),
-    ).values(),
-  ),
-);
-const filteredItems = computed(() => {
-  const keyword = filters.keyword.trim().toLowerCase();
-  return items.value.filter((item) => {
-    const status = resolveCurrentReviewStatus(item);
-    return (
-      (!filters.projectId || item.project.id === filters.projectId) &&
-      (!filters.status || status === filters.status) &&
-      (!keyword ||
-        item.requirement.title.toLowerCase().includes(keyword) ||
-        item.project.name.toLowerCase().includes(keyword) ||
-        (item.requirement.stakeholders || '').toLowerCase().includes(keyword))
-    );
-  });
-});
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
@@ -103,7 +89,7 @@ const tablePagination = computed(() => ({
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
-  total: filteredItems.value.length,
+  total: items.value.length,
 }));
 
 function handlePageChange(pageInfo: { current: number; pageSize: number }) {
@@ -111,31 +97,56 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   pagination.pageSize = pageInfo.pageSize;
 }
 
-function handleFilterChange() {
+async function handleFilterChange() {
   pagination.current = 1;
+  await loadReviews();
 }
 
-function queryReviews() {
+async function handleProjectChange() {
   pagination.current = 1;
+  await loadReviews();
 }
 
-function resetFilters() {
+async function queryReviews() {
+  pagination.current = 1;
+  await loadReviews();
+}
+
+async function resetFilters() {
   Object.assign(filters, {
     keyword: '',
-    projectId: '',
+    projectId: projects.value[0]?.id || '',
     status: '',
   });
   pagination.current = 1;
+  await loadReviews();
 }
 
-async function loadReviews() {
+async function loadProjects() {
+  projects.value = await listProjectsApi();
+  if (filters.projectId && projects.value.some((project) => project.id === filters.projectId)) return;
+  filters.projectId = projects.value[0]?.id || '';
+}
+
+async function loadReviews(options: { refreshProjects?: boolean } = {}) {
   loading.value = true;
   try {
-    items.value = await listMyPendingReviewsApi();
+    if (options.refreshProjects || projects.value.length === 0) {
+      await loadProjects();
+    }
+    items.value = await listMyPendingReviewsApi({
+      keyword: filters.keyword || undefined,
+      projectId: filters.projectId || undefined,
+      status: filters.status || undefined,
+    });
     pagination.current = 1;
   } finally {
     loading.value = false;
   }
+}
+
+async function refreshReviews() {
+  await loadReviews({ refreshProjects: true });
 }
 
 function openPreview(item: SprintMvpApi.RequirementReviewItem) {
@@ -186,30 +197,38 @@ async function reject() {
   }
 }
 
-onMounted(loadReviews);
+onMounted(refreshReviews);
+onActivated(loadReviews);
 </script>
 
 <template>
-  <div class="reviews-page sprint-list-page">
-    <section class="sprint-page-title">
-      <h2>需求评审</h2>
-      <p>仅展示待我评审的需求。</p>
-    </section>
+  <ProjectSecondaryListShell
+    v-model:selected-project-id="filters.projectId"
+    class="reviews-page"
+    :loading="loading"
+    :projects="projects"
+    @project-change="handleProjectChange"
+    @refresh="refreshReviews"
+  >
+    <template #header>
+      <section class="sprint-page-title">
+        <h2>需求评审</h2>
+        <p>按项目查看待评审需求，完成评审意见与审批流转。</p>
+      </section>
+    </template>
+
+    <template #workspace-header>
+      <div class="workspace-head">
+        <div>
+          <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
+          <p>{{ selectedProject?.code || '-' }}</p>
+        </div>
+      </div>
+    </template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
-        <label class="sprint-filter-field">
-          <span>项目</span>
-          <TSelect
-            v-model="filters.projectId"
-            clearable
-            :options="projectOptions"
-            empty="暂无项目"
-            placeholder="全部项目"
-            @change="handleFilterChange"
-          />
-        </label>
-        <label class="sprint-filter-field">
+        <div class="sprint-filter-field">
           <span>状态</span>
           <TSelect
             v-model="filters.status"
@@ -218,8 +237,8 @@ onMounted(loadReviews);
             placeholder="全部状态"
             @change="handleFilterChange"
           />
-        </label>
-        <label class="sprint-filter-field">
+        </div>
+        <div class="sprint-filter-field">
           <span>需求信息</span>
           <TInput
             v-model="filters.keyword"
@@ -227,10 +246,20 @@ onMounted(loadReviews);
             placeholder="需求、项目、干系人"
             @change="handleFilterChange"
           />
-        </label>
+        </div>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :disabled="loading" @click="queryReviews">查询</TButton>
-          <TButton variant="outline" :disabled="loading" @click="resetFilters">重置</TButton>
+          <TButton theme="primary" :disabled="loading" @click="queryReviews">
+            <template #icon>
+              <IconifyIcon icon="lucide:search" />
+            </template>
+            查询
+          </TButton>
+          <TButton :disabled="loading" @click="resetFilters">
+            <template #icon>
+              <IconifyIcon icon="lucide:refresh-cw" />
+            </template>
+            重置
+          </TButton>
         </div>
       </div>
     </section>
@@ -239,19 +268,22 @@ onMounted(loadReviews);
       <div class="sprint-table-header">
         <h3>评审列表</h3>
         <div class="sprint-table-actions">
-          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadReviews">↻</TButton>
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadReviews()">
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </TButton>
         </div>
       </div>
 
       <TTable
         row-key="requirement.id"
         class="sprint-compact-table"
-        :columns="columns"
-        :data="filteredItems"
+        :columns="withSerialColumn(columns, { offset: () => (pagination.current - 1) * pagination.pageSize })"
+        :data="items"
         :loading="loading"
         :pagination="tablePagination"
         size="small"
         hover
+        stripe
         @page-change="handlePageChange"
       >
         <template #requirement.title="{ row }">
@@ -267,7 +299,7 @@ onMounted(loadReviews);
           {{ row.requirement.stakeholders || '未填写' }}
         </template>
         <template #requirement.submittedAt="{ row }">
-          {{ row.requirement.submittedAt || '-' }}
+          {{ formatDateTime(row.requirement.submittedAt) }}
         </template>
         <template #currentStatus="{ row }">
           <TTag variant="light">
@@ -276,8 +308,14 @@ onMounted(loadReviews);
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
-            <TLink theme="primary" @click="openReview(row)">评审</TLink>
-            <TLink theme="primary" @click="openPreview(row)">预览</TLink>
+            <TLink theme="primary" @click="openReview(row)">
+              <IconifyIcon icon="lucide:clipboard-check" />
+              评审
+            </TLink>
+            <TLink theme="primary" @click="openPreview(row)">
+              <IconifyIcon icon="lucide:eye" />
+              预览
+            </TLink>
           </TSpace>
         </template>
       </TTable>
@@ -288,88 +326,136 @@ onMounted(loadReviews);
       :footer="false"
       :size="'60%'"
       :header="current?.requirement.title || '需求预览'"
+      drawer-class-name="review-drawer"
     >
       <section v-if="current" class="review-preview">
-        <div class="review-preview__header">
-          <TTag :theme="reviewStatusTheme[resolveCurrentReviewStatus(current)]" variant="light">
-            {{ reviewStatusText[resolveCurrentReviewStatus(current)] }}
-          </TTag>
-          <h3>{{ current.requirement.title }}</h3>
-        </div>
-        <dl>
-          <dt>项目</dt>
-          <dd>{{ current.project.name }}</dd>
-          <dt>产品经理</dt>
-          <dd>{{ current.requirement.createdBy }}</dd>
-          <dt>干系人</dt>
-          <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
-          <dt>提交时间</dt>
-          <dd>{{ current.requirement.submittedAt || '-' }}</dd>
-        </dl>
-        <h4>需求内容</h4>
-        <p>{{ current.requirement.description || '暂无需求内容' }}</p>
-        <h4>评审进度</h4>
-        <div class="review-list">
-          <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
-            <TTag :theme="reviewStatusTheme[review.status]" variant="light">
-              {{ reviewStatusText[review.status] || review.status }}
+        <div class="review-preview__body">
+          <div class="review-preview__header">
+            <TTag :theme="reviewStatusTheme[resolveCurrentReviewStatus(current)]" variant="light">
+              {{ reviewStatusText[resolveCurrentReviewStatus(current)] }}
             </TTag>
-            <strong>{{ review.reviewerId }}</strong>
-            <span>{{ review.reviewedAt || review.createTime }}</span>
-            <p>{{ review.comment || '暂无意见' }}</p>
+            <h3>{{ current.requirement.title }}</h3>
+          </div>
+          <dl>
+            <dt>项目</dt>
+            <dd>{{ current.project.name }}</dd>
+            <dt>产品经理</dt>
+            <dd>{{ current.requirement.createdBy }}</dd>
+            <dt>干系人</dt>
+            <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
+            <dt>提交时间</dt>
+            <dd>{{ formatDateTime(current.requirement.submittedAt) }}</dd>
+          </dl>
+          <div class="review-markdown-area">
+            <h4>需求内容</h4>
+            <MarkdownEditor
+              class="review-markdown-preview"
+              :model-value="current.requirement.description || '暂无需求内容'"
+              height="100%"
+              preview
+              preview-only
+              read-only
+              placeholder="暂无需求内容"
+            />
           </div>
         </div>
+        <section class="review-progress">
+          <h4>评审进度</h4>
+          <div class="review-list">
+            <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
+              <TTag :theme="reviewStatusTheme[review.status]" variant="light">
+                {{ reviewStatusText[review.status] || review.status }}
+              </TTag>
+              <strong>{{ review.reviewerId }}</strong>
+              <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
+              <p>{{ review.comment || '暂无意见' }}</p>
+            </div>
+          </div>
+        </section>
       </section>
     </TDrawer>
 
-    <TDrawer v-model:visible="reviewVisible" :footer="false" :size="'60%'" header="需求评审">
+    <TDrawer
+      v-model:visible="reviewVisible"
+      :footer="false"
+      :size="'60%'"
+      header="需求评审"
+      drawer-class-name="review-drawer"
+    >
       <section v-if="current" class="review-preview compact">
-        <div class="review-preview__header">
-          <TTag :theme="reviewStatusTheme[resolveCurrentReviewStatus(current)]" variant="light">
-            {{ reviewStatusText[resolveCurrentReviewStatus(current)] }}
-          </TTag>
-          <h3>{{ current.requirement.title }}</h3>
-        </div>
-        <dl>
-          <dt>项目</dt>
-          <dd>{{ current.project.name }}</dd>
-          <dt>产品经理</dt>
-          <dd>{{ current.requirement.createdBy }}</dd>
-          <dt>干系人</dt>
-          <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
-          <dt>提交时间</dt>
-          <dd>{{ current.requirement.submittedAt || '-' }}</dd>
-        </dl>
-        <h4>需求内容</h4>
-        <p>{{ current.requirement.description || '暂无需求内容' }}</p>
-        <h4>评审进度</h4>
-        <div class="review-list">
-          <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
-            <TTag :theme="reviewStatusTheme[review.status]" variant="light">
-              {{ reviewStatusText[review.status] || review.status }}
+        <div class="review-preview__body">
+          <div class="review-preview__header">
+            <TTag :theme="reviewStatusTheme[resolveCurrentReviewStatus(current)]" variant="light">
+              {{ reviewStatusText[resolveCurrentReviewStatus(current)] }}
             </TTag>
-            <strong>{{ review.reviewerId }}</strong>
-            <span>{{ review.reviewedAt || review.createTime }}</span>
-            <p>{{ review.comment || '暂无意见' }}</p>
+            <h3>{{ current.requirement.title }}</h3>
+          </div>
+          <dl>
+            <dt>项目</dt>
+            <dd>{{ current.project.name }}</dd>
+            <dt>产品经理</dt>
+            <dd>{{ current.requirement.createdBy }}</dd>
+            <dt>干系人</dt>
+            <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
+            <dt>提交时间</dt>
+            <dd>{{ formatDateTime(current.requirement.submittedAt) }}</dd>
+          </dl>
+          <div class="review-markdown-area">
+            <h4>需求内容</h4>
+            <MarkdownEditor
+              class="review-markdown-preview"
+              :model-value="current.requirement.description || '暂无需求内容'"
+              height="100%"
+              preview
+              preview-only
+              read-only
+              placeholder="暂无需求内容"
+            />
+          </div>
+          <TForm :data="reviewForm" class="review-decision-form" label-width="80px">
+            <TFormItem label="意见">
+              <TTextarea v-model="reviewForm.comment" placeholder="填写评审意见" />
+            </TFormItem>
+          </TForm>
+          <div class="dialog-actions">
+            <TButton theme="danger" @click="reject">
+              <template #icon>
+                <IconifyIcon icon="lucide:x" />
+              </template>
+              驳回
+            </TButton>
+            <TButton theme="primary" @click="approve">
+              <template #icon>
+                <IconifyIcon icon="lucide:check" />
+              </template>
+              通过
+            </TButton>
           </div>
         </div>
+        <section class="review-progress">
+          <h4>评审进度</h4>
+          <div class="review-list">
+            <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
+              <TTag :theme="reviewStatusTheme[review.status]" variant="light">
+                {{ reviewStatusText[review.status] || review.status }}
+              </TTag>
+              <strong>{{ review.reviewerId }}</strong>
+              <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
+              <p>{{ review.comment || '暂无意见' }}</p>
+            </div>
+          </div>
+        </section>
       </section>
-      <TForm :data="reviewForm" label-width="80px">
-        <TFormItem label="意见">
-          <TTextarea v-model="reviewForm.comment" placeholder="填写评审意见" />
-        </TFormItem>
-      </TForm>
-      <div class="dialog-actions">
-        <TButton theme="danger" @click="reject">驳回</TButton>
-        <TButton theme="primary" @click="approve">通过</TButton>
-      </div>
     </TDrawer>
-  </div>
+  </ProjectSecondaryListShell>
 </template>
 
 <style scoped>
-.review-preview p {
-  white-space: pre-wrap;
+.review-preview {
+  display: flex;
+  height: calc(100vh - 96px);
+  min-height: 0;
+  flex-direction: column;
 }
 
 .dialog-actions {
@@ -382,13 +468,18 @@ onMounted(loadReviews);
   gap: 10px;
 }
 
+.review-preview__body {
+  display: flex;
+  height: calc(100% - 200px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .review-preview h3,
 .review-preview h4 {
   margin: 0;
-}
-
-.review-preview h4 {
-  margin-top: 18px;
 }
 
 .review-preview dl {
@@ -406,11 +497,31 @@ onMounted(loadReviews);
   margin: 0;
 }
 
-.review-preview.compact {
-  max-height: 420px;
-  padding-right: 4px;
-  margin-bottom: 16px;
+.review-markdown-area {
+  display: flex;
+  min-height: 280px;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.review-markdown-preview {
+  min-height: 0;
+  flex: 1;
+}
+
+.review-decision-form {
+  margin-top: 16px;
+}
+
+.review-progress {
+  height: 200px;
+  min-height: 0;
+  flex: 0 0 200px;
+  padding-top: 12px;
   overflow: auto;
+  border-top: 1px solid var(--td-component-border);
 }
 
 .review-list {
@@ -432,6 +543,7 @@ onMounted(loadReviews);
   grid-column: 1 / -1;
   margin: 0;
   color: var(--td-text-color-secondary);
+  white-space: pre-wrap;
 }
 
 .dialog-actions {

@@ -242,6 +242,7 @@ public sealed record UpsertRuntimeEnvironmentRequest(
     string? ApiBaseUrl,
     string? FrontendProxyApiUrl,
     string? McpEndpoint,
+    string? ServerIps,
     string? DeployRoot,
     string? DockerDirectory,
     string? RemotePackagePath,
@@ -263,6 +264,7 @@ public sealed record RuntimeEnvironmentManagementResult(
     string? ApiBaseUrl,
     string? FrontendProxyApiUrl,
     string? McpEndpoint,
+    string? ServerIps,
     string? DeployRoot,
     string? DockerDirectory,
     string? RemotePackagePath,
@@ -275,23 +277,31 @@ public sealed record UpsertRuntimeEnvironmentContainerRequest(
     string? Id,
     string RuntimeEnvironmentId,
     string Name,
+    int ContainerType,
+    string? ServerIp,
     int HostPort,
     int ContainerPort,
     string? Protocol,
     string? Description,
     int Sort,
-    int Status);
+    int Status,
+    string? Prompt = null,
+    string? DeployScript = null);
 
 public sealed record RuntimeEnvironmentContainerManagementResult(
     string Id,
     string RuntimeEnvironmentId,
     string Name,
+    int ContainerType,
+    string? ServerIp,
     int HostPort,
     int ContainerPort,
     string Protocol,
     string? Description,
     int Sort,
-    int Status);
+    int Status,
+    string? Prompt,
+    string? DeployScript);
 
 public sealed record UpsertPromptTemplateRequest(
     string? Id,

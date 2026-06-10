@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { SprintMvpApi } from '#/api/sprint/mvp';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -19,6 +20,10 @@ import {
   listProjectsApi,
   listRequirementsApi,
 } from '#/api/sprint/mvp';
+import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
+
+import '../_shared/table-layout.css';
 
 const route = useRoute();
 const loading = ref(false);
@@ -79,7 +84,12 @@ onMounted(loadDetail);
         <h2>{{ project?.name || '项目详情' }}</h2>
         <p>{{ project?.code || '未找到项目' }}</p>
       </div>
-      <TButton @click="loadDetail">刷新</TButton>
+      <TButton @click="loadDetail">
+        <template #icon>
+          <IconifyIcon icon="lucide:refresh-cw" />
+        </template>
+        刷新
+      </TButton>
     </section>
 
     <TEmpty v-if="!loading && !project" description="项目不存在或已被删除" />
@@ -91,12 +101,14 @@ onMounted(loadDetail);
           <TDescriptionsItem label="状态">
             <TTag theme="success" variant="light">{{ project.status }}</TTag>
           </TDescriptionsItem>
-          <TDescriptionsItem label="仓库地址">{{ project.repositoryUrl || '未配置' }}</TDescriptionsItem>
+          <TDescriptionsItem label="仓库地址">
+            <span class="repo-detail">{{ project.repositoryUrl || '未配置' }}</span>
+          </TDescriptionsItem>
           <TDescriptionsItem label="测试环境">
             {{ project.testEnvironmentUrl || '未配置' }}
           </TDescriptionsItem>
           <TDescriptionsItem label="创建人">{{ project.createdBy }}</TDescriptionsItem>
-          <TDescriptionsItem label="创建时间">{{ project.createTime }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建时间">{{ formatDateTime(project.createTime) }}</TDescriptionsItem>
         </TDescriptions>
       </section>
 
@@ -121,12 +133,12 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>需求</h3>
-        <TTable row-key="id" :columns="requirementColumns" :data="requirements" hover />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(requirementColumns)" :data="requirements" hover stripe />
       </section>
 
       <section class="panel">
         <h3>任务</h3>
-        <TTable row-key="id" :columns="taskColumns" :data="tasks" hover>
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(taskColumns)" :data="tasks" hover stripe>
           <template #assigneeId="{ row }">
             {{ row.assigneeId || '未指派' }}
           </template>
@@ -135,7 +147,7 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>缺陷</h3>
-        <TTable row-key="id" :columns="bugColumns" :data="bugs" hover />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe />
       </section>
     </template>
   </div>
@@ -176,6 +188,15 @@ onMounted(loadDetail);
 
 .panel h3 {
   margin-bottom: 12px;
+}
+
+.repo-detail {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .stats {

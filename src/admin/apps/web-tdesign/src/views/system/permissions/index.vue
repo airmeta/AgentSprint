@@ -10,6 +10,7 @@ import {
   type SystemApi,
 } from '#/api';
 import SystemPage from '#/views/system/_shared/system-page.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
   Button as TButton,
@@ -18,11 +19,11 @@ import {
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
 } from 'tdesign-vue-next';
+import { IconifyIcon } from '@vben/icons';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 
 const loading = ref(false);
@@ -69,27 +70,14 @@ const columns = [
   { colKey: 'actions', title: '操作', width: 140, cell: 'actions' },
 ];
 
-const filteredPermissions = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return permissions.value.filter((permission) => {
-    const menuText = permission.menuId ? menuNameMap.value.get(permission.menuId) || permission.menuId : '';
-    const matchesKeyword =
-      !keyword ||
-      permission.code.toLowerCase().includes(keyword) ||
-      permission.name.toLowerCase().includes(keyword) ||
-      menuText.toLowerCase().includes(keyword);
-    const matchesMenu = !query.menuId || permission.menuId === query.menuId;
-    return matchesKeyword && matchesMenu;
-  });
-});
-
-function search() {
+async function search() {
   Object.assign(query, filters);
+  await load();
 }
 
-function reset() {
+async function reset() {
   Object.assign(filters, { keyword: '', menuId: '' });
-  search();
+  await search();
 }
 
 function open(row?: SystemApi.Permission) {
@@ -105,7 +93,7 @@ function open(row?: SystemApi.Permission) {
 async function load() {
   loading.value = true;
   try {
-    const [permissionRows, menuRows] = await Promise.all([listSystemPermissionsApi(), listSystemMenusApi()]);
+    const [permissionRows, menuRows] = await Promise.all([listSystemPermissionsApi(query), listSystemMenusApi()]);
     permissions.value = permissionRows;
     menus.value = menuRows;
   } finally {
@@ -148,23 +136,34 @@ onMounted(load);
     title="权限码管理"
     description="维护 RBAC 权限码，供角色授权和后续业务操作校验使用。"
     :columns="columns"
-    :data="filteredPermissions"
+    :data="permissions"
     :loading="loading"
     @add="open()"
+    @refresh="load"
   >
     <template #filters>
       <TInput v-model="filters.keyword" clearable placeholder="权限码 / 名称 / 菜单" class="filter-control" />
       <TSelect v-model="filters.menuId" clearable filterable placeholder="关联菜单" :options="menuOptions" class="filter-control" />
       <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="search">查询</TButton>
-        <TButton @click="reset">重置</TButton>
+        <TButton theme="primary" :disabled="loading" @click="search">
+          <template #icon>
+            <IconifyIcon icon="lucide:search" />
+          </template>
+          查询
+        </TButton>
+        <TButton :disabled="loading" @click="reset">
+          <template #icon>
+            <IconifyIcon icon="lucide:refresh-cw" />
+          </template>
+          重置
+        </TButton>
       </TSpace>
     </template>
     <template #action>新增权限码</template>
     <template #actions="{ row }">
       <TSpace>
-        <TLink v-if="row" theme="primary" @click="open(row)">编辑</TLink>
-        <TLink v-if="row" theme="danger" @click="remove(row)">删除</TLink>
+        <RowAction v-if="row" label="编辑" @click="open(row)" />
+        <RowAction v-if="row" label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
   </SystemPage>

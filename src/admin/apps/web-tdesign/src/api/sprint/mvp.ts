@@ -58,6 +58,7 @@ export namespace SprintMvpApi {
     moduleId?: string;
     priority?: number;
     projectId: string;
+    requiresReview?: boolean;
     skillIds?: string[];
     stakeholders?: string;
     title: string;
@@ -72,10 +73,11 @@ export namespace SprintMvpApi {
   }
 
   export interface CreateSkillRequest {
-    code: string;
+    code?: string;
     content: string;
     description?: string;
     name: string;
+    type?: string;
   }
 
   export interface UpdateSkillRequest {
@@ -83,6 +85,7 @@ export namespace SprintMvpApi {
     description?: string;
     name: string;
     status?: string;
+    type?: string;
   }
 
   export interface Skill {
@@ -94,6 +97,7 @@ export namespace SprintMvpApi {
     id: string;
     name: string;
     status: string;
+    type: string;
   }
 
   export interface SubmitReviewRequest {
@@ -106,6 +110,7 @@ export namespace SprintMvpApi {
 
   export interface DecomposeRequirementRequest {
     assignmentMode?: 'auto' | 'manual';
+    assigneeId?: string;
     instruction?: string;
     taskCount?: number;
   }
@@ -479,9 +484,16 @@ export function createSkillApi(data: SprintMvpApi.CreateSkillRequest) {
   return requestClient.post<SprintMvpApi.Skill>('/mvp/skills', data);
 }
 
-export function listSkillsApi(activeOnly = false) {
+export function listSkillsApi(
+  activeOnly = false,
+  params?: {
+    keyword?: string;
+    status?: string;
+    type?: string;
+  },
+) {
   return requestClient.get<SprintMvpApi.Skill[]>('/mvp/skills', {
-    params: { activeOnly },
+    params: { ...params, activeOnly },
   });
 }
 
@@ -536,6 +548,10 @@ export function updateFeatureModuleApi(
   );
 }
 
+export function deleteFeatureModuleApi(id: string) {
+  return requestClient.delete<boolean>(`/mvp/modules/${id}`);
+}
+
 export function createRequirementApi(
   data: SprintMvpApi.CreateRequirementRequest,
 ) {
@@ -545,9 +561,16 @@ export function createRequirementApi(
   );
 }
 
-export function listRequirementsApi(projectId?: string) {
+export function listRequirementsApi(
+  projectId?: string,
+  params?: {
+    health?: string;
+    keyword?: string;
+    status?: string;
+  },
+) {
   return requestClient.get<SprintMvpApi.Requirement[]>('/mvp/requirements', {
-    params: { projectId },
+    params: { ...params, projectId },
   });
 }
 
@@ -571,9 +594,14 @@ export function submitRequirementReviewApi(
   );
 }
 
-export function listMyPendingReviewsApi() {
+export function listMyPendingReviewsApi(params?: {
+  keyword?: string;
+  projectId?: string;
+  status?: string;
+}) {
   return requestClient.get<SprintMvpApi.RequirementReviewItem[]>(
     '/mvp/reviews/my-pending',
+    { params },
   );
 }
 
@@ -688,6 +716,7 @@ export function decomposeRequirementApi(
 export function listDevelopmentTasksApi(params?: {
   assigneeId?: string;
   projectId?: string;
+  relatedUserId?: string;
   requirementId?: string;
   status?: string;
 }) {
@@ -696,8 +725,14 @@ export function listDevelopmentTasksApi(params?: {
   });
 }
 
-export function listMyDevelopmentTasksApi() {
-  return requestClient.get<SprintMvpApi.DevelopmentTask[]>('/mvp/tasks/my');
+export function listMyDevelopmentTasksApi(params?: {
+  projectId?: string;
+  requirementId?: string;
+  status?: string;
+}) {
+  return requestClient.get<SprintMvpApi.DevelopmentTask[]>('/mvp/tasks/my', {
+    params,
+  });
 }
 
 export function assignDevelopmentTaskApi(

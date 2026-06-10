@@ -3,16 +3,12 @@ using System.Text;
 using AgentSprint.Domain.Impls.Agile;
 using AgentSprint.Domain.Impls.Security;
 using AgentSprint.Domain.Impls.Tests;
-using AgentSprint.Entry.Development;
 using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Tests.Domains;
 using AgentSprint.Repository;
 using AgentSprint.Repository.DbContexts;
 using AgentSprint.Service.Security;
-using AgentSprint.Service.Services.AuthServices;
-using AgentSprint.Service.Services.SecurityServices;
-using AgentSprint.Service.Services.UserServices;
 
 using Air.Cloud.Core.App;
 using Air.Cloud.Core.App.Startups;
@@ -129,14 +125,6 @@ public sealed class Startup : AppStartup
         services.AddTransient<ITestPlanDomain, TestPlanDomain>();
         services.AddTransient<ITestExecutionDomain, TestExecutionDomain>();
 
-        if (UseInMemorySecurity())
-        {
-            services.AddTransient<IUserDomain, DevelopmentUserDomain>();
-            services.AddTransient<IAuthService, DevelopmentAuthService>();
-            services.AddTransient<IUserService, DevelopmentUserService>();
-            services.AddTransient<ISystemManagementService, DevelopmentSystemManagementService>();
-        }
-
         services.AddHostedService<DatabaseInitializer>();
     }
 
@@ -188,16 +176,5 @@ public sealed class Startup : AppStartup
         }
 
         throw new InvalidOperationException("Connection string 'AgentSprintConnectionString' is not configured.");
-    }
-
-    private static bool UseInMemorySecurity()
-    {
-        var environmentValue = Environment.GetEnvironmentVariable("Database__UseInMemorySecurity");
-        if (bool.TryParse(environmentValue, out var useInMemorySecurity))
-        {
-            return useInMemorySecurity;
-        }
-
-        return AppCore.Configuration.GetValue("Database:UseInMemorySecurity", false);
     }
 }

@@ -20,7 +20,11 @@ public interface IAgentTokenService
     /// zh-cn: 可见令牌元数据集合，不包含完整令牌明文。
     /// en-us: Visible token metadata without full token plaintext.
     /// </returns>
-    Task<IReadOnlyList<AgentTokenManagementResult>> ListTokensAsync(string currentUserId, IReadOnlyList<string> currentRoles);
+    Task<IReadOnlyList<AgentTokenManagementResult>> ListTokensAsync(
+        string currentUserId,
+        IReadOnlyList<string> currentRoles,
+        string? keyword = null,
+        int? status = null);
 
     /// <summary>
     /// zh-cn: 为当前用户或超级管理员指定的用户创建 Agent 令牌，完整令牌明文只在本次返回中出现一次。

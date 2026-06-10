@@ -62,12 +62,17 @@ public sealed class AgileMvpControllerTests
         var controller = CreateController(service, "admin-100", ["super"]);
 
         var result = await controller.CreateSkill(
-            new CreateSprintSkillRequest("AIR-CLOUD", "Air.Cloud gate", "Follow delivery rules."));
+            new CreateSprintSkillRequest(
+                "AIR-CLOUD",
+                "Air.Cloud gate",
+                "Follow delivery rules.",
+                Type: SprintSkillTypes.Operations));
 
         var response = Assert.IsType<ApiResponse<SprintSkillResult>>(result.Value);
         Assert.Equal(0, response.Code);
         Assert.Equal("admin-100", service.LastUserId);
         Assert.Equal("AIR-CLOUD", response.Data?.Code);
+        Assert.Equal(SprintSkillTypes.Operations, response.Data?.Type);
     }
 
     [Fact]
@@ -82,12 +87,14 @@ public sealed class AgileMvpControllerTests
                 "Updated skill",
                 "Updated content",
                 "Updated description",
-                SprintSkillStatuses.Disabled));
+                SprintSkillStatuses.Disabled,
+                SprintSkillTypes.Debugging));
 
         var response = Assert.IsType<ApiResponse<SprintSkillResult>>(result.Value);
         Assert.Equal(0, response.Code);
         Assert.Equal("skill-100", response.Data?.Id);
         Assert.Equal(SprintSkillStatuses.Disabled, response.Data?.Status);
+        Assert.Equal(SprintSkillTypes.Debugging, response.Data?.Type);
     }
 
     [Fact]
@@ -155,6 +162,29 @@ public sealed class AgileMvpControllerTests
     }
 
     [Fact]
+    public async Task DecomposeRequirement_ForwardsManualAssignee()
+    {
+        var service = new CapturingAgileMvpService();
+        var controller = CreateController(service, "pm-100", ["pm"]);
+
+        var result = await controller.DecomposeRequirement(
+            "req-100",
+            new DecomposeSprintRequirementRequest(
+                "Prefer frontend first.",
+                SprintTaskAssignmentModes.Manual,
+                2,
+                "dev-200"));
+
+        var response = Assert.IsType<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.Equal("req-100", service.LastRequirementId);
+        Assert.Equal("pm-100", service.LastUserId);
+        Assert.Equal(SprintTaskAssignmentModes.Manual, service.LastDecomposeRequest?.AssignmentMode);
+        Assert.Equal(2, service.LastDecomposeRequest?.TaskCount);
+        Assert.Equal("dev-200", service.LastDecomposeRequest?.AssigneeId);
+    }
+
+    [Fact]
     public async Task AssignDevelopmentTask_ReturnsForbiddenForDeveloperRole()
     {
         var service = new CapturingAgileMvpService();
@@ -191,13 +221,14 @@ public sealed class AgileMvpControllerTests
         var service = new CapturingAgileMvpService();
         var controller = CreateController(service, "dev-100", ["developer"]);
 
-        var result = await controller.ListDevelopmentTasks("project-100", "req-100", "dev-200", "assigned");
+        var result = await controller.ListDevelopmentTasks("project-100", "req-100", "dev-200", null, "assigned");
 
         var response = Assert.IsType<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>(result.Value);
         Assert.Equal(0, response.Code);
         Assert.Equal("project-100", service.LastTaskProjectId);
         Assert.Equal("req-100", service.LastTaskRequirementId);
         Assert.Equal("dev-100", service.LastTaskAssigneeId);
+        Assert.Null(service.LastTaskRelatedUserId);
         Assert.Equal("assigned", service.LastTaskStatus);
     }
 
@@ -207,13 +238,19 @@ public sealed class AgileMvpControllerTests
         var service = new CapturingAgileMvpService();
         var controller = CreateController(service, "manager-100", ["project_manager"]);
 
-        var result = await controller.ListDevelopmentTasks("project-100", "req-100", "dev-200", "pending_assign");
+        var result = await controller.ListDevelopmentTasks(
+            "project-100",
+            "req-100",
+            "dev-200",
+            "user-300",
+            "pending_assign");
 
         var response = Assert.IsType<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>(result.Value);
         Assert.Equal(0, response.Code);
         Assert.Equal("project-100", service.LastTaskProjectId);
         Assert.Equal("req-100", service.LastTaskRequirementId);
         Assert.Equal("dev-200", service.LastTaskAssigneeId);
+        Assert.Equal("user-300", service.LastTaskRelatedUserId);
         Assert.Equal("pending_assign", service.LastTaskStatus);
         Assert.True(service.LastUsedGlobalTaskList);
         Assert.False(service.LastUsedParticipatingTaskList);
@@ -225,13 +262,14 @@ public sealed class AgileMvpControllerTests
         var service = new CapturingAgileMvpService();
         var controller = CreateController(service, "admin-100", ["super"]);
 
-        var result = await controller.ListDevelopmentTasks("project-100", "req-100", "dev-200", "pending_assign");
+        var result = await controller.ListDevelopmentTasks("project-100", "req-100", "dev-200", null, "pending_assign");
 
         var response = Assert.IsType<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>(result.Value);
         Assert.Equal(0, response.Code);
         Assert.Equal("project-100", service.LastTaskProjectId);
         Assert.Equal("req-100", service.LastTaskRequirementId);
         Assert.Equal("dev-200", service.LastTaskAssigneeId);
+        Assert.Null(service.LastTaskRelatedUserId);
         Assert.Equal("pending_assign", service.LastTaskStatus);
         Assert.True(service.LastUsedGlobalTaskList);
         Assert.False(service.LastUsedParticipatingTaskList);
@@ -314,6 +352,37 @@ public sealed class AgileMvpControllerTests
         Assert.Equal("po-100", service.LastUserId);
     }
 
+    [Fact]
+    public async Task DeleteModule_UsesRouteModuleId()
+    {
+        var service = new CapturingAgileMvpService();
+        var controller = CreateController(service, "pm-100", ["pm"]);
+
+        var result = await controller.DeleteModule("module-100");
+
+        var response = Assert.IsType<ApiResponse<bool>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.True(response.Data);
+        Assert.Equal("module-100", service.LastModuleId);
+    }
+
+    [Fact]
+    public async Task DeleteModule_ReturnsBadRequestWhenModuleHasRequirements()
+    {
+        var service = new CapturingAgileMvpService
+        {
+            DeleteModuleException = new InvalidOperationException("Module is used by requirements and cannot be deleted.")
+        };
+        var controller = CreateController(service, "pm-100", ["pm"]);
+
+        var result = await controller.DeleteModule("module-100");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(badRequest.Value);
+        Assert.Equal(400, response.Code);
+        Assert.Equal("Module is used by requirements and cannot be deleted.", response.Message);
+    }
+
     private static AgileMvpController CreateController(
         IAgileMvpService service,
         string userId,
@@ -364,21 +433,29 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
 
     public string? LastRequirementId { get; private set; }
 
+    public string? LastModuleId { get; private set; }
+
     public string? LastTaskAssigneeId { get; private set; }
 
     public string? LastTaskProjectId { get; private set; }
 
     public string? LastTaskRequirementId { get; private set; }
 
+    public string? LastTaskRelatedUserId { get; private set; }
+
     public string? LastTaskStatus { get; private set; }
 
     public string? LastUserId { get; private set; }
+
+    public DecomposeSprintRequirementRequest? LastDecomposeRequest { get; private set; }
 
     public bool LastUsedGlobalTaskList { get; private set; }
 
     public bool LastUsedParticipatingTaskList { get; private set; }
 
     public InvalidOperationException? CreateRequirementException { get; init; }
+
+    public InvalidOperationException? DeleteModuleException { get; init; }
 
     public Task<SprintProjectResult> CreateProjectAsync(CreateSprintProjectRequest request, string userId)
     {
@@ -435,8 +512,9 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         LastUserId = userId;
         return Task.FromResult(new SprintSkillResult(
             "skill-1",
-            request.Code,
+            request.Code ?? "SKILL-GENERATED",
             request.Name,
+            request.Type ?? SprintSkillTypes.Development,
             request.Description,
             request.Content,
             SprintSkillStatuses.Active,
@@ -444,7 +522,11 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             DateTime.UtcNow));
     }
 
-    public Task<IReadOnlyList<SprintSkillResult>> ListSkillsAsync(bool activeOnly = false)
+    public Task<IReadOnlyList<SprintSkillResult>> ListSkillsAsync(
+        bool activeOnly = false,
+        string? keyword = null,
+        string? type = null,
+        string? status = null)
     {
         IReadOnlyList<SprintSkillResult> skills =
         [
@@ -452,6 +534,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
                 "skill-1",
                 "AIR-CLOUD",
                 "Air.Cloud delivery gate",
+                SprintSkillTypes.Development,
                 "Repository delivery gate",
                 "Follow Air.Cloud delivery rules.",
                 SprintSkillStatuses.Active,
@@ -467,6 +550,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             id,
             "AIR-CLOUD",
             request.Name,
+            request.Type ?? SprintSkillTypes.Development,
             request.Description,
             request.Content,
             request.Status ?? SprintSkillStatuses.Active,
@@ -574,6 +658,17 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             DateTime.UtcNow));
     }
 
+    public Task<bool> DeleteFeatureModuleAsync(string id)
+    {
+        LastModuleId = id;
+        if (DeleteModuleException is not null)
+        {
+            throw DeleteModuleException;
+        }
+
+        return Task.FromResult(true);
+    }
+
     public Task<SprintRequirementResult> CreateRequirementAsync(
         CreateSprintRequirementRequest request,
         string userId)
@@ -587,7 +682,11 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         return Task.FromResult(CreateRequirementResult("req-1", request.ProjectId, request.Title));
     }
 
-    public Task<IReadOnlyList<SprintRequirementResult>> ListRequirementsAsync(string? projectId)
+    public Task<IReadOnlyList<SprintRequirementResult>> ListRequirementsAsync(
+        string? projectId,
+        string? keyword = null,
+        string? status = null,
+        string? health = null)
     {
         IReadOnlyList<SprintRequirementResult> requirements = [];
         return Task.FromResult(requirements);
@@ -613,7 +712,11 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         return Task.FromResult(CreateRequirementResult(id, "project-1", "Requirement"));
     }
 
-    public Task<IReadOnlyList<SprintRequirementReviewItemResult>> ListMyPendingReviewsAsync(string reviewerId)
+    public Task<IReadOnlyList<SprintRequirementReviewItemResult>> ListMyPendingReviewsAsync(
+        string reviewerId,
+        string? projectId = null,
+        string? status = null,
+        string? keyword = null)
     {
         LastUserId = reviewerId;
         IReadOnlyList<SprintRequirementReviewItemResult> reviews = [];
@@ -768,6 +871,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
     {
         LastRequirementId = id;
         LastUserId = userId;
+        LastDecomposeRequest = request;
         IReadOnlyList<SprintDevelopmentTaskResult> tasks =
         [
             CreateTaskResult("task-1", id, null)
@@ -779,6 +883,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         string? projectId,
         string? requirementId,
         string? assigneeId,
+        string? relatedUserId = null,
         string? status = null)
     {
         LastUsedGlobalTaskList = true;
@@ -786,6 +891,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         LastTaskAssigneeId = assigneeId;
         LastTaskProjectId = projectId;
         LastTaskRequirementId = requirementId;
+        LastTaskRelatedUserId = relatedUserId;
         LastTaskStatus = status;
         IReadOnlyList<SprintDevelopmentTaskResult> tasks = [];
         return Task.FromResult(tasks);
@@ -795,6 +901,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         string? projectId,
         string? requirementId,
         string? assigneeId,
+        string? relatedUserId,
         string? status,
         bool primaryOnly,
         string userId)
@@ -804,6 +911,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         LastTaskProjectId = projectId;
         LastTaskRequirementId = requirementId;
         LastTaskAssigneeId = assigneeId;
+        LastTaskRelatedUserId = relatedUserId;
         LastTaskStatus = status;
         LastUserId = userId;
         IReadOnlyList<SprintDevelopmentTaskResult> tasks =

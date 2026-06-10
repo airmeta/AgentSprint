@@ -190,6 +190,35 @@ public sealed class AgentSprintApiClient
     }
 
     /// <summary>
+    /// zh-cn: 通过 AgentSprint API 查询指定运行环境下的服务容器和端口映射配置，供 MCP 聚合项目测试环境部署信息时使用。
+    /// en-us: Lists service container and port-mapping configuration for a runtime environment through the AgentSprint API so MCP tools can aggregate project test deployment details.
+    /// </summary>
+    /// <param name="runtimeEnvironmentId">
+    /// zh-cn: 运行环境标识，不能为空；服务端会按该标识返回未删除的容器映射记录。
+    /// en-us: Runtime environment identifier; it must not be empty and the server returns non-deleted container mappings for it.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// zh-cn: 请求取消令牌。
+    /// en-us: Request cancellation token.
+    /// </param>
+    /// <returns>
+    /// zh-cn: 平台返回的容器映射列表，字段保持后台接口的 camelCase 命名。
+    /// en-us: Container mapping list returned by the platform, preserving the backend API camelCase field names.
+    /// </returns>
+    public async Task<JsonNode?> ListRuntimeEnvironmentContainersAsync(
+        string runtimeEnvironmentId,
+        CancellationToken cancellationToken)
+    {
+        var query = BuildQuery(("runtimeEnvironmentId", runtimeEnvironmentId));
+        return await SendAsync(
+            HttpMethod.Get,
+            $"/system/runtime-environment-containers{query}",
+            null,
+            true,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// zh-cn: 通过 AgentSprint API 领取指定缺陷并创建缺陷修复租约，设备标识会透传给平台用于恢复本地 Codex 工作状态。
     /// en-us: Claims a specific bug through the AgentSprint API and creates a bug-fix lease; the optional device id is forwarded so the platform can recover local Codex work state.
     /// </summary>

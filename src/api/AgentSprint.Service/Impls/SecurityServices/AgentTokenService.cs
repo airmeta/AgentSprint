@@ -50,15 +50,31 @@ public sealed class AgentTokenService : AgentSprintServiceBase, IAgentTokenServi
         _authService = authService;
     }
 
-    public async Task<IReadOnlyList<AgentTokenManagementResult>> ListTokensAsync(string currentUserId, IReadOnlyList<string> currentRoles)
+    public async Task<IReadOnlyList<AgentTokenManagementResult>> ListTokensAsync(
+        string currentUserId,
+        IReadOnlyList<string> currentRoles,
+        string? keyword = null,
+        int? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
         var isSuper = IsSuper(currentRoles);
-        var tokens = await _agentTokenDomain.ListAsync(entity => isSuper || entity.OwnerUserId == currentUserId);
+        var tokens = await _agentTokenDomain.ListAsync(entity =>
+            (isSuper || entity.OwnerUserId == currentUserId) &&
+            (!status.HasValue || entity.Status == status.Value));
         var users = await _userDomain.ListAsync();
         var userMap = users.ToDictionary(entity => entity.Id, StringComparer.Ordinal);
         return tokens
             .OrderByDescending(entity => entity.CreateTime)
             .Select(entity => MapToken(entity, userMap))
+            .Where(entity =>
+                string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                TextContains(
+                    normalizedKeyword,
+                    entity.Name,
+                    entity.MaskedToken,
+                    entity.OwnerUsername,
+                    entity.OwnerDisplayName,
+                    entity.ProjectId))
             .ToList();
     }
 
@@ -208,6 +224,13 @@ public sealed class AgentTokenService : AgentSprintServiceBase, IAgentTokenServi
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static bool TextContains(string keyword, params string?[] values)
+    {
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ValidateRequired(string? value, string message)

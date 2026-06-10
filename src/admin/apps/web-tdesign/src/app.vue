@@ -41,3 +41,17 @@ const globalConfig = merge(zhConfig, customConfig);
     <RouterView />
   </ConfigProvider>
 </template>
+
+<style>
+.t-table__body tbody > tr:not(.t-table__expanded-row):not(.t-table__empty-row):nth-child(even) > td {
+  background-color: color-mix(
+    in srgb,
+    var(--td-bg-color-container-hover) 60%,
+    transparent
+  );
+}
+
+.t-table__body tbody > tr:not(.t-table__expanded-row):not(.t-table__empty-row):hover > td {
+  background-color: var(--td-brand-color-light);
+}
+</style>

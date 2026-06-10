@@ -80,7 +80,8 @@ public sealed record CreateSprintRequirementRequest(
     string? SourceFeedbackId = null,
     string? EndpointId = null,
     string? ModuleId = null,
-    IReadOnlyList<string>? SkillIds = null);
+    IReadOnlyList<string>? SkillIds = null,
+    bool RequiresReview = true);
 
 public sealed record RejectSprintRequirementRequest(string? Reason);
 
@@ -96,18 +97,28 @@ public sealed record UpdateSprintRequirementRequest(
     IReadOnlyList<string>? SkillIds = null);
 
 public sealed record CreateSprintSkillRequest(
-    string Code,
+    string? Code,
     string Name,
     string Content,
-    string? Description = null);
+    string? Description = null,
+    string? Type = null);
 
 public sealed record UpdateSprintSkillRequest(
     string Name,
     string Content,
     string? Description = null,
-    string? Status = null);
+    string? Status = null,
+    string? Type = null);
 
-public sealed record DecomposeSprintRequirementRequest(string? Instruction, string? AssignmentMode = null, int? TaskCount = null);
+/// <summary>
+/// zh-cn: 需求拆解请求，包含补充说明、指派模式、可选任务数量，以及手动指派时选择的研发人员。
+/// en-us: Requirement decomposition request containing supplemental instructions, assignment mode, optional task count, and the selected developer for manual assignment.
+/// </summary>
+public sealed record DecomposeSprintRequirementRequest(
+    string? Instruction,
+    string? AssignmentMode = null,
+    int? TaskCount = null,
+    string? AssigneeId = null);
 
 public sealed record AssignSprintDevelopmentTaskRequest(string AssigneeId);
 
@@ -176,6 +187,7 @@ public sealed record SprintSkillResult(
     string Id,
     string Code,
     string Name,
+    string Type,
     string? Description,
     string Content,
     string Status,

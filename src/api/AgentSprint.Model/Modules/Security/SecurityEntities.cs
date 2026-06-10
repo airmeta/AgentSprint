@@ -271,6 +271,9 @@ public sealed class RuntimeEnvironmentEntity : EntityBase
     [MaxLength(512)]
     public string? McpEndpoint { get; set; }
 
+    [MaxLength(1024)]
+    public string? ServerIps { get; set; }
+
     [MaxLength(512)]
     public string? DeployRoot { get; set; }
 
@@ -300,6 +303,11 @@ public sealed class RuntimeEnvironmentContainerEntity : EntityBase
     [MaxLength(128)]
     public string Name { get; set; } = string.Empty;
 
+    public int ContainerType { get; set; }
+
+    [MaxLength(64)]
+    public string? ServerIp { get; set; }
+
     public int HostPort { get; set; }
 
     public int ContainerPort { get; set; }
@@ -309,6 +317,12 @@ public sealed class RuntimeEnvironmentContainerEntity : EntityBase
 
     [MaxLength(512)]
     public string? Description { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? Prompt { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? DeployScript { get; set; }
 
     public int Sort { get; set; }
 

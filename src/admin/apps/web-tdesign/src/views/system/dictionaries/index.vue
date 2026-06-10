@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
+import { IconifyIcon } from '@vben/icons';
 import {
   deleteDictionaryItemApi,
   deleteDictionaryTypeApi,
@@ -11,8 +12,9 @@ import {
   saveDictionaryTypeApi,
   type SystemApi,
 } from '#/api';
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
-import SystemPage from '#/views/system/_shared/system-page.vue';
+import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
   Button as TButton,
@@ -21,10 +23,10 @@ import {
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
+  Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
 
@@ -39,6 +41,11 @@ const typeFormRef = ref<FormInstanceFunctions>();
 const dictionaryItems = ref<SystemApi.DictionaryItem[]>([]);
 const dictionaryTypes = ref<SystemApi.DictionaryType[]>([]);
 const selectedTypeId = ref('');
+const itemPagination = reactive({
+  current: 1,
+  pageSize: 10,
+  pageSizeOptions: [10, 20, 50],
+});
 
 const filters = reactive({
   keyword: '',
@@ -85,17 +92,16 @@ const statusOptions = [
 const itemColumns = [
   { colKey: 'code', title: '字典项编码', width: 180 },
   { colKey: 'name', title: '字典项名称', width: 160 },
-  { colKey: 'description', title: '说明', cell: (...args: any[]) => getCellRow(args[0], args[1])?.description || '-' },
+  {
+    cell: (...args: any[]) => getCellRow<SystemApi.DictionaryItem>(args[0], args[1])?.description || '-',
+    colKey: 'description',
+    ellipsis: true,
+    title: '说明',
+    width: 280,
+  },
   { colKey: 'sort', title: '排序', width: 80 },
-  { colKey: 'status', title: '状态', width: 90, cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用') },
+  { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'actions', title: '操作', width: 150, cell: 'actions' },
-];
-const typeColumns = [
-  { colKey: 'code', title: '字典编码', width: 180 },
-  { colKey: 'name', title: '字典名称', width: 160 },
-  { colKey: 'sort', title: '排序', width: 80 },
-  { colKey: 'status', title: '状态', width: 90, cell: (...args: any[]) => (getCellRow(args[0], args[1])?.status === 1 ? '启用' : '停用') },
-  { colKey: 'actions', title: '操作', width: 170, cell: 'actions' },
 ];
 
 const selectedType = computed(() => dictionaryTypes.value.find((item) => item.id === selectedTypeId.value));
@@ -105,18 +111,12 @@ const typeOptions = computed(() =>
     value: item.id,
   })),
 );
-const filteredItems = computed(() => {
-  const keyword = query.keyword.trim().toLowerCase();
-  return dictionaryItems.value.filter((item) => {
-    const matchesKeyword =
-      !keyword ||
-      item.code.toLowerCase().includes(keyword) ||
-      item.name.toLowerCase().includes(keyword) ||
-      (item.description || '').toLowerCase().includes(keyword);
-    const matchesStatus = query.status === undefined || item.status === query.status;
-    return matchesKeyword && matchesStatus;
-  });
-});
+const itemTablePagination = computed(() => ({
+  current: itemPagination.current,
+  pageSize: itemPagination.pageSize,
+  pageSizeOptions: itemPagination.pageSizeOptions,
+  total: dictionaryItems.value.length,
+}));
 
 watch(selectedTypeId, async (value) => {
   if (!value) {
@@ -126,6 +126,16 @@ watch(selectedTypeId, async (value) => {
 
   await loadItems(value);
 });
+
+watch(
+  () => dictionaryItems.value.length,
+  (total) => {
+    const maxPage = Math.max(1, Math.ceil(total / itemPagination.pageSize));
+    if (itemPagination.current > maxPage) {
+      itemPagination.current = maxPage;
+    }
+  },
+);
 
 function openItem(row?: SystemApi.DictionaryItem) {
   if (!selectedTypeId.value) {
@@ -161,7 +171,7 @@ async function loadItems(dictionaryTypeId = selectedTypeId.value) {
   if (!dictionaryTypeId) return;
   itemLoading.value = true;
   try {
-    dictionaryItems.value = await listDictionaryItemsApi(dictionaryTypeId);
+    dictionaryItems.value = await listDictionaryItemsApi(dictionaryTypeId, query);
   } finally {
     itemLoading.value = false;
   }
@@ -179,17 +189,21 @@ async function loadTypes() {
   }
 }
 
-function reset() {
+async function reset() {
   Object.assign(filters, { keyword: '', status: undefined });
-  search();
+  itemPagination.current = 1;
+  await search();
 }
 
-function search() {
+async function search() {
   Object.assign(query, filters);
+  itemPagination.current = 1;
+  await loadItems();
 }
 
 function selectType(row: SystemApi.DictionaryType) {
   selectedTypeId.value = row.id;
+  itemPagination.current = 1;
 }
 
 async function saveItem() {
@@ -218,6 +232,11 @@ async function saveType() {
   } finally {
     typeSaving.value = false;
   }
+}
+
+function handleItemPageChange(pageInfo: { current: number; pageSize: number }) {
+  itemPagination.current = pageInfo.current;
+  itemPagination.pageSize = pageInfo.pageSize;
 }
 
 function removeItem(row: SystemApi.DictionaryItem) {
@@ -251,53 +270,100 @@ onMounted(loadTypes);
 
 <template>
   <div class="dictionary-page">
-    <section class="type-panel">
-      <SystemPage
-        title="字典类型"
-        description="维护可复用的业务枚举分类。"
-        :columns="typeColumns"
-        :data="dictionaryTypes"
-        :loading="loading"
-        @add="openType()"
-      >
-        <template #action>新增类型</template>
-        <template #actions="{ row }">
-          <TSpace>
-            <TLink theme="primary" @click="selectType(row)">选择</TLink>
-            <TLink theme="primary" @click="openType(row)">编辑</TLink>
-            <TLink theme="danger" @click="removeType(row)">删除</TLink>
-          </TSpace>
-        </template>
-      </SystemPage>
-    </section>
+    <header class="dictionary-page-header">
+      <h2>字典管理</h2>
+      <p>维护系统字典类型和字典项，统一业务枚举、筛选选项和状态展示的基础数据。</p>
+    </header>
 
-    <section class="item-panel">
-      <SystemPage
+    <div class="dictionary-page-content">
+      <aside class="dictionary-type-panel">
+      <header class="dictionary-type-head">
+        <div class="dictionary-type-head__top">
+          <h2>字典类型</h2>
+          <TSpace size="small">
+            <TButton shape="circle" theme="primary" title="新增" @click="openType()">
+              <template #icon>
+                <IconifyIcon icon="lucide:plus" />
+              </template>
+            </TButton>
+            <TButton shape="circle" title="刷新" variant="outline" :loading="loading" @click="loadTypes">
+              <template #icon>
+                <IconifyIcon icon="lucide:refresh-cw" />
+              </template>
+            </TButton>
+          </TSpace>
+        </div>
+        <p>维护可复用的业务枚举分类。</p>
+      </header>
+
+      <div class="dictionary-type-list">
+        <button
+          v-for="type in dictionaryTypes"
+          :key="type.id"
+          class="dictionary-type-card"
+          :class="{ active: type.id === selectedTypeId }"
+          type="button"
+          @click="selectType(type)"
+        >
+          <span class="dictionary-type-card__head">
+            <strong>{{ type.name }}</strong>
+            <TTag :theme="type.status === 1 ? 'success' : 'default'" variant="light">
+              {{ type.status === 1 ? '启用' : '停用' }}
+            </TTag>
+          </span>
+          <span class="dictionary-type-card__code">{{ type.code }}</span>
+          <span class="dictionary-type-card__meta">
+            <span>排序 {{ type.sort }}</span>
+            <span>{{ type.description || '暂无说明' }}</span>
+          </span>
+          <span class="dictionary-type-card__actions" @click.stop>
+            <RowAction label="编辑" @click="openType(type)" />
+            <RowAction label="删除" theme="danger" @click="removeType(type)" />
+          </span>
+        </button>
+
+        <div v-if="dictionaryTypes.length === 0 && !loading" class="dictionary-empty">
+          暂无字典类型
+        </div>
+      </div>
+      </aside>
+
+      <section class="dictionary-item-panel">
+      <AdminListPage
         title="字典项"
         :description="selectedType ? `当前类型：${selectedType.name} (${selectedType.code})` : '请先创建或选择字典类型。'"
+        table-title="字典项列表"
+        add-button-text="新增字典项"
+        :addable="!!selectedTypeId"
         :columns="itemColumns"
-        :data="filteredItems"
+        :data="dictionaryItems"
         :loading="itemLoading"
-        :addable="Boolean(selectedTypeId)"
+        :pagination="itemTablePagination"
+        :refreshable="!!selectedTypeId"
         @add="openItem()"
+        @page-change="handleItemPageChange"
+        @refresh="loadItems()"
+        @reset="reset"
+        @search="search"
       >
         <template #filters>
           <TInput v-model="filters.keyword" clearable placeholder="字典项编码 / 名称 / 说明" class="filter-control" />
           <TSelect v-model="filters.status" clearable placeholder="状态" :options="statusOptions" class="filter-control" />
-          <TSpace>
-            <TButton theme="primary" :disabled="itemLoading" @click="search">查询</TButton>
-            <TButton @click="reset">重置</TButton>
-          </TSpace>
         </template>
-        <template #action>新增字典项</template>
+        <template #status="{ row }">
+          <TTag :theme="row.status === 1 ? 'success' : 'default'" variant="light">
+            {{ row.status === 1 ? '启用' : '停用' }}
+          </TTag>
+        </template>
         <template #actions="{ row }">
           <TSpace>
-            <TLink theme="primary" @click="openItem(row)">编辑</TLink>
-            <TLink theme="danger" @click="removeItem(row)">删除</TLink>
+            <RowAction label="编辑" @click="openItem(row)" />
+            <RowAction label="删除" theme="danger" @click="removeItem(row)" />
           </TSpace>
         </template>
-      </SystemPage>
-    </section>
+      </AdminListPage>
+      </section>
+    </div>
 
     <TDialog v-model:visible="typeVisible" header="字典类型维护" width="560px" :confirm-btn="{ content: '保存', loading: typeSaving }" @confirm="saveType">
       <TForm ref="typeFormRef" :data="typeForm" :rules="typeRules" label-width="96px">
@@ -325,8 +391,178 @@ onMounted(loadTypes);
 <style scoped>
 .dictionary-page {
   display: grid;
-  grid-template-columns: minmax(420px, 0.9fr) minmax(560px, 1.2fr);
-  gap: 16px;
+  gap: 12px;
+  padding: 12px;
+}
+
+.dictionary-page-header {
+  padding: 14px 16px;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.dictionary-page-header h2 {
+  margin: 0;
+  color: var(--td-text-color-primary);
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.dictionary-page-header p {
+  margin: 4px 0 0;
+  color: var(--td-text-color-secondary);
+  line-height: 20px;
+}
+
+.dictionary-page-content {
+  display: flex;
+  gap: 12px;
+}
+
+.dictionary-type-panel {
+  --dictionary-type-card-gap: 10px;
+  --dictionary-type-card-height: 150px;
+
+  display: flex;
+  flex: 0 0 300px;
+  width: 300px;
+  flex-direction: column;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.dictionary-item-panel {
+  width: calc(100% - 312px);
+  min-width: 0;
+}
+
+.dictionary-item-panel :deep(.admin-list-page) {
+  padding: 0;
+}
+
+.dictionary-type-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-bottom: 1px solid var(--td-component-border);
+}
+
+.dictionary-type-head__top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dictionary-type-head h2 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 18px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictionary-type-head p {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  line-height: 20px;
+}
+
+.dictionary-type-list {
+  display: flex;
+  min-height: 0;
+  height: calc((var(--dictionary-type-card-height) * 4) + (var(--dictionary-type-card-gap) * 3) + 30px + 24px);
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--dictionary-type-card-gap);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.dictionary-type-card {
+  display: flex;
+  width: 100%;
+  min-height: var(--dictionary-type-card-height);
+  flex: 0 0 var(--dictionary-type-card-height);
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  color: var(--td-text-color-primary);
+  text-align: left;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.dictionary-type-card:hover,
+.dictionary-type-card.active {
+  background: var(--td-brand-color-light);
+  border-color: var(--td-brand-color);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+.dictionary-type-card__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dictionary-type-card__head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictionary-type-card__code,
+.dictionary-type-card__meta,
+.dictionary-empty {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dictionary-type-card__meta {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  overflow: hidden;
+}
+
+.dictionary-type-card__meta > span:nth-child(2) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictionary-type-card__actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--td-component-border);
 }
 
 .filter-control {
@@ -334,8 +570,18 @@ onMounted(loadTypes);
 }
 
 @media (max-width: 1200px) {
-  .dictionary-page {
-    grid-template-columns: 1fr;
+  .dictionary-page-content {
+    flex-direction: column;
+  }
+
+  .dictionary-type-panel,
+  .dictionary-item-panel {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .dictionary-type-panel {
+    min-height: auto;
   }
 }
 </style>

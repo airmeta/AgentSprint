@@ -9,10 +9,6 @@ namespace AgentSprint.Service.Impls.SecurityServices;
 
 public sealed class SystemManagementService : AgentSprintServiceBase, ISystemManagementService
 {
-    private static readonly ISet<string> FixedPromptTemplateCodes = new HashSet<string>(
-        ["mcp_setup", "task_execution"],
-        StringComparer.OrdinalIgnoreCase);
-
     private readonly IUserDomain _userDomain;
     private readonly IRoleDomain _roleDomain;
     private readonly IMenuDomain _menuDomain;
@@ -77,12 +73,35 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     /// zh-cn: 返回用户列表，并从通用关联表解析用户直连角色；旧 UserRole 仅作为没有通用关联时的兜底。
     /// en-us: Lists users and resolves direct user roles from generic associations; legacy UserRole is used only as a fallback when generic associations are absent.
     /// </summary>
-    public async Task<IReadOnlyList<UserManagementResult>> ListUsersAsync()
+    public async Task<IReadOnlyList<UserManagementResult>> ListUsersAsync(
+        string? keyword = null,
+        string? roleId = null,
+        int? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var normalizedRoleId = NormalizeOptional(roleId);
         var users = await _userDomain.ListAsync();
         var results = new List<UserManagementResult>();
         foreach (var entity in users.OrderBy(entity => entity.Username, StringComparer.Ordinal))
         {
+            if (status.HasValue && entity.Status != status.Value)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedKeyword) &&
+                !TextContains(normalizedKeyword, entity.Username, entity.DisplayName, entity.Email, entity.PhoneNumber))
+            {
+                continue;
+            }
+
+            var roleIds = await GetTargets(entity.Id, SecurityAssociationTypes.UserRole);
+            if (!string.IsNullOrWhiteSpace(normalizedRoleId) &&
+                !roleIds.Contains(normalizedRoleId, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
             results.Add(new UserManagementResult(
                 entity.Id,
                 entity.Username,
@@ -91,7 +110,7 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
                 entity.PhoneNumber,
                 entity.Avatar,
                 entity.Status,
-                await GetTargets(entity.Id, SecurityAssociationTypes.UserRole)));
+                roleIds));
         }
 
         return results;
@@ -154,20 +173,43 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return _userDomain.DeleteAsync(id);
     }
 
-    public async Task<IReadOnlyList<RoleManagementResult>> ListRolesAsync()
+    public async Task<IReadOnlyList<RoleManagementResult>> ListRolesAsync(
+        string? keyword = null,
+        int? status = null,
+        int? grantState = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
         var roles = await _roleDomain.ListAsync();
         var results = new List<RoleManagementResult>();
         foreach (var entity in roles.OrderBy(entity => entity.Code, StringComparer.Ordinal))
         {
+            if (status.HasValue && entity.Status != status.Value)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedKeyword) &&
+                !TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description))
+            {
+                continue;
+            }
+
+            var menuIds = await GetTargets(entity.Id, SecurityAssociationTypes.RoleMenu);
+            var permissionIds = await GetTargets(entity.Id, SecurityAssociationTypes.RolePermission);
+            var hasGrant = menuIds.Count > 0 || permissionIds.Count > 0;
+            if (grantState.HasValue && (grantState.Value == 1) != hasGrant)
+            {
+                continue;
+            }
+
             results.Add(new RoleManagementResult(
                 entity.Id,
                 entity.Code,
                 entity.Name,
                 entity.Description,
                 entity.Status,
-                await GetTargets(entity.Id, SecurityAssociationTypes.RoleMenu),
-                await GetTargets(entity.Id, SecurityAssociationTypes.RolePermission)));
+                menuIds,
+                permissionIds));
         }
 
         return results;
@@ -211,9 +253,25 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return _roleDomain.DeleteAsync(id);
     }
 
-    public async Task<IReadOnlyList<MenuManagementResult>> ListMenusAsync()
+    public async Task<IReadOnlyList<MenuManagementResult>> ListMenusAsync(
+        string? keyword = null,
+        int? type = null,
+        int? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var permissions = string.IsNullOrWhiteSpace(normalizedKeyword)
+            ? []
+            : await _permissionDomain.ListAsync();
+
         return (await _menuDomain.ListAsync())
+            .Where(entity =>
+                (!type.HasValue || entity.Type == type.Value) &&
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Name, entity.Path, entity.Component, entity.Icon) ||
+                    permissions
+                        .Where(permission => permission.MenuId == entity.Id)
+                        .Any(permission => TextContains(normalizedKeyword, permission.Code, permission.Name))))
             .OrderBy(entity => entity.Sort)
             .Select(MapMenu)
             .ToList();
@@ -275,9 +333,25 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return true;
     }
 
-    public async Task<IReadOnlyList<PermissionManagementResult>> ListPermissionsAsync()
+    public async Task<IReadOnlyList<PermissionManagementResult>> ListPermissionsAsync(
+        string? keyword = null,
+        string? menuId = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var normalizedMenuId = NormalizeOptional(menuId);
+        var menus = string.IsNullOrWhiteSpace(normalizedKeyword)
+            ? []
+            : await _menuDomain.ListAsync();
+        var menuMap = menus.ToDictionary(entity => entity.Id, StringComparer.Ordinal);
+
         return (await _permissionDomain.ListAsync())
+            .Where(entity =>
+                (string.IsNullOrWhiteSpace(normalizedMenuId) || entity.MenuId == normalizedMenuId) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name) ||
+                    (entity.MenuId is not null &&
+                        menuMap.TryGetValue(entity.MenuId, out var menu) &&
+                        TextContains(normalizedKeyword, menu.Name, menu.Path, menu.Component))))
             .OrderBy(entity => entity.Code, StringComparer.Ordinal)
             .Select(MapPermission)
             .ToList();
@@ -389,9 +463,17 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return _roleGroupDomain.DeleteAsync(id);
     }
 
-    public async Task<IReadOnlyList<DepartmentManagementResult>> ListDepartmentsAsync()
+    public async Task<IReadOnlyList<DepartmentManagementResult>> ListDepartmentsAsync(string? keyword = null, int? status = null)
     {
-        return (await _departmentDomain.ListAsync()).OrderBy(entity => entity.Sort).Select(MapDepartment).ToList();
+        var normalizedKeyword = NormalizeOptional(keyword);
+        return (await _departmentDomain.ListAsync())
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name, entity.ParentId)))
+            .OrderBy(entity => entity.Sort)
+            .Select(MapDepartment)
+            .ToList();
     }
 
     public async Task<DepartmentManagementResult> UpsertDepartmentAsync(UpsertDepartmentRequest request)
@@ -419,9 +501,17 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return _departmentDomain.DeleteAsync(id);
     }
 
-    public async Task<IReadOnlyList<AssignmentManagementResult>> ListAssignmentsAsync()
+    public async Task<IReadOnlyList<AssignmentManagementResult>> ListAssignmentsAsync(string? keyword = null, int? status = null)
     {
-        return (await _assignmentDomain.ListAsync()).OrderBy(entity => entity.Code, StringComparer.Ordinal).Select(MapAssignment).ToList();
+        var normalizedKeyword = NormalizeOptional(keyword);
+        return (await _assignmentDomain.ListAsync())
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description)))
+            .OrderBy(entity => entity.Code, StringComparer.Ordinal)
+            .Select(MapAssignment)
+            .ToList();
     }
 
     public async Task<AssignmentManagementResult> UpsertAssignmentAsync(UpsertAssignmentRequest request)
@@ -456,9 +546,16 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     /// <para>zh-cn:查询字典类型主数据，排除软删除记录，并按 Sort、Code 排序，保证管理端列表和下拉选项顺序稳定。</para>
     /// <para>en-us:Lists dictionary type master data excluding soft-deleted rows and orders by Sort then Code so management lists and selectors remain stable.</para>
     /// </summary>
-    public async Task<IReadOnlyList<DictionaryTypeManagementResult>> ListDictionaryTypesAsync()
+    public async Task<IReadOnlyList<DictionaryTypeManagementResult>> ListDictionaryTypesAsync(
+        string? keyword = null,
+        int? status = null)
     {
+        var normalizedKeyword = NormalizeOptional(keyword);
         return (await _dictionaryTypeDomain.ListAsync())
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description)))
             .OrderBy(entity => entity.Sort)
             .ThenBy(entity => entity.Code, StringComparer.Ordinal)
             .Select(MapDictionaryType)
@@ -515,13 +612,21 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     /// <para>zh-cn:查询字典项；可按 DictionaryTypeId 过滤，返回结果按字典类型、Sort、Code 排序，适合维护页和业务下拉复用。</para>
     /// <para>en-us:Lists dictionary items, optionally filtered by DictionaryTypeId, and orders by type, Sort, and Code for reuse by maintenance pages and business selectors.</para>
     /// </summary>
-    public async Task<IReadOnlyList<DictionaryItemManagementResult>> ListDictionaryItemsAsync(string? dictionaryTypeId = null)
+    public async Task<IReadOnlyList<DictionaryItemManagementResult>> ListDictionaryItemsAsync(
+        string? dictionaryTypeId = null,
+        string? keyword = null,
+        int? status = null)
     {
         var normalizedTypeId = NormalizeOptional(dictionaryTypeId);
+        var normalizedKeyword = NormalizeOptional(keyword);
         var items = string.IsNullOrWhiteSpace(normalizedTypeId)
             ? await _dictionaryItemDomain.ListAsync()
             : await _dictionaryItemDomain.ListAsync(entity => entity.DictionaryTypeId == normalizedTypeId);
         return items
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description)))
             .OrderBy(entity => entity.DictionaryTypeId, StringComparer.Ordinal)
             .ThenBy(entity => entity.Sort)
             .ThenBy(entity => entity.Code, StringComparer.Ordinal)
@@ -615,8 +720,8 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     }
 
     /// <summary>
-    /// <para>zh-cn:新增或更新运行环境，拆分维护前端、API、MCP、部署目录、Compose 文件和本地发布包路径等字段。</para>
-    /// <para>en-us:Creates or updates a runtime environment with separated fields for frontend, API, MCP, deployment directories, compose file, and local package paths.</para>
+    /// <para>zh-cn:新增或更新运行环境，维护所属项目范围、服务器 IP 列表、部署目录、Compose 文件和本地发布包路径等字段。</para>
+    /// <para>en-us:Creates or updates a runtime environment with project scope, server IP list, deployment directories, compose file, and local package paths.</para>
     /// </summary>
     public async Task<RuntimeEnvironmentManagementResult> UpsertRuntimeEnvironmentAsync(
         UpsertRuntimeEnvironmentRequest request)
@@ -650,6 +755,7 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         entity.ApiBaseUrl = NormalizeOptional(request.ApiBaseUrl);
         entity.FrontendProxyApiUrl = NormalizeOptional(request.FrontendProxyApiUrl);
         entity.McpEndpoint = NormalizeOptional(request.McpEndpoint);
+        entity.ServerIps = NormalizeOptional(request.ServerIps);
         entity.DeployRoot = NormalizeOptional(request.DeployRoot);
         entity.DockerDirectory = NormalizeOptional(request.DockerDirectory);
         entity.RemotePackagePath = NormalizeOptional(request.RemotePackagePath);
@@ -673,7 +779,7 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
 
     /// <summary>
     /// <para>zh-cn:软删除运行环境，并同步软删除其容器映射，保证环境主数据与部署明细生命周期一致。</para>
-    /// <para>en-us:Soft-deletes a runtime environment and its container mappings so environment master data and deployment details share the same lifecycle.</para>
+    /// <para>en-us:Soft-deletes a runtime environment and its service configurations so environment master data and deployment details share the same lifecycle.</para>
     /// </summary>
     public async Task<bool> DeleteRuntimeEnvironmentAsync(string id)
     {
@@ -694,8 +800,8 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     }
 
     /// <summary>
-    /// <para>zh-cn:查询运行环境下的容器映射，返回容器名称、宿主端口、容器端口和协议。</para>
-    /// <para>en-us:Lists container mappings under a runtime environment, including container name, host port, container port, and protocol.</para>
+    /// <para>zh-cn:查询运行环境下的服务配置，返回服务名称、容器类型、服务所在机器 IP、端口和协议。</para>
+    /// <para>en-us:Lists service configurations under a runtime environment, including service name, container type, service host IP, ports, and protocol.</para>
     /// </summary>
     public async Task<IReadOnlyList<RuntimeEnvironmentContainerManagementResult>> ListRuntimeEnvironmentContainersAsync(
         string runtimeEnvironmentId)
@@ -709,8 +815,8 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     }
 
     /// <summary>
-    /// <para>zh-cn:新增或更新容器端口映射，校验父运行环境存在、端口范围有效且同一环境内容器名称不重复。</para>
-    /// <para>en-us:Creates or updates a container port mapping after validating the parent environment, port ranges, and name uniqueness within that environment.</para>
+    /// <para>zh-cn:新增或更新运行环境服务配置，校验父运行环境存在、服务机器 IP 属于运行环境 IP 列表、端口范围有效且同一环境内服务名称不重复。</para>
+    /// <para>en-us:Creates or updates a runtime-environment service after validating the parent environment, service host IP against the environment IP list, port ranges, and name uniqueness within that environment.</para>
     /// </summary>
     public async Task<RuntimeEnvironmentContainerManagementResult> UpsertRuntimeEnvironmentContainerAsync(
         UpsertRuntimeEnvironmentContainerRequest request)
@@ -721,7 +827,8 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         ValidatePort(request.ContainerPort, "Container port is invalid.");
 
         var runtimeEnvironmentId = request.RuntimeEnvironmentId.Trim();
-        if (await _runtimeEnvironmentDomain.GetAsync(runtimeEnvironmentId) is null)
+        var environment = await _runtimeEnvironmentDomain.GetAsync(runtimeEnvironmentId);
+        if (environment is null)
         {
             throw new InvalidOperationException("Runtime environment does not exist.");
         }
@@ -740,12 +847,25 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         var entity = string.IsNullOrWhiteSpace(request.Id)
             ? new RuntimeEnvironmentContainerEntity()
             : await _runtimeEnvironmentContainerDomain.GetAsync(request.Id) ?? new RuntimeEnvironmentContainerEntity();
+        var serverIp = NormalizeOptional(request.ServerIp);
+        var environmentIps = SplitValues(environment.ServerIps);
+        if (!string.IsNullOrWhiteSpace(serverIp) &&
+            environmentIps.Count > 0 &&
+            !environmentIps.Contains(serverIp, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Service server IP must be selected from the runtime environment IP list.");
+        }
+
         entity.RuntimeEnvironmentId = runtimeEnvironmentId;
         entity.Name = normalizedName;
+        entity.ContainerType = request.ContainerType;
+        entity.ServerIp = serverIp;
         entity.HostPort = request.HostPort;
         entity.ContainerPort = request.ContainerPort;
         entity.Protocol = NormalizeOptional(request.Protocol)?.ToLowerInvariant() ?? "tcp";
         entity.Description = NormalizeOptional(request.Description);
+        entity.Prompt = NormalizeOptional(request.Prompt);
+        entity.DeployScript = NormalizeOptional(request.DeployScript);
         entity.Sort = request.Sort;
         entity.Status = request.Status;
         entity.IsDelete = 0;
@@ -764,7 +884,7 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
 
     /// <summary>
     /// <para>zh-cn:软删除单条容器映射，适用于调整部署端口而不删除整个运行环境的场景。</para>
-    /// <para>en-us:Soft-deletes one container mapping for deployment-port adjustments without deleting the whole runtime environment.</para>
+    /// <para>en-us:Soft-deletes one service configuration for deployment-port adjustments without deleting the whole runtime environment.</para>
     /// </summary>
     public Task<bool> DeleteRuntimeEnvironmentContainerAsync(string id)
     {
@@ -772,48 +892,43 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     }
 
     /// <summary>
-    /// <para>zh-cn:查询固定的 Codex 提示词模板；只返回 MCP 接入和任务推进两个模板，传入其他环境时返回空集合。</para>
-    /// <para>en-us:Lists fixed Codex prompt templates; only the MCP setup and task execution templates are returned, while other environments return an empty collection.</para>
+    /// <para>zh-cn:查询提示词模板；传入 AI 平台时只返回该平台模板，未传时返回全部未删除模板，供管理端跨平台维护。</para>
+    /// <para>en-us:Lists prompt templates; when an AI platform is supplied only that platform is returned, otherwise all non-deleted templates are returned for cross-platform administration.</para>
     /// </summary>
     public async Task<IReadOnlyList<PromptTemplateManagementResult>> ListPromptTemplatesAsync(
-        string? agentEnvironment = null)
+        string? agentEnvironment = null,
+        string? keyword = null,
+        int? status = null)
     {
         var normalizedEnvironment = NormalizeAgentEnvironment(agentEnvironment);
-        if (!IsSupportedAgentEnvironment(normalizedEnvironment))
-        {
-            return [];
-        }
-
+        var normalizedKeyword = NormalizeOptional(keyword);
         return (await _promptTemplateDomain.ListAsync(entity =>
-                entity.AgentEnvironment == normalizedEnvironment &&
-                FixedPromptTemplateCodes.Contains(entity.Code)))
+                string.IsNullOrWhiteSpace(normalizedEnvironment) ||
+                entity.AgentEnvironment == normalizedEnvironment))
+            .Where(entity =>
+                (!status.HasValue || entity.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Content, entity.Description)))
             .OrderBy(entity => entity.Sort)
+            .ThenBy(entity => entity.AgentEnvironment, StringComparer.Ordinal)
             .ThenBy(entity => entity.Code, StringComparer.Ordinal)
             .Select(MapPromptTemplate)
             .ToList();
     }
 
     /// <summary>
-    /// <para>zh-cn:更新固定的 Codex 提示词模板，拒绝尚未适配的 Agent 环境和非固定模板编码以避免新增任意提示词。</para>
-    /// <para>en-us:Updates a fixed Codex prompt template and rejects unsupported agent environments or non-fixed template codes to prevent arbitrary prompt creation.</para>
+    /// <para>zh-cn:新增或更新提示词模板，按 AI 平台和模板编码校验唯一性，并保留模板变量内容供后续生成提示词时替换。</para>
+    /// <para>en-us:Creates or updates a prompt template, validates uniqueness by AI platform and code, and stores placeholder-based content for later prompt generation.</para>
     /// </summary>
     public async Task<PromptTemplateManagementResult> UpsertPromptTemplateAsync(UpsertPromptTemplateRequest request)
     {
         var normalizedEnvironment = NormalizeAgentEnvironment(request.AgentEnvironment);
-        if (!IsSupportedAgentEnvironment(normalizedEnvironment))
-        {
-            throw new InvalidOperationException("Only Codex prompt templates are supported currently.");
-        }
-
+        ValidateRequired(normalizedEnvironment, "Agent environment is required.");
         ValidateRequired(request.Code, "Prompt template code is required.");
         ValidateRequired(request.Name, "Prompt template name is required.");
         ValidateRequired(request.Content, "Prompt template content is required.");
 
-        var normalizedCode = request.Code.Trim();
-        if (!FixedPromptTemplateCodes.Contains(normalizedCode))
-        {
-            throw new InvalidOperationException("Only fixed Codex prompt templates can be maintained.");
-        }
+        var normalizedCode = request.Code.Trim().ToLowerInvariant();
 
         var duplicate = (await _promptTemplateDomain.ListIncludingDeletedAsync(entity =>
                 entity.AgentEnvironment == normalizedEnvironment))
@@ -1039,14 +1154,25 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static string NormalizeAgentEnvironment(string? value)
+    private static bool TextContains(string keyword, params string?[] values)
     {
-        return string.IsNullOrWhiteSpace(value) ? "codex" : value.Trim().ToLowerInvariant();
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsSupportedAgentEnvironment(string value)
+    private static string NormalizeAgentEnvironment(string? value)
     {
-        return string.Equals(value, "codex", StringComparison.OrdinalIgnoreCase);
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
+    }
+
+    private static IReadOnlyList<string> SplitValues(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? []
+            : value.Split([',', ';', '\r', '\n'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
     }
 
     private static void ValidatePort(int value, string message)
@@ -1112,6 +1238,7 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
             entity.ApiBaseUrl,
             entity.FrontendProxyApiUrl,
             entity.McpEndpoint,
+            entity.ServerIps,
             entity.DeployRoot,
             entity.DockerDirectory,
             entity.RemotePackagePath,
@@ -1128,12 +1255,16 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
             entity.Id,
             entity.RuntimeEnvironmentId,
             entity.Name,
+            entity.ContainerType,
+            entity.ServerIp,
             entity.HostPort,
             entity.ContainerPort,
             entity.Protocol,
             entity.Description,
             entity.Sort,
-            entity.Status);
+            entity.Status,
+            entity.Prompt,
+            entity.DeployScript);
     }
 
     private static PromptTemplateManagementResult MapPromptTemplate(PromptTemplateEntity entity)

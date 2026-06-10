@@ -10,7 +10,7 @@ export default defineConfig(async () => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api/, ''),
             // mock代理目标地址
-            target: 'http://localhost:5000',
+            target: process.env.VITE_PROXY_API_TARGET || 'http://192.168.80.101:5000',
             ws: true,
           },
         },
