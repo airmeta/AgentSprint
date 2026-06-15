@@ -5,6 +5,8 @@
 /.tmp
 /deploy/docker/*
 !/deploy/docker/deploy.sh
+!/deploy/docker/Dockerfile.worker
+!/deploy/docker/fastgithub-worker-entrypoint.sh
 /src/admin/.github
 /src/admin/.vscode
 /src/api/.vs/AgentSprint.slnx

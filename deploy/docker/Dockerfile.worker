@@ -1,0 +1,14 @@
+FROM agentsprint-codex-worker-base:latest
+
+WORKDIR /app
+COPY fastgithub_linux-x64.zip /tmp/fastgithub_linux-x64.zip
+RUN unzip -q /tmp/fastgithub_linux-x64.zip -d /opt \
+    && mv /opt/fastgithub_linux-x64 /opt/fastgithub \
+    && chmod +x /opt/fastgithub/fastgithub /opt/fastgithub/dnscrypt-proxy/dnscrypt-proxy \
+    && rm /tmp/fastgithub_linux-x64.zip
+
+COPY artifacts/worker/ ./
+COPY fastgithub-worker-entrypoint.sh /usr/local/bin/fastgithub-worker-entrypoint.sh
+RUN chmod +x /usr/local/bin/fastgithub-worker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/fastgithub-worker-entrypoint.sh"]
