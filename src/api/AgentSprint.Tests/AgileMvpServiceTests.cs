@@ -1,6 +1,7 @@
 ﻿using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Agile.Dtos;
+using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
@@ -227,6 +228,8 @@ public sealed class AgileMvpServiceTests
             new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
+            new InMemoryAgileDigitalWorkerDomain(),
+            new InMemoryAgileWorkerCommandDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
         var project = await service.CreateProjectAsync(
@@ -888,6 +891,8 @@ public sealed class AgileMvpServiceTests
             new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
+            new InMemoryAgileDigitalWorkerDomain(),
+            new InMemoryAgileWorkerCommandDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
         var project = await service.CreateProjectAsync(
@@ -935,6 +940,8 @@ public sealed class AgileMvpServiceTests
             new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
+            new InMemoryAgileDigitalWorkerDomain(),
+            new InMemoryAgileWorkerCommandDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
         var requirement = new SprintRequirementEntity
@@ -1175,7 +1182,15 @@ public sealed class AgileMvpServiceTests
     [Fact]
     public async Task AssignDevelopmentTaskAsync_PreservesDigitalWorkerAssigneeType()
     {
-        var service = CreateService();
+        var workerDomain = new InMemoryAgileDigitalWorkerDomain();
+        var service = CreateService(digitalWorkerDomain: workerDomain);
+        await workerDomain.CreateAsync(new DigitalWorkerEntity
+        {
+            Name = "Codex Worker",
+            Code = "codex-worker",
+            AgentUserId = "worker-agent-1",
+            Status = DigitalWorkerStatuses.Active
+        });
         var project = await service.CreateProjectAsync(
             CreateProjectRequest("MVP-DIGITAL-ASSIGN", "Digital assign"),
             "pm-1");
@@ -1197,6 +1212,46 @@ public sealed class AgileMvpServiceTests
 
         Assert.Equal("worker-agent-1", assigned.AssigneeId);
         Assert.Equal(SprintTaskAssigneeTypes.DigitalWorker, assigned.AssigneeType);
+    }
+
+    [Fact]
+    public async Task AssignDevelopmentTaskAsync_CreatesStartTaskCommandForDigitalWorker()
+    {
+        var workerDomain = new InMemoryAgileDigitalWorkerDomain();
+        var commandDomain = new InMemoryAgileWorkerCommandDomain();
+        var service = CreateService(
+            digitalWorkerDomain: workerDomain,
+            workerCommandDomain: commandDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DW-CMD", "Digital worker command"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Run through worker", null, 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var task = (await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(null, "agent-1", SprintTaskAssigneeTypes.DigitalWorker),
+            "pm-1")).Single();
+        var worker = new DigitalWorkerEntity
+        {
+            Name = "Codex Worker",
+            Code = "codex-worker",
+            AgentUserId = "agent-1",
+            Status = DigitalWorkerStatuses.Active
+        };
+        await workerDomain.CreateAsync(worker);
+
+        await service.AssignDevelopmentTaskAsync(
+            task.Id,
+            new AssignSprintDevelopmentTaskRequest("agent-1", SprintTaskAssigneeTypes.DigitalWorker),
+            "pm-1");
+
+        var command = Assert.Single(await commandDomain.ListAsync());
+        Assert.Equal(worker.Id, command.WorkerId);
+        Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
+        Assert.Equal(WorkerCommandStatuses.Pending, command.Status);
+        Assert.Contains(task.Id, command.PayloadJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1745,6 +1800,8 @@ public sealed class AgileMvpServiceTests
             new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
+            new InMemoryAgileDigitalWorkerDomain(),
+            new InMemoryAgileWorkerCommandDomain(),
             new RequirementDecompositionService(),
             new StaticSystemConfigurationService());
         var project = await service.CreateProjectAsync(
@@ -1868,7 +1925,9 @@ public sealed class AgileMvpServiceTests
         InMemorySprintProjectEndpointDomain? endpointDomain = null,
         ISystemConfigurationService? configurationService = null,
         InMemoryGitRepositoryDomain? gitRepositoryDomain = null,
-        InMemoryGitAccountDomain? gitAccountDomain = null)
+        InMemoryGitAccountDomain? gitAccountDomain = null,
+        InMemoryAgileDigitalWorkerDomain? digitalWorkerDomain = null,
+        InMemoryAgileWorkerCommandDomain? workerCommandDomain = null)
     {
         return new AgileMvpService(
             new InMemorySprintProjectDomain(),
@@ -1888,6 +1947,8 @@ public sealed class AgileMvpServiceTests
             gitAccountDomain ?? new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
+            digitalWorkerDomain ?? new InMemoryAgileDigitalWorkerDomain(),
+            workerCommandDomain ?? new InMemoryAgileWorkerCommandDomain(),
             decompositionService ?? new RequirementDecompositionService(),
             configurationService ?? new StaticSystemConfigurationService());
     }
@@ -2195,3 +2256,12 @@ internal sealed class InMemoryAgilePromptTemplateDomain : InMemoryDomainBase<Pro
 }
 
 internal sealed class InMemoryAgileTestPlanDomain : InMemoryDomainBase<TestPlanEntity>, ITestPlanDomain;
+
+internal sealed class InMemoryAgileDigitalWorkerDomain :
+    InMemoryDomainBase<DigitalWorkerEntity>,
+    IDigitalWorkerDomain;
+
+internal sealed class InMemoryAgileWorkerCommandDomain :
+    InMemoryDomainBase<WorkerCommandEntity>,
+    IWorkerCommandDomain;
+

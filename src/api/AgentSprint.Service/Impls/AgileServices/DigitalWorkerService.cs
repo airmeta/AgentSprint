@@ -863,7 +863,8 @@ public sealed class DigitalWorkerRuntimeService :
         var commands = await _commandDomain.ListAsync(entity =>
             entity.WorkerId == worker.Id &&
             entity.Status == WorkerCommandStatuses.Pending &&
-            (entity.SessionId == null || entity.SessionId == session.Id));
+            (entity.SessionId == null || entity.SessionId == session.Id) &&
+            CanDispatchCommand(session.Status, entity.CommandType));
 
         return new WorkerHeartbeatResult(
             worker.Id,
@@ -1013,6 +1014,21 @@ public sealed class DigitalWorkerRuntimeService :
         }
 
         await MarkRequirementDevelopingFromTaskAsync(task, worker.AgentUserId);
+    }
+
+    private static bool CanDispatchCommand(string sessionStatus, string commandType)
+    {
+        if (commandType is WorkerCommandTypes.CancelCurrentRun or WorkerCommandTypes.StopAfterCurrent)
+        {
+            return sessionStatus == WorkerSessionStatuses.Busy;
+        }
+
+        if (commandType == WorkerCommandTypes.ReloadConfig)
+        {
+            return true;
+        }
+
+        return sessionStatus == WorkerSessionStatuses.Idle;
     }
 
     private async Task MarkRequirementDevelopingFromTaskAsync(SprintDevelopmentTaskEntity task, string userId)

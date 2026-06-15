@@ -177,6 +177,8 @@ public static class WorkerPlatformStatuses
     public const string CodexFailed = "codex_failed";
 
     public const string Blocked = "blocked";
+
+    public const string Cancelled = "cancelled";
 }
 
 public static class WorkerPlatformCommandTypes
@@ -186,4 +188,10 @@ public static class WorkerPlatformCommandTypes
     public const string StartTask = "start_task";
 
     public const string StartBug = "start_bug";
+
+    public const string CancelCurrentRun = "cancel_current_run";
+
+    public const string StopAfterCurrent = "stop_after_current";
+
+    public const string ReloadConfig = "reload_config";
 }

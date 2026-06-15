@@ -27,6 +27,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
     private readonly WorkerOptions _options;
     private readonly WorkerRuntimeConfigApplier _runtimeConfigApplier;
     private readonly WorkerRunLogger _runLogger;
+    private bool _stopAfterCurrent;
 
     /// <summary>
     /// <para>zh-cn:创建数字员工受控端后台服务。该服务是 HostApp 控制台宿主中的主循环，负责启动探针、可选 smoke run，以及后续接入平台心跳和任务领取的轮询节奏。</para>
@@ -179,7 +180,11 @@ public sealed class AgentSprintWorkerService : BackgroundService
 
             foreach (var command in heartbeat.Commands)
             {
-                await HandleCommandAsync(command, session.Id, snapshot, stoppingToken);
+                var shouldContinue = await HandleCommandAsync(command, session.Id, snapshot, stoppingToken);
+                if (!shouldContinue)
+                {
+                    return;
+                }
             }
 
             var delaySeconds = heartbeat.NextIntervalSeconds > 0
@@ -211,7 +216,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
         return await _apiClient.RegisterSessionAsync(request, stoppingToken);
     }
 
-    private async Task HandleCommandAsync(
+    private async Task<bool> HandleCommandAsync(
         WorkerCommandResult command,
         string sessionId,
         WorkerEnvironmentSnapshot snapshot,
@@ -219,16 +224,40 @@ public sealed class AgentSprintWorkerService : BackgroundService
     {
         await _apiClient.AckCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
 
+        if (command.CommandType is WorkerPlatformCommandTypes.ReloadConfig or
+            WorkerPlatformCommandTypes.StopAfterCurrent or
+            WorkerPlatformCommandTypes.CancelCurrentRun)
+        {
+            return await HandleControlCommandAsync(command, sessionId, stoppingToken);
+        }
+
+        if (!snapshot.CanEnterWorkLoop || !snapshot.IsCodexAuthenticated)
+        {
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "command",
+                null,
+                null,
+                null,
+                !snapshot.CanEnterWorkLoop
+                    ? "Codex CLI is unavailable."
+                    : "Codex authentication is required before executing worker commands.",
+                stoppingToken);
+            return true;
+        }
+
         if (command.CommandType == WorkerPlatformCommandTypes.Smoke)
         {
             await RunPlatformSmokeAsync(command, sessionId, snapshot, stoppingToken);
-            return;
+            return !_stopAfterCurrent;
         }
 
         if (command.CommandType is WorkerPlatformCommandTypes.StartTask or WorkerPlatformCommandTypes.StartBug)
         {
             await RunAssignedWorkAsync(command, sessionId, snapshot, stoppingToken);
-            return;
+            return !_stopAfterCurrent;
         }
 
         try
@@ -261,6 +290,61 @@ public sealed class AgentSprintWorkerService : BackgroundService
             null,
             $"Unsupported worker command type: {command.CommandType}.",
             stoppingToken);
+        return true;
+    }
+
+    private async Task<bool> HandleControlCommandAsync(
+        WorkerCommandResult command,
+        string sessionId,
+        CancellationToken stoppingToken)
+    {
+        var run = await _apiClient.StartRunAsync(
+            new StartWorkerRunRequest(
+                _options.WorkerId,
+                sessionId,
+                RunType: "command",
+                Status: WorkerPlatformStatuses.Running,
+                CommandId: command.Id,
+                TargetType: null,
+                TargetId: null,
+                WorkspacePath: null,
+                PromptPath: null,
+                StdoutPath: null,
+                StderrPath: null,
+                FinalPath: null,
+                ManifestPath: null),
+            stoppingToken);
+
+        string message;
+        var shouldContinue = true;
+        if (command.CommandType == WorkerPlatformCommandTypes.ReloadConfig)
+        {
+            var config = await _apiClient.GetRuntimeConfigAsync(stoppingToken);
+            await _runtimeConfigApplier.ApplyAsync(config, stoppingToken);
+            _apiClient.UseAgentToken(config.AgentToken);
+            message = "Worker runtime config reloaded.";
+        }
+        else if (command.CommandType == WorkerPlatformCommandTypes.StopAfterCurrent)
+        {
+            _stopAfterCurrent = true;
+            message = "Worker will stop after the current command.";
+            shouldContinue = false;
+        }
+        else
+        {
+            message = "No running Codex process is active in this polling loop.";
+        }
+
+        await _apiClient.FinishRunAsync(
+            run.Id,
+            new FinishWorkerRunRequest(
+                WorkerPlatformStatuses.Success,
+                ExitCode: 0,
+                TimedOut: false,
+                Error: null,
+                ResultJson: JsonSerializer.Serialize(new { message }, JsonOptions)),
+            CancellationToken.None);
+        return shouldContinue;
     }
 
     private async Task RunPlatformSmokeAsync(
@@ -439,6 +523,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
         }
 
         WorkerRunResult? platformRun = null;
+        CancellationTokenSource? runCancellation = null;
+        Task? heartbeatTask = null;
         try
         {
             platformRun = await _apiClient.StartRunAsync(
@@ -464,7 +550,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
             }
 
             await ReportEventAsync(sessionId, platformRun.Id, "codex_started", "info", StartedMessage, stoppingToken);
-            var result = await _codexProcessRunner.RunAsync(request, stoppingToken);
+            runCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            heartbeatTask = MaintainBusyHeartbeatAsync(sessionId, platformRun.Id, runCancellation, stoppingToken);
+            var result = await _codexProcessRunner.RunAsync(request, runCancellation.Token);
             if (result.Status == WorkerPlatformStatuses.Success && Target is not null && Target.TargetId is not null)
             {
                 await _apiClient.CompleteWorkAsync(Target.TargetType!, Target.TargetId, CancellationToken.None);
@@ -497,6 +585,14 @@ public sealed class AgentSprintWorkerService : BackgroundService
             }
 
             throw;
+        }
+        finally
+        {
+            if (runCancellation is not null && heartbeatTask is not null)
+            {
+                await StopBusyHeartbeatAsync(runCancellation, heartbeatTask);
+                runCancellation.Dispose();
+            }
         }
     }
 
@@ -531,6 +627,81 @@ public sealed class AgentSprintWorkerService : BackgroundService
             platformRun.Id,
             new FinishWorkerRunRequest(status, null, false, error, null),
             CancellationToken.None);
+    }
+
+    private async Task MaintainBusyHeartbeatAsync(
+        string sessionId,
+        string runId,
+        CancellationTokenSource runCancellation,
+        CancellationToken stoppingToken)
+    {
+        while (!runCancellation.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+        {
+            WorkerHeartbeatResult heartbeat;
+            try
+            {
+                heartbeat = await _apiClient.HeartbeatAsync(
+                    new WorkerHeartbeatRequest(
+                        _options.WorkerId,
+                        sessionId,
+                        WorkerPlatformStatuses.Busy,
+                        CurrentRunId: runId,
+                        ErrorSummary: null),
+                    stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            foreach (var command in heartbeat.Commands)
+            {
+                if (command.CommandType == WorkerPlatformCommandTypes.CancelCurrentRun)
+                {
+                    runCancellation.Cancel();
+                    await HandleControlCommandAsync(command, sessionId, CancellationToken.None);
+                    return;
+                }
+
+                if (command.CommandType == WorkerPlatformCommandTypes.StopAfterCurrent)
+                {
+                    _stopAfterCurrent = true;
+                    await HandleControlCommandAsync(command, sessionId, stoppingToken);
+                }
+                else if (command.CommandType == WorkerPlatformCommandTypes.ReloadConfig)
+                {
+                    await HandleControlCommandAsync(command, sessionId, stoppingToken);
+                }
+            }
+
+            var delaySeconds = heartbeat.NextIntervalSeconds > 0
+                ? heartbeat.NextIntervalSeconds
+                : _options.PollIntervalSeconds;
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), runCancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private static async Task StopBusyHeartbeatAsync(CancellationTokenSource runCancellation, Task heartbeatTask)
+    {
+        if (!runCancellation.IsCancellationRequested)
+        {
+            runCancellation.Cancel();
+        }
+
+        try
+        {
+            await heartbeatTask;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task RunSmokeAsync(WorkerEnvironmentSnapshot snapshot, CancellationToken stoppingToken)

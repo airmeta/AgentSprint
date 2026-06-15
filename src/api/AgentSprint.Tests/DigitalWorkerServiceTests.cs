@@ -397,6 +397,50 @@ public sealed class DigitalWorkerServiceTests
     }
 
     [Fact]
+    public async Task Runtime_HeartbeatDoesNotDispatchWorkWhenAuthRequired()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-auth"),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, "{\"taskId\":\"task-1\"}"),
+            "admin");
+
+        var heartbeat = await runtime.HeartbeatAsync(
+            new WorkerHeartbeatRequest(worker.Id, session.Id, WorkerSessionStatuses.AuthRequired));
+
+        Assert.Empty(heartbeat.Commands);
+    }
+
+    [Fact]
+    public async Task Runtime_HeartbeatDispatchesControlCommandsWhileBusy()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-busy"),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, "{\"taskId\":\"task-1\"}"),
+            "admin");
+        await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.CancelCurrentRun),
+            "admin");
+
+        var heartbeat = await runtime.HeartbeatAsync(
+            new WorkerHeartbeatRequest(worker.Id, session.Id, WorkerSessionStatuses.Busy, "run-1"));
+
+        var command = Assert.Single(heartbeat.Commands);
+        Assert.Equal(WorkerCommandTypes.CancelCurrentRun, command.CommandType);
+    }
+
+    [Fact]
     public async Task Management_Queries_AcceptWorkerCodeAsFilter()
     {
         var domains = new DigitalWorkerTestDomains();

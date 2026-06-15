@@ -2,6 +2,7 @@
 
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
+using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Agile.Dtos;
@@ -10,6 +11,7 @@ using AgentSprint.Model.Modules.Tests.Domains;
 using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.SecurityServices;
+using System.Text.Json;
 
 namespace AgentSprint.Service.Impls.AgileServices;
 
@@ -39,6 +41,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private readonly IGitAccountDomain _gitAccountDomain;
     private readonly IPromptTemplateDomain _promptTemplateDomain;
     private readonly ITestPlanDomain _testPlanDomain;
+    private readonly IDigitalWorkerDomain _digitalWorkerDomain;
+    private readonly IWorkerCommandDomain _workerCommandDomain;
     private readonly IRequirementDecompositionService _decompositionService;
     private readonly ISystemConfigurationService _configurationService;
 
@@ -92,6 +96,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         IGitAccountDomain gitAccountDomain,
         IPromptTemplateDomain promptTemplateDomain,
         ITestPlanDomain testPlanDomain,
+        IDigitalWorkerDomain digitalWorkerDomain,
+        IWorkerCommandDomain workerCommandDomain,
         IRequirementDecompositionService decompositionService,
         ISystemConfigurationService configurationService)
     {
@@ -112,6 +118,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         _gitAccountDomain = gitAccountDomain;
         _promptTemplateDomain = promptTemplateDomain;
         _testPlanDomain = testPlanDomain;
+        _digitalWorkerDomain = digitalWorkerDomain;
+        _workerCommandDomain = workerCommandDomain;
         _decompositionService = decompositionService;
         _configurationService = configurationService;
     }
@@ -1126,6 +1134,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
         task.AssigneeId = request.AssigneeId.Trim();
         task.AssigneeType = NormalizeAssigneeType(request.AssigneeType);
+        var digitalWorker = await ResolveDigitalWorkerForAssignmentAsync(task.AssigneeType, task.AssigneeId);
         task.AssignedBy = string.IsNullOrWhiteSpace(assignedBy) ? null : assignedBy.Trim();
         task.Status = SprintDevelopmentTaskStatuses.Assigned;
         task.AssignedAt = DateTime.UtcNow;
@@ -1137,6 +1146,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
         requirement.DeveloperId = task.AssigneeId;
         await _requirementDomain.UpdateAsync(requirement);
+        await DispatchDigitalWorkerTaskCommandAsync(task, digitalWorker, assignedBy);
 
         return await ToTaskResultAsync(task);
     }
@@ -1164,6 +1174,76 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             task.Id,
             userId,
             request.OwnerDevice);
+    }
+
+    private async Task<DigitalWorkerEntity?> ResolveDigitalWorkerForAssignmentAsync(int assigneeType, string assigneeId)
+    {
+        if (assigneeType != SprintTaskAssigneeTypes.DigitalWorker)
+        {
+            return null;
+        }
+
+        var workers = await _digitalWorkerDomain.ListAsync(entity =>
+            entity.AgentUserId == assigneeId &&
+            entity.Status == DigitalWorkerStatuses.Active);
+        return workers.OrderBy(entity => entity.CreateTime).FirstOrDefault()
+            ?? throw new InvalidOperationException("No active digital worker is bound to assignee.");
+    }
+
+    private async Task DispatchDigitalWorkerTaskCommandAsync(
+        SprintDevelopmentTaskEntity task,
+        DigitalWorkerEntity? worker,
+        string assignedBy)
+    {
+        await CancelPendingDigitalWorkerTaskCommandsAsync(task.Id);
+        if (worker is null)
+        {
+            return;
+        }
+
+        var payloadJson = JsonSerializer.Serialize(new { taskId = task.Id });
+        var command = new WorkerCommandEntity
+        {
+            WorkerId = worker.Id,
+            CommandType = WorkerCommandTypes.StartTask,
+            PayloadJson = payloadJson,
+            Status = WorkerCommandStatuses.Pending,
+            CreatedBy = string.IsNullOrWhiteSpace(assignedBy) ? "system" : assignedBy.Trim()
+        };
+        await _workerCommandDomain.CreateAsync(command);
+    }
+
+    private async Task CancelPendingDigitalWorkerTaskCommandsAsync(string taskId)
+    {
+        var commands = await _workerCommandDomain.ListAsync(entity =>
+            entity.CommandType == WorkerCommandTypes.StartTask &&
+            entity.Status == WorkerCommandStatuses.Pending);
+        foreach (var command in commands.Where(command => IsTaskCommand(command, taskId)))
+        {
+            command.Status = WorkerCommandStatuses.Cancelled;
+            command.CompletedAt = DateTime.UtcNow;
+            command.Error = "Task was reassigned before the command was picked up.";
+            await _workerCommandDomain.UpdateAsync(command);
+        }
+    }
+
+    private static bool IsTaskCommand(WorkerCommandEntity command, string taskId)
+    {
+        if (string.IsNullOrWhiteSpace(command.PayloadJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(command.PayloadJson);
+            return document.RootElement.TryGetProperty("taskId", out var value) &&
+                string.Equals(value.GetString(), taskId, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
