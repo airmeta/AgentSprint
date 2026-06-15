@@ -26,13 +26,27 @@ public sealed class UserServiceMenuTests
         var testGroup = CreateMenu("menu-test-group", string.Empty, "TestGroup", "/sprint/test", string.Empty, 40, 0);
         var gitGroup = CreateMenu("menu-git-group", string.Empty, "GitManagementGroup", "/sprint/git", string.Empty, 50, 0);
         var operationManagement = CreateMenu("menu-operation-management", string.Empty, "OperationManagement", "/operations", string.Empty, 91, 0);
-        var globalConfig = CreateMenu("menu-global-config", string.Empty, "GlobalConfig", "/global-config", string.Empty, 92, 0);
+        var codeReview = CreateMenu("menu-code-review", string.Empty, "CodeReviewManagement", "/code-review", string.Empty, 92, 0);
+        var automation = CreateMenu("menu-automation", string.Empty, "AutomationManagement", "/automation", string.Empty, 94, 0);
+        var globalConfig = CreateMenu("menu-global-config", string.Empty, "GlobalConfig", "/global-config", string.Empty, 93, 0);
         var projects = CreateMenu("menu-projects", projectGroup.Id, "SprintProjects", "/sprint/projects", "/sprint/projects/index", 10, 1);
         var multiEndpoints = CreateMenu("menu-multi-endpoints", projectGroup.Id, "SprintMultiEndpoints", "/sprint/multi-endpoints", "/sprint/multi-endpoints/index", 11, 1);
         var gitAccounts = CreateMenu("menu-git-accounts", gitGroup.Id, "SprintGitAccounts", "/sprint/git/accounts", "/sprint/git/accounts/index", 10, 1);
         var gitRepositories = CreateMenu("menu-git-repositories", gitGroup.Id, "SprintGitRepositories", "/sprint/git/repositories", "/sprint/git/repositories/index", 20, 1);
         var operationScripts = CreateMenu("menu-operation-scripts", operationManagement.Id, "OperationScripts", "/operations/scripts", "/operations/scripts/index", 10, 1);
         var operationEnvironments = CreateMenu("menu-operation-environments", operationManagement.Id, "OperationEnvironments", "/operations/environments", "/system/runtime-environments/index", 20, 1);
+        var codeReviewTasks = CreateMenu("menu-code-review-tasks", codeReview.Id, "CodeReviewTasks", "/code-review/tasks", "/code-review/tasks/index", 10, 1);
+        var codeReviewResults = CreateMenu("menu-code-review-results", codeReview.Id, "CodeReviewResults", "/code-review/results", "/code-review/results/index", 20, 1);
+        var digitalWorkers = CreateMenu("menu-digital-workers", automation.Id, "AutomationDigitalWorkers", "/automation/digital-workers", "/automation/digital-workers/index", 10, 1);
+        var digitalWorkerCommandAudit = CreateMenu(
+            "menu-digital-worker-command-audit",
+            automation.Id,
+            "AutomationDigitalWorkerCommandAudit",
+            "/automation/digital-workers/:id/command-audit",
+            "/automation/digital-workers/command-audit",
+            11,
+            2);
+        var mcpSessions = CreateMenu("menu-mcp-sessions", automation.Id, "AutomationMcpSessions", "/automation/mcp-sessions", "/automation/mcp-sessions/index", 20, 1);
         var promptTemplates = CreateMenu("menu-prompt-templates", globalConfig.Id, "GlobalConfigPromptTemplates", "/global-config/prompt-templates", "/system/prompt-templates/index", 20, 1);
         var skills = CreateMenu("menu-skills", globalConfig.Id, "GlobalConfigSkills", "/global-config/skills", "/sprint/skills/index", 30, 1);
         var system = CreateMenu("menu-system", string.Empty, "System", "/system", string.Empty, 90, 0);
@@ -124,6 +138,13 @@ public sealed class UserServiceMenuTests
                 operationManagement,
                 operationScripts,
                 operationEnvironments,
+                codeReview,
+                codeReviewTasks,
+                codeReviewResults,
+                automation,
+                digitalWorkers,
+                digitalWorkerCommandAudit,
+                mcpSessions,
                 globalConfig,
                 promptTemplates,
                 skills,
@@ -159,6 +180,13 @@ public sealed class UserServiceMenuTests
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationManagement.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationScripts.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationEnvironments.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = codeReview.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = codeReviewTasks.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = codeReviewResults.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = automation.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = digitalWorkers.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = digitalWorkerCommandAudit.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = mcpSessions.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = globalConfig.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = promptTemplates.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = skills.Id },
@@ -179,7 +207,7 @@ public sealed class UserServiceMenuTests
 
         var menus = await service.GetMenusAsync(user.Id);
 
-        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "GlobalConfig"], menus.Select(menu => menu.Meta.Title));
+        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "CodeReviewManagement", "GlobalConfig", "AutomationManagement"], menus.Select(menu => menu.Meta.Title));
         Assert.DoesNotContain(menus, menu => menu.Path == "/sprint");
         Assert.DoesNotContain(menus, menu => menu.Path == "/sprint/decomposition");
         Assert.DoesNotContain(menus, menu => menu.Path == "/sprint/mvp");
@@ -188,7 +216,7 @@ public sealed class UserServiceMenuTests
             .Where(menu => menu.Meta.HideInMenu != true)
             .Select(menu => menu.Meta.Title)
             .ToList();
-        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "GlobalConfig"], visibleMenus);
+        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "CodeReviewManagement", "GlobalConfig", "AutomationManagement"], visibleMenus);
 
         var workspaceMenu = menus.Single(menu => menu.Path == "/dashboard/workspace");
         Assert.Equal("/dashboard/workspace", workspaceMenu.Path);
@@ -215,6 +243,14 @@ public sealed class UserServiceMenuTests
         var operationMenu = menus.Single(menu => menu.Path == "/operations");
         Assert.Equal("/operations/scripts", operationMenu.Redirect);
         Assert.Equal(["OperationScripts", "OperationEnvironments"], operationMenu.Children.Select(menu => menu.Meta.Title));
+
+        var codeReviewMenu = menus.Single(menu => menu.Path == "/code-review");
+        Assert.Equal("/code-review/tasks", codeReviewMenu.Redirect);
+        Assert.Equal(["CodeReviewTasks", "CodeReviewResults"], codeReviewMenu.Children.Select(menu => menu.Meta.Title));
+
+        var automationMenu = menus.Single(menu => menu.Path == "/automation");
+        Assert.Equal("/automation/digital-workers", automationMenu.Redirect);
+        Assert.Equal(["AutomationDigitalWorkers", "AutomationDigitalWorkerCommandAudit", "AutomationMcpSessions"], automationMenu.Children.Select(menu => menu.Meta.Title));
 
         var globalConfigMenu = menus.Single(menu => menu.Path == "/global-config");
         Assert.Equal("/global-config/prompt-templates", globalConfigMenu.Redirect);
@@ -245,6 +281,39 @@ public sealed class UserServiceMenuTests
         Assert.Null(environmentMenu.Meta.HideInMenu);
         Assert.Equal("/operations/environments", environmentMenu.Path);
         Assert.Equal("/system/runtime-environments/index", environmentMenu.Component);
+
+        var codeReviewTaskMenu = codeReviewMenu.Children.Single(menu => menu.Path == "/code-review/tasks");
+        Assert.Equal("CodeReviewTasks", codeReviewTaskMenu.Meta.Title);
+        Assert.Null(codeReviewTaskMenu.Meta.AffixTab);
+        Assert.Null(codeReviewTaskMenu.Meta.HideInMenu);
+        Assert.Equal("/code-review/tasks", codeReviewTaskMenu.Path);
+        Assert.Equal("/code-review/tasks/index", codeReviewTaskMenu.Component);
+
+        var codeReviewResultMenu = codeReviewMenu.Children.Single(menu => menu.Path == "/code-review/results");
+        Assert.Equal("CodeReviewResults", codeReviewResultMenu.Meta.Title);
+        Assert.Null(codeReviewResultMenu.Meta.AffixTab);
+        Assert.Null(codeReviewResultMenu.Meta.HideInMenu);
+        Assert.Equal("/code-review/results", codeReviewResultMenu.Path);
+        Assert.Equal("/code-review/results/index", codeReviewResultMenu.Component);
+
+        var digitalWorkerMenu = automationMenu.Children.Single(menu => menu.Path == "/automation/digital-workers");
+        Assert.Equal("AutomationDigitalWorkers", digitalWorkerMenu.Meta.Title);
+        Assert.Null(digitalWorkerMenu.Meta.HideInMenu);
+        Assert.Equal("/automation/digital-workers", digitalWorkerMenu.Path);
+        Assert.Equal("/automation/digital-workers/index", digitalWorkerMenu.Component);
+
+        var commandAuditMenu = automationMenu.Children.Single(menu => menu.Path == "/automation/digital-workers/:id/command-audit");
+        Assert.Equal("AutomationDigitalWorkerCommandAudit", commandAuditMenu.Meta.Title);
+        Assert.True(commandAuditMenu.Meta.HideInMenu);
+        Assert.Equal("/automation/digital-workers", commandAuditMenu.Meta.ActivePath);
+        Assert.Equal("/automation/digital-workers/:id/command-audit", commandAuditMenu.Path);
+        Assert.Equal("/automation/digital-workers/command-audit", commandAuditMenu.Component);
+
+        var mcpSessionMenu = automationMenu.Children.Single(menu => menu.Path == "/automation/mcp-sessions");
+        Assert.Equal("AutomationMcpSessions", mcpSessionMenu.Meta.Title);
+        Assert.Null(mcpSessionMenu.Meta.HideInMenu);
+        Assert.Equal("/automation/mcp-sessions", mcpSessionMenu.Path);
+        Assert.Equal("/automation/mcp-sessions/index", mcpSessionMenu.Component);
 
         var promptMenu = globalConfigMenu.Children.Single(menu => menu.Path == "/global-config/prompt-templates");
         Assert.Equal("GlobalConfigPromptTemplates", promptMenu.Meta.Title);

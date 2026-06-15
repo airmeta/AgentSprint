@@ -80,7 +80,7 @@ public sealed class GitWorkspaceManager
             else
             {
                 await EnsureRemoteUrlAsync(workspacePath, repositoryUrl.Trim(), cancellationToken);
-                await EnsureRemoteUrlAsync(workspacePath, authenticatedRepositoryUrl, cancellationToken);
+                await EnsureRemoteUrlAsync(workspacePath, authenticatedRepositoryUrl, secretValues, cancellationToken);
                 try
                 {
                     await RunGitOrThrowAsync("fetch --prune origin", workspacePath, secretValues, cancellationToken);
@@ -120,6 +120,160 @@ public sealed class GitWorkspaceManager
                 Branch: normalizedBranch,
                 Commit: null,
                 Dirty: false,
+                Error: SanitizeGitMessage(ex.Message, secretValues));
+        }
+    }
+
+    /// <summary>
+    /// <para>zh-cn:在 Codex 成功完成任务后发布工作区改动。该方法先把当前本地改动提交为任务提交，再拉取远端引用并合并远端目标分支，最后推送当前分支；如果合并出现冲突，会调用调用方提供的冲突修复回调，回调只负责编辑文件，不负责提交或推送。</para>
+    /// <para>en-us:Publishes workspace changes after Codex finishes successfully. The method first commits the local task changes, then fetches remote refs, merges the remote target branch, and pushes the current branch; if the merge conflicts, it invokes the caller-provided resolver, which only edits files and does not commit or push.</para>
+    /// </summary>
+    /// <param name="workspacePath">
+    /// <para>zh-cn:已经准备好的 Git 工作区路径。</para>
+    /// <para>en-us:Prepared Git workspace path.</para>
+    /// </param>
+    /// <param name="repositoryUrl">
+    /// <para>zh-cn:平台返回的真实仓库地址，用于发布期间临时恢复和清理 origin 地址。</para>
+    /// <para>en-us:Real repository URL returned by the platform, used to restore and clean the origin URL during publishing.</para>
+    /// </param>
+    /// <param name="gitUsername">
+    /// <para>zh-cn:可选 Git 用户名，存在访问令牌时写入临时认证 URL。</para>
+    /// <para>en-us:Optional Git username, inserted into the temporary authenticated URL when an access token is available.</para>
+    /// </param>
+    /// <param name="gitAccessToken">
+    /// <para>zh-cn:可选 Git 访问令牌，仅用于本次 fetch/push 进程参数并在日志中脱敏。</para>
+    /// <para>en-us:Optional Git access token, used only for this fetch/push process invocation and redacted in logs.</para>
+    /// </param>
+    /// <param name="commitMessage">
+    /// <para>zh-cn:任务本地改动提交信息；换行会被压缩为空格。</para>
+    /// <para>en-us:Commit message for the local task changes; newlines are collapsed into spaces.</para>
+    /// </param>
+    /// <param name="conflictResolver">
+    /// <para>zh-cn:合并冲突修复回调。回调返回成功后，本方法会检查冲突标记、暂存改动、完成合并提交并推送。</para>
+    /// <para>en-us:Merge-conflict resolver callback. After it succeeds, this method checks conflict markers, stages changes, completes the merge commit, and pushes.</para>
+    /// </param>
+    /// <param name="cancellationToken">
+    /// <para>zh-cn:取消令牌。</para>
+    /// <para>en-us:Cancellation token.</para>
+    /// </param>
+    /// <returns>
+    /// <para>zh-cn:发布是否成功、是否有变更、是否已推送、冲突是否经 Codex 修复、分支、提交号和错误摘要。</para>
+    /// <para>en-us:Whether publishing succeeded, whether changes existed, whether a push occurred, whether Codex resolved conflicts, the branch, commit, and error summary.</para>
+    /// </returns>
+    public async Task<WorkspacePublishResult> PublishAsync(
+        string workspacePath,
+        string repositoryUrl,
+        string? gitUsername,
+        string? gitAccessToken,
+        string commitMessage,
+        Func<GitConflictResolutionRequest, CancellationToken, Task<GitConflictResolutionResult>> conflictResolver,
+        CancellationToken cancellationToken)
+    {
+        var authenticatedRepositoryUrl = BuildAuthenticatedUrl(repositoryUrl.Trim(), gitUsername, gitAccessToken);
+        var secretValues = new[] { gitAccessToken, authenticatedRepositoryUrl }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var currentBranch = string.Empty;
+
+        try
+        {
+            if (!Directory.Exists(Path.Combine(workspacePath, ".git")))
+            {
+                throw new InvalidOperationException("Workspace is not a Git repository.");
+            }
+
+            currentBranch = await ReadGitOutputAsync("rev-parse --abbrev-ref HEAD", workspacePath, secretValues, cancellationToken) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(currentBranch) || string.Equals(currentBranch, "HEAD", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Current Git branch could not be resolved.");
+            }
+
+            var status = await ReadGitOutputAsync("status --porcelain", workspacePath, secretValues, cancellationToken);
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                var unchangedCommit = await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
+                return new WorkspacePublishResult(
+                    true,
+                    workspacePath,
+                    HasChanges: false,
+                    Pushed: false,
+                    ConflictResolved: false,
+                    Branch: currentBranch,
+                    Commit: unchangedCommit,
+                    Error: null);
+            }
+
+            await EnsureRemoteUrlAsync(workspacePath, authenticatedRepositoryUrl, secretValues, cancellationToken);
+            try
+            {
+                await RunGitOrThrowAsync("add -A", workspacePath, secretValues, cancellationToken);
+                await RunGitOrThrowAsync($"commit -m {Quote(NormalizeCommitMessage(commitMessage))}", workspacePath, secretValues, cancellationToken);
+                await RunGitOrThrowAsync("fetch --prune origin", workspacePath, secretValues, cancellationToken);
+
+                var conflictResolved = false;
+                var merge = await ProcessCommandRunner.RunAsync(
+                    "git",
+                    $"merge --no-edit {Quote("origin/" + currentBranch)}",
+                    workspacePath,
+                    GitCommandTimeout,
+                    secretValues,
+                    cancellationToken);
+                if (!merge.Succeeded)
+                {
+                    var conflictFiles = await ReadConflictFilesAsync(workspacePath, secretValues, cancellationToken);
+                    if (conflictFiles.Count == 0)
+                    {
+                        throw new InvalidOperationException(SanitizeGitFailure(merge, secretValues));
+                    }
+
+                    var resolverResult = await conflictResolver(
+                        new GitConflictResolutionRequest(
+                            workspacePath,
+                            currentBranch,
+                            conflictFiles,
+                            "merge",
+                            SanitizeGitFailure(merge, secretValues)),
+                        cancellationToken);
+                    if (!resolverResult.Succeeded)
+                    {
+                        throw new InvalidOperationException(resolverResult.Error ?? "Codex conflict resolution failed.");
+                    }
+
+                    await RunGitOrThrowAsync("diff --check", workspacePath, secretValues, cancellationToken);
+                    await RunGitOrThrowAsync("add -A", workspacePath, secretValues, cancellationToken);
+                    await RunGitOrThrowAsync("commit --no-edit", workspacePath, secretValues, cancellationToken);
+                    conflictResolved = true;
+                }
+
+                await RunGitOrThrowAsync($"push origin {Quote(currentBranch)}", workspacePath, secretValues, cancellationToken);
+                var pushedCommit = await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
+                return new WorkspacePublishResult(
+                    true,
+                    workspacePath,
+                    HasChanges: true,
+                    Pushed: true,
+                    ConflictResolved: conflictResolved,
+                    Branch: currentBranch,
+                    Commit: pushedCommit,
+                    Error: null);
+            }
+            finally
+            {
+                await TryEnsureRemoteUrlAsync(workspacePath, repositoryUrl.Trim(), cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new WorkspacePublishResult(
+                false,
+                workspacePath,
+                HasChanges: true,
+                Pushed: false,
+                ConflictResolved: false,
+                Branch: NormalizeOptional(currentBranch),
+                Commit: null,
                 Error: SanitizeGitMessage(ex.Message, secretValues));
         }
     }
@@ -164,10 +318,19 @@ public sealed class GitWorkspaceManager
         string repositoryUrl,
         CancellationToken cancellationToken)
     {
-        var currentUrl = await ReadGitOutputAsync("remote get-url origin", workspacePath, cancellationToken);
+        await EnsureRemoteUrlAsync(workspacePath, repositoryUrl, Array.Empty<string>(), cancellationToken);
+    }
+
+    private static async Task EnsureRemoteUrlAsync(
+        string workspacePath,
+        string repositoryUrl,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        var currentUrl = await ReadGitOutputAsync("remote get-url origin", workspacePath, secretValues, cancellationToken);
         if (!string.Equals(currentUrl, repositoryUrl, StringComparison.Ordinal))
         {
-            await RunGitOrThrowAsync($"remote set-url origin {Quote(repositoryUrl)}", workspacePath, cancellationToken);
+            await RunGitOrThrowAsync($"remote set-url origin {Quote(repositoryUrl)}", workspacePath, secretValues, cancellationToken);
         }
     }
 
@@ -198,7 +361,13 @@ public sealed class GitWorkspaceManager
             return;
         }
 
-        var checkout = await ProcessCommandRunner.RunAsync("git", $"checkout {Quote(branch)}", workspacePath, GitCommandTimeout, cancellationToken);
+        var checkout = await ProcessCommandRunner.RunAsync(
+            "git",
+            $"checkout {Quote(branch)}",
+            workspacePath,
+            GitCommandTimeout,
+            secretValues,
+            cancellationToken);
         if (checkout.Succeeded)
         {
             return;
@@ -224,7 +393,13 @@ public sealed class GitWorkspaceManager
             throw new InvalidOperationException("Current Git branch could not be resolved.");
         }
 
-        var upstream = await ProcessCommandRunner.RunAsync("git", "rev-parse --abbrev-ref --symbolic-full-name @{u}", workspacePath, GitCommandTimeout, cancellationToken);
+        var upstream = await ProcessCommandRunner.RunAsync(
+            "git",
+            "rev-parse --abbrev-ref --symbolic-full-name @{u}",
+            workspacePath,
+            GitCommandTimeout,
+            secretValues,
+            cancellationToken);
         if (upstream.Succeeded)
         {
             await RunGitOrThrowAsync("pull --ff-only", workspacePath, secretValues, cancellationToken);
@@ -242,6 +417,22 @@ public sealed class GitWorkspaceManager
     {
         var result = await RunGitOrThrowAsync(arguments, workspacePath, secretValues, cancellationToken);
         return NormalizeOptional(result.Stdout);
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadConflictFilesAsync(
+        string workspacePath,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        var output = await ReadGitOutputAsync("diff --name-only --diff-filter=U", workspacePath, secretValues, cancellationToken);
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return [];
+        }
+
+        return output
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
     }
 
     private static Task<string?> ReadGitOutputAsync(
@@ -266,7 +457,13 @@ public sealed class GitWorkspaceManager
         IReadOnlyCollection<string> secretValues,
         CancellationToken cancellationToken)
     {
-        var result = await ProcessCommandRunner.RunAsync("git", arguments, workingDirectory, GitCommandTimeout, cancellationToken);
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            arguments,
+            workingDirectory,
+            GitCommandTimeout,
+            secretValues,
+            cancellationToken);
         if (result.Succeeded)
         {
             return result;
@@ -306,6 +503,18 @@ public sealed class GitWorkspaceManager
         }
 
         return message;
+    }
+
+    private static string SanitizeGitFailure(CommandProbeResult result, IReadOnlyCollection<string> secretValues)
+    {
+        var error = NormalizeOptional(result.Stderr) ?? NormalizeOptional(result.Stdout) ?? result.Error ?? "Git command failed.";
+        return SanitizeGitMessage(error, secretValues);
+    }
+
+    private static string NormalizeCommitMessage(string message)
+    {
+        message = string.Join(" ", message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return string.IsNullOrWhiteSpace(message) ? "AgentSprint worker task update" : message;
     }
 
     private static string? NormalizeOptional(string? value)

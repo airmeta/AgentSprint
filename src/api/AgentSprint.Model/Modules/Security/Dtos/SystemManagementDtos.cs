@@ -143,6 +143,7 @@ public sealed record UpsertAiPlatformRequest(
     string Name,
     string Provider,
     string Model,
+    string? ApiKey,
     string? OpenAiBaseUrl,
     string? Description,
     int Sort,
@@ -154,9 +155,19 @@ public sealed record AiPlatformResult(
     string Name,
     string Provider,
     string Model,
+    bool HasApiKey,
     string? OpenAiBaseUrl,
     string? Description,
     int Sort,
+    int Status);
+
+public sealed record AiPlatformRuntimeResult(
+    string Code,
+    string Name,
+    string Provider,
+    string Model,
+    string? ApiKey,
+    string? OpenAiBaseUrl,
     int Status);
 
 public sealed record UpsertUserGroupRequest(

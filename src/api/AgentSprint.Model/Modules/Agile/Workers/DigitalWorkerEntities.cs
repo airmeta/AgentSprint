@@ -66,6 +66,9 @@ public sealed class DigitalWorkerEntity : EntityBase
     public string? SmokePrompt { get; set; }
 
     [MaxLength(64)]
+    public string AiPlatformCode { get; set; } = "openai";
+
+    [MaxLength(64)]
     public string CodexProvider { get; set; } = "openai";
 
     [MaxLength(128)]

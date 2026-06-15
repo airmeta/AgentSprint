@@ -24,6 +24,7 @@ export namespace AutomationApi {
   export interface DigitalWorker {
     agentTokenId?: string;
     agentUserId: string;
+    aiPlatformCode: string;
     code: string;
     createTime: string;
     createdBy: string;
@@ -64,6 +65,7 @@ export namespace AutomationApi {
   export interface SaveDigitalWorkerRequest {
     agentTokenId?: string;
     agentUserId: string;
+    aiPlatformCode?: string;
     code?: string;
     description?: string;
     endpointIds?: string[];
@@ -207,6 +209,21 @@ export function createWorkerCommandApi(data: {
   workerId: string;
 }) {
   return requestClient.post<AutomationApi.WorkerCommand>('/workers/commands', data);
+}
+
+export function listWorkerCommandsApi(params?: {
+  commandType?: string;
+  sessionId?: string;
+  status?: string;
+  workerId?: string;
+}) {
+  return requestClient.get<AutomationApi.WorkerCommand[]>('/workers/commands', {
+    params: normalizeQuery(params),
+  });
+}
+
+export function replayWorkerCommandApi(commandId: string) {
+  return requestClient.post<AutomationApi.WorkerCommand>(`/workers/commands/${commandId}/replay`);
 }
 
 export function listWorkerSessionsApi(params?: { status?: string; workerId?: string }) {

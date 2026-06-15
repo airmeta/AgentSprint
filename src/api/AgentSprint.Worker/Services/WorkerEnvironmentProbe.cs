@@ -41,6 +41,9 @@ public sealed class WorkerEnvironmentProbe
         var codexHome = Path.GetFullPath(_options.CodexHome);
         var workspaceRoot = Path.GetFullPath(_options.WorkspaceRoot);
         var runsRoot = Path.GetFullPath(_options.RunsRoot);
+        WorkerDiagnostics.Info(
+            "Worker环境探针开始",
+            $"workerId={_options.WorkerId}, codexHome={codexHome}, workspaceRoot={workspaceRoot}, runsRoot={runsRoot}, codexExecutable={_options.CodexExecutable}");
 
         Directory.CreateDirectory(workspaceRoot);
         Directory.CreateDirectory(runsRoot);
@@ -80,6 +83,9 @@ public sealed class WorkerEnvironmentProbe
         LogProbeResult("dotnet --version", dotnetVersion);
         LogProbeResult("node --version", nodeVersion);
         LogProbeResult("codex login status", codexLoginStatus);
+        WorkerDiagnostics.Info(
+            "Worker环境探针完成",
+            $"canEnterWorkLoop={codexVersion.Succeeded}, isCodexAuthenticated={codexLoginStatus.Succeeded}, configTomlExists={configTomlExists}, codexVersionExit={codexVersion.ExitCode?.ToString() ?? "<null>"}, codexLoginExit={codexLoginStatus.ExitCode?.ToString() ?? "<null>"}, codexLoginStdout={WorkerDiagnostics.Trim(codexLoginStatus.Stdout)}, codexLoginStderr={WorkerDiagnostics.Trim(codexLoginStatus.Stderr)}, codexLoginError={codexLoginStatus.Error ?? string.Empty}");
 
         return new WorkerEnvironmentSnapshot(
             codexVersion,
@@ -98,6 +104,9 @@ public sealed class WorkerEnvironmentProbe
         if (result.Succeeded)
         {
             var output = TrimForLog(result.Stdout);
+            WorkerDiagnostics.Info(
+                "Worker环境探针命令成功",
+                $"probeName={name}, exitCode={result.ExitCode}, stdout={WorkerDiagnostics.Trim(result.Stdout)}, stderr={WorkerDiagnostics.Trim(result.Stderr)}");
             try
             {
                 AppRealization.TraceLog.Write(
@@ -122,6 +131,9 @@ public sealed class WorkerEnvironmentProbe
         }
 
         var stderr = TrimForLog(result.Stderr);
+        WorkerDiagnostics.Warn(
+            "Worker环境探针命令失败",
+            $"probeName={name}, exitCode={result.ExitCode?.ToString() ?? "<null>"}, timedOut={result.TimedOut}, error={result.Error ?? string.Empty}, stdout={WorkerDiagnostics.Trim(result.Stdout)}, stderr={WorkerDiagnostics.Trim(result.Stderr)}");
         try
         {
             AppRealization.TraceLog.Write(

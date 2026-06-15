@@ -101,6 +101,7 @@ public sealed record WorkerRuntimeConfigResult(
     [property: JsonPropertyName("codexProvider")] string CodexProvider,
     [property: JsonPropertyName("codexModel")] string CodexModel,
     [property: JsonPropertyName("openAiBaseUrl")] string? OpenAiBaseUrl,
+    [property: JsonPropertyName("openAiApiKey")] string? OpenAiApiKey,
     [property: JsonPropertyName("agentToken")] string? AgentToken,
     [property: JsonPropertyName("configVersion")] int ConfigVersion);
 

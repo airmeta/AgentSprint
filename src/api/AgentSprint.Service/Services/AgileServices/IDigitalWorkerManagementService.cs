@@ -53,6 +53,22 @@ public interface IDigitalWorkerManagementService
     Task<WorkerCommandResult> CreateCommandAsync(CreateWorkerCommandRequest request, string userId);
 
     /// <summary>
+    /// zh-cn: 查询 Worker 命令审计列表，支持按数字员工、会话、命令类型和状态过滤，供管理端查看历史命令与回放来源。
+    /// en-us: Lists Worker commands for audit views with optional worker, session, command-type, and status filters.
+    /// </summary>
+    Task<IReadOnlyList<WorkerCommandResult>> ListCommandsAsync(
+        string? workerId = null,
+        string? sessionId = null,
+        string? commandType = null,
+        string? status = null);
+
+    /// <summary>
+    /// zh-cn: 复制历史 Worker 命令并创建新的待领取命令，用于按原命令类型和载荷进行回放，不复用旧会话和执行状态。
+    /// en-us: Replays a historical Worker command by copying its type and payload into a new pending command without reusing the old session or execution state.
+    /// </summary>
+    Task<WorkerCommandResult> ReplayCommandAsync(string commandId, string userId);
+
+    /// <summary>
     /// zh-cn: 查询 Worker 会话列表，支持按 Worker 和状态过滤。
     /// en-us: Lists Worker sessions with optional worker and status filters.
     /// </summary>

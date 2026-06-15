@@ -72,6 +72,31 @@ public sealed class DigitalWorkerManagementController : ControllerBase
         return Execute(() => _service.CreateCommandAsync(request, GetUserId()));
     }
 
+    /// <summary>
+    /// zh-cn: 查询 Worker 命令审计列表，管理端可按数字员工、会话、命令类型和状态过滤历史命令。
+    /// en-us: Lists Worker commands for the admin audit view with optional worker, session, command-type, and status filters.
+    /// </summary>
+    [HttpGet("commands")]
+    public async Task<ApiResponse<IReadOnlyList<WorkerCommandResult>>> ListCommands(
+        [FromQuery] string? workerId,
+        [FromQuery] string? sessionId,
+        [FromQuery] string? commandType,
+        [FromQuery] string? status)
+    {
+        return ApiResponse<IReadOnlyList<WorkerCommandResult>>.Ok(
+            await _service.ListCommandsAsync(workerId, sessionId, commandType, status));
+    }
+
+    /// <summary>
+    /// zh-cn: 回放历史 Worker 命令，复制原命令类型和载荷并创建一条新的待领取命令。
+    /// en-us: Replays a historical Worker command by copying its type and payload into a new pending command.
+    /// </summary>
+    [HttpPost("commands/{commandId}/replay")]
+    public Task<ActionResult<ApiResponse<WorkerCommandResult>>> ReplayCommand(string commandId)
+    {
+        return Execute(() => _service.ReplayCommandAsync(commandId, GetUserId()));
+    }
+
     [HttpGet("sessions")]
     public async Task<ApiResponse<IReadOnlyList<WorkerSessionResult>>> ListSessions(
         [FromQuery] string? workerId,

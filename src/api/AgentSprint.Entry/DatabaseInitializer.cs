@@ -60,14 +60,19 @@ public sealed class DatabaseInitializer : IHostedService
         }
 
         await dbContext.Database.EnsureCreatedAsync(cancellationToken);
-        await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
-        await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
-        await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
-        await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
-        await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
-        await EnsureTestTablesAsync(dbContext, cancellationToken);
-        await SeedAdminAsync(dbContext, cancellationToken);
-        await SeedSecurityDataAsync(dbContext, cancellationToken);
+        if (dbContext.Database.IsRelational())
+        {
+            await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
+            await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
+            await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
+            await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
+            await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
+            await EnsureTestTablesAsync(dbContext, cancellationToken);
+        }
+
+        var seedPlan = await CreateSeedPlanAsync(dbContext, cancellationToken);
+        await SeedAdminAsync(dbContext, seedPlan, cancellationToken);
+        await SeedSecurityDataAsync(dbContext, seedPlan, cancellationToken);
     }
 
     private static async Task ApplyExistingDatabaseEvolutionAsync(
@@ -84,28 +89,40 @@ public sealed class DatabaseInitializer : IHostedService
             await EnsureTestTablesAsync(dbContext, cancellationToken);
         }
 
-        await SeedDashboardMenuAsync(dbContext, cancellationToken);
-        await SeedMvpMenuAsync(dbContext, cancellationToken);
-        await SeedSystemMenuAsync(dbContext, cancellationToken);
-
-        await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
-        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
-        await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
+        var seedPlan = await CreateSeedPlanAsync(dbContext, cancellationToken);
+        await SeedSecurityDataAsync(dbContext, seedPlan, cancellationToken);
         await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task SeedSecurityDataAsync(
         DefaultDbContext dbContext,
+        DatabaseSeedPlan seedPlan,
         CancellationToken cancellationToken)
     {
-        await SeedDashboardMenuAsync(dbContext, cancellationToken);
-        await SeedMvpMenuAsync(dbContext, cancellationToken);
-        await SeedSystemMenuAsync(dbContext, cancellationToken);
+        if (seedPlan.SeedMenus)
+        {
+            await SeedDashboardMenuAsync(dbContext, cancellationToken);
+            await SeedMvpMenuAsync(dbContext, cancellationToken);
+            await SeedSystemMenuAsync(dbContext, cancellationToken);
+        }
 
-        await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
-        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
-        await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
+        if (seedPlan.SeedSystemConfigurations)
+        {
+            await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
+        }
+
+        if (seedPlan.SeedDictionaries)
+        {
+            await SeedDictionariesAsync(dbContext, cancellationToken);
+        }
+
+        await SeedRuntimeManagementSamplesAsync(dbContext, seedPlan, cancellationToken);
+        if (seedPlan.SeedEntityAssociations)
+        {
+            await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -140,6 +157,48 @@ public sealed class DatabaseInitializer : IHostedService
             return false;
         }
     }
+
+    private static async Task<DatabaseSeedPlan> CreateSeedPlanAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return new DatabaseSeedPlan(
+            SeedAdmin: await IsEmptyAsync(dbContext.Users, cancellationToken) &&
+                await IsEmptyAsync(dbContext.Roles, cancellationToken) &&
+                await IsEmptyAsync(dbContext.Menus, cancellationToken) &&
+                await IsEmptyAsync(dbContext.Permissions, cancellationToken) &&
+                await IsEmptyAsync(dbContext.UserRoles, cancellationToken) &&
+                await IsEmptyAsync(dbContext.RoleMenus, cancellationToken) &&
+                await IsEmptyAsync(dbContext.RolePermissions, cancellationToken),
+            SeedMenus: await IsEmptyAsync(dbContext.Menus, cancellationToken) &&
+                await IsEmptyAsync(dbContext.RoleMenus, cancellationToken) &&
+                await IsEmptyAsync(dbContext.Permissions, cancellationToken) &&
+                await IsEmptyAsync(dbContext.RolePermissions, cancellationToken),
+            SeedSystemConfigurations: await IsEmptyAsync(dbContext.SystemConfigurations, cancellationToken),
+            SeedDictionaries: await IsEmptyAsync(dbContext.DictionaryTypes, cancellationToken) &&
+                await IsEmptyAsync(dbContext.DictionaryItems, cancellationToken),
+            SeedRuntimeSamples: await IsEmptyAsync(dbContext.RuntimeEnvironments, cancellationToken) &&
+                await IsEmptyAsync(dbContext.RuntimeEnvironmentContainers, cancellationToken),
+            SeedPromptTemplates: await IsEmptyAsync(dbContext.PromptTemplates, cancellationToken),
+            SeedEntityAssociations: await IsEmptyAsync(dbContext.EntityAssociations, cancellationToken));
+    }
+
+    private static async Task<bool> IsEmptyAsync<TEntity>(
+        DbSet<TEntity> set,
+        CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        return !await set.AnyAsync(cancellationToken);
+    }
+
+    private sealed record DatabaseSeedPlan(
+        bool SeedAdmin,
+        bool SeedMenus,
+        bool SeedSystemConfigurations,
+        bool SeedDictionaries,
+        bool SeedRuntimeSamples,
+        bool SeedPromptTemplates,
+        bool SeedEntityAssociations);
 
     /// <summary>
     /// zh-cn: 托管服务停止时无需回收外部资源，因此返回已完成任务。
@@ -881,6 +940,7 @@ public sealed class DatabaseInitializer : IHostedService
               SandboxMode varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'workspace-write',
               RunSmokeOnStartup tinyint(1) NOT NULL DEFAULT 0,
               SmokePrompt varchar(1024) CHARACTER SET utf8mb4 NULL,
+              AiPlatformCode varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'openai',
               CodexProvider varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'openai',
               CodexModel varchar(128) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'gpt-5.4',
               OpenAiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL,
@@ -1069,6 +1129,12 @@ public sealed class DatabaseInitializer : IHostedService
             "digital_worker",
             "SmokePrompt",
             "ALTER TABLE digital_worker ADD COLUMN SmokePrompt varchar(1024) CHARACTER SET utf8mb4 NULL AFTER RunSmokeOnStartup;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "AiPlatformCode",
+            "ALTER TABLE digital_worker ADD COLUMN AiPlatformCode varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'openai' AFTER SmokePrompt;",
             cancellationToken);
         await EnsureColumnAsync(
             dbContext,
@@ -1726,9 +1792,12 @@ public sealed class DatabaseInitializer : IHostedService
     }
 
 
-    private static async Task SeedAdminAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
+    private static async Task SeedAdminAsync(
+        DefaultDbContext dbContext,
+        DatabaseSeedPlan seedPlan,
+        CancellationToken cancellationToken)
     {
-        if (await dbContext.Users.AnyAsync(entity => entity.Username == "admin", cancellationToken))
+        if (!seedPlan.SeedAdmin)
         {
             return;
         }
@@ -2102,8 +2171,16 @@ public sealed class DatabaseInitializer : IHostedService
 
     private static async Task SeedRuntimeManagementSamplesAsync(
         DefaultDbContext dbContext,
+        DatabaseSeedPlan seedPlan,
         CancellationToken cancellationToken)
     {
+        if (!seedPlan.SeedRuntimeSamples && !seedPlan.SeedPromptTemplates)
+        {
+            return;
+        }
+
+        if (seedPlan.SeedRuntimeSamples)
+        {
         var environment = await dbContext.RuntimeEnvironments.FirstOrDefaultAsync(
             entity => entity.Code == "test" && entity.ProjectId == null,
             cancellationToken);
@@ -2140,7 +2217,10 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-admin", "192.168.80.101", 5999, 80, 10, cancellationToken);
         await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-api", "192.168.80.101", 5000, 5000, 20, cancellationToken);
         await EnsureRuntimeContainerAsync(dbContext, environment.Id, "agentsprint-mcp", "192.168.80.101", 5010, 5010, 30, cancellationToken);
+        }
 
+        if (seedPlan.SeedPromptTemplates)
+        {
         await EnsurePromptTemplateAsync(
             dbContext,
             "mcp_setup",
@@ -2165,6 +2245,7 @@ public sealed class DatabaseInitializer : IHostedService
             "AgentSprint.Worker 通过 API 获取任务上下文后写入 Codex 的数字员工提示词。",
             30,
             cancellationToken);
+        }
     }
 
     private static async Task EnsurePromptTemplateAsync(
@@ -2379,9 +2460,15 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsureConfigurationAsync(
             dbContext,
             "AiPlatform:openai",
-            """{"name":"OpenAI","provider":"openai","model":"gpt-5.4","openAiBaseUrl":"https://api.openai.com/v1","sort":10}""",
+            """{"name":"OpenAI","provider":"openai","model":"gpt-5.4","apiKey":null,"openAiBaseUrl":"https://api.openai.com/v1","sort":10}""",
             "Default AI platform used by digital workers.",
             cancellationToken);
+    }
+
+    private static async Task SeedDictionariesAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
         await EnsureDictionaryTypeAsync(
             dbContext,
             "frontend_tech_stack",
@@ -2563,6 +2650,57 @@ public sealed class DatabaseInitializer : IHostedService
         var runtimeEnvironmentsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, operationManagement.Id, "/operations/environments", "OperationEnvironments", "/system/runtime-environments/index", "lucide:server-cog", 20, cancellationToken);
         await DisableMenuAsync(dbContext, "/global-config/environments", cancellationToken);
 
+        var codeReview = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/code-review", cancellationToken);
+        if (codeReview is null)
+        {
+            codeReview = new MenuEntity { Path = "/code-review" };
+            dbContext.Menus.Add(codeReview);
+        }
+
+        PreserveMenuName(codeReview, "CodeReviewManagement");
+        codeReview.Icon = "lucide:scan-search";
+        codeReview.Sort = 92;
+        codeReview.Type = 0;
+        codeReview.Status = 1;
+        codeReview.IsDelete = 0;
+
+        await EnsureRoleMenuAsync(dbContext, role.Id, codeReview.Id, cancellationToken);
+        await EnsureAssociationAsync(
+            dbContext,
+            role.Id,
+            codeReview.Id,
+            SecurityAssociationTypes.RoleMenu,
+            cancellationToken);
+
+        var codeReviewTasksMenu = await EnsureSystemMenuAsync(dbContext, role.Id, codeReview.Id, "/code-review/tasks", "CodeReviewTasks", "/code-review/tasks/index", "lucide:list-checks", 10, cancellationToken);
+        var codeReviewResultsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, codeReview.Id, "/code-review/results", "CodeReviewResults", "/code-review/results/index", "lucide:clipboard-check", 20, cancellationToken);
+
+        var automation = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/automation", cancellationToken);
+        if (automation is null)
+        {
+            automation = new MenuEntity { Path = "/automation" };
+            dbContext.Menus.Add(automation);
+        }
+
+        PreserveMenuName(automation, "AutomationManagement");
+        automation.Icon = "lucide:bot";
+        automation.Sort = 94;
+        automation.Type = 0;
+        automation.Status = 1;
+        automation.IsDelete = 0;
+
+        await EnsureRoleMenuAsync(dbContext, role.Id, automation.Id, cancellationToken);
+        await EnsureAssociationAsync(
+            dbContext,
+            role.Id,
+            automation.Id,
+            SecurityAssociationTypes.RoleMenu,
+            cancellationToken);
+
+        var digitalWorkersMenu = await EnsureSystemMenuAsync(dbContext, role.Id, automation.Id, "/automation/digital-workers", "AutomationDigitalWorkers", "/automation/digital-workers/index", "lucide:bot", 10, cancellationToken);
+        await EnsureHiddenSystemMenuAsync(dbContext, role.Id, automation.Id, "/automation/digital-workers/:id/command-audit", "AutomationDigitalWorkerCommandAudit", "/automation/digital-workers/command-audit", "lucide:history", 11, cancellationToken);
+        var mcpSessionsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, automation.Id, "/automation/mcp-sessions", "AutomationMcpSessions", "/automation/mcp-sessions/index", "lucide:monitor-dot", 20, cancellationToken);
+
         var globalConfig = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/global-config", cancellationToken);
         if (globalConfig is null)
         {
@@ -2572,7 +2710,7 @@ public sealed class DatabaseInitializer : IHostedService
 
         PreserveMenuName(globalConfig, "GlobalConfig");
         globalConfig.Icon = "lucide:sliders-horizontal";
-        globalConfig.Sort = 92;
+        globalConfig.Sort = 93;
         globalConfig.Type = 0;
         globalConfig.Status = 1;
         globalConfig.IsDelete = 0;
@@ -2623,6 +2761,10 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsurePermissionAsync(dbContext, role.Id, "System:AiPlatform:Manage", "AI platform management", aiPlatformsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:PromptTemplate:Manage", "Prompt template management", promptTemplatesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Configuration:Manage", "System configuration management", configurationsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "CodeReview:Task:Manage", "Code review task management", codeReviewTasksMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "CodeReview:Result:Manage", "Code review result management", codeReviewResultsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Automation:DigitalWorker:Manage", "Digital worker management", digitalWorkersMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Automation:McpSession:Manage", "MCP session management", mcpSessionsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "Security:AgentToken:Manage", "Agent token management", agentTokensMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Organization:Manage", "Organization management", system.Id, cancellationToken);
     }
@@ -2707,12 +2849,12 @@ public sealed class DatabaseInitializer : IHostedService
         {
             configuration = new SystemConfigurationEntity { Key = key };
             dbContext.SystemConfigurations.Add(configuration);
+            configuration.Value = value;
+            configuration.Description = description;
+            configuration.Status = 1;
+            configuration.IsDelete = 0;
         }
 
-        configuration.Value = value;
-        configuration.Description = description;
-        configuration.Status = 1;
-        configuration.IsDelete = 0;
         return configuration;
     }
 

@@ -108,6 +108,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
         await _apiClient.ProbeAsync(stoppingToken);
         if (_agentSprintOptions.PullRuntimeConfigOnStartup)
         {
+            WorkerDiagnostics.Info("Worker拉取运行配置", $"apiBaseUrl={_agentSprintOptions.ApiBaseUrl}");
             var config = await _apiClient.GetRuntimeConfigAsync(stoppingToken);
             await _runtimeConfigApplier.ApplyAsync(config, stoppingToken);
             _apiClient.UseAgentToken(config.AgentToken);
@@ -115,6 +116,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
 
         var snapshot = await _environmentProbe.ProbeAsync(stoppingToken);
         var session = await RegisterSessionAsync(snapshot, stoppingToken);
+        WorkerDiagnostics.Info(
+            "Worker会话注册完成",
+            $"sessionId={session.Id}, workerId={session.WorkerId}, status={session.Status}, canEnterWorkLoop={snapshot.CanEnterWorkLoop}, isCodexAuthenticated={snapshot.IsCodexAuthenticated}");
         await ReportEventAsync(session.Id, null, "worker_probe_finished", "info", "Worker environment probe finished.", stoppingToken);
         await ReportAkkaClusterStartedAsync(session.Id, stoppingToken);
 
@@ -177,6 +181,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
                         ? "Codex CLI is unavailable."
                         : null),
                 stoppingToken);
+            WorkerDiagnostics.Info(
+                "Worker心跳完成",
+                $"sessionId={session.Id}, heartbeatStatus={heartbeatStatus}, nextIntervalSeconds={heartbeat.NextIntervalSeconds}, commandCount={heartbeat.Commands.Count}, commands={string.Join(",", heartbeat.Commands.Select(item => item.CommandType + ":" + item.Id + ":" + item.Status))}");
 
             foreach (var command in heartbeat.Commands)
             {
@@ -222,7 +229,11 @@ public sealed class AgentSprintWorkerService : BackgroundService
         WorkerEnvironmentSnapshot snapshot,
         CancellationToken stoppingToken)
     {
+        WorkerDiagnostics.Info(
+            "Worker收到命令",
+            $"commandId={command.Id}, commandType={command.CommandType}, commandStatus={command.Status}, sessionId={sessionId}, payload={WorkerDiagnostics.TrimAndRedact(command.PayloadJson, 2000)}");
         await _apiClient.AckCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
+        WorkerDiagnostics.Info("Worker命令ACK完成", $"commandId={command.Id}, commandType={command.CommandType}, sessionId={sessionId}");
 
         if (command.CommandType is WorkerPlatformCommandTypes.ReloadConfig or
             WorkerPlatformCommandTypes.StopAfterCurrent or
@@ -233,6 +244,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
 
         if (!snapshot.CanEnterWorkLoop || !snapshot.IsCodexAuthenticated)
         {
+            WorkerDiagnostics.Warn(
+                "Worker命令执行前置检查失败",
+                $"commandId={command.Id}, canEnterWorkLoop={snapshot.CanEnterWorkLoop}, isCodexAuthenticated={snapshot.IsCodexAuthenticated}");
             await FinishFailedRunWithoutCodexAsync(
                 command,
                 sessionId,
@@ -379,6 +393,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
             FinishedMessage: "Smoke run finished.",
             Target: null,
             WorkspaceResult: null,
+            GitUsername: null,
+            GitAccessToken: null,
             stoppingToken);
     }
 
@@ -389,6 +405,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
         CancellationToken stoppingToken)
     {
         var target = ResolveCommandTarget(command);
+        WorkerDiagnostics.Info(
+            "Worker解析任务目标",
+            $"commandId={command.Id}, runType={target.RunType}, targetType={target.TargetType ?? string.Empty}, targetId={target.TargetId ?? string.Empty}, projectCode={target.ProjectCode ?? string.Empty}, repositoryUrl={target.RepositoryUrl ?? string.Empty}, branch={target.Branch ?? string.Empty}");
         if (target.TargetId is null || target.TargetType is null)
         {
             await FinishFailedRunWithoutCodexAsync(
@@ -405,13 +424,41 @@ public sealed class AgentSprintWorkerService : BackgroundService
         }
 
         var runId = $"{target.RunType}-{target.TargetId}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
-        var prompt = await _apiClient.GetWorkPromptAsync(target.TargetType, target.TargetId, stoppingToken);
+        WorkerDiagnostics.Info("Worker获取任务提示词开始", $"commandId={command.Id}, runId={runId}, targetType={target.TargetType}, targetId={target.TargetId}");
+        WorkerPromptResult prompt;
+        try
+        {
+            prompt = await _apiClient.GetWorkPromptAsync(target.TargetType, target.TargetId, stoppingToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Warn(
+                "Worker获取任务提示词失败",
+                $"commandId={command.Id}, runId={runId}, targetType={target.TargetType}, targetId={target.TargetId}, error={ex.Message}");
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                target.RunType,
+                target.TargetType,
+                target.TargetId,
+                null,
+                ex.Message,
+                stoppingToken);
+            return;
+        }
+        WorkerDiagnostics.Info(
+            "Worker获取任务提示词完成",
+            $"commandId={command.Id}, runId={runId}, targetType={prompt.TargetType}, targetId={prompt.TargetId}, templateCode={prompt.TemplateCode}, promptLength={prompt.Prompt.Length}, contextProjectCode={prompt.Context?.ProjectCode ?? string.Empty}, repositoryUrl={prompt.Context?.RepositoryUrl ?? string.Empty}, defaultBranch={prompt.Context?.RepositoryDefaultBranch ?? string.Empty}, hasGitAccessToken={!string.IsNullOrWhiteSpace(prompt.Context?.GitAccessToken)}");
         var projectCode = ResolveProjectCode(target, prompt);
         var workspace = ResolveWorkWorkspace(snapshot.WorkspaceRoot, projectCode);
         var repositoryUrl = ResolveRepositoryUrl(target, prompt);
         var branch = ResolveBranch(target, prompt);
         var gitUsername = ResolveGitUsername(target, prompt, repositoryUrl);
         var gitAccessToken = ResolveGitAccessToken(target, prompt, repositoryUrl);
+        WorkerDiagnostics.Info(
+            "Worker准备Git工作区开始",
+            $"runId={runId}, workspaceRoot={snapshot.WorkspaceRoot}, projectCode={projectCode ?? string.Empty}, repositoryUrl={repositoryUrl ?? string.Empty}, branch={branch ?? string.Empty}, hasGitUsername={!string.IsNullOrWhiteSpace(gitUsername)}, hasGitAccessToken={!string.IsNullOrWhiteSpace(gitAccessToken)}");
         var workspaceResult = await _gitWorkspaceManager.PrepareAsync(
             snapshot.WorkspaceRoot,
             projectCode,
@@ -421,6 +468,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
             gitAccessToken,
             stoppingToken);
         workspace = workspaceResult.WorkspacePath;
+        WorkerDiagnostics.Info(
+            "Worker准备Git工作区完成",
+            $"runId={runId}, succeeded={workspaceResult.Succeeded}, repositoryAvailable={workspaceResult.RepositoryAvailable}, workspacePath={workspaceResult.WorkspacePath}, branch={workspaceResult.Branch ?? string.Empty}, commit={workspaceResult.Commit ?? string.Empty}, dirty={workspaceResult.Dirty}, error={workspaceResult.Error ?? string.Empty}");
 
         if (!workspaceResult.Succeeded)
         {
@@ -454,6 +504,22 @@ public sealed class AgentSprintWorkerService : BackgroundService
             return;
         }
 
+        if (workspaceResult.Dirty)
+        {
+            var blockedRun = await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                target.RunType,
+                target.TargetType,
+                target.TargetId,
+                workspace,
+                "Project workspace has uncommitted changes before task execution; Worker blocked to avoid mixing stale local changes into this run.",
+                stoppingToken);
+            await ReportWorkspacePreparedAsync(sessionId, blockedRun.Id, workspaceResult, CancellationToken.None);
+            return;
+        }
+
         var paths = _runLogger.ResolvePaths(runId);
         var executionPrompt = BuildCodexExecutionPrompt(
             prompt.Prompt,
@@ -465,6 +531,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
             target,
             projectCode,
             workspaceResult);
+        WorkerDiagnostics.Info(
+            "Worker构建Codex提示词完成",
+            $"runId={runId}, promptLength={executionPrompt.Length}, promptPath={paths.PromptPath}, workspace={workspace}");
         var request = new CodexRunRequest(
             runId,
             workspace,
@@ -488,6 +557,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
             $"{target.DisplayName} run finished.",
             target,
             workspaceResult,
+            gitUsername,
+            gitAccessToken,
             stoppingToken);
     }
 
@@ -504,11 +575,20 @@ public sealed class AgentSprintWorkerService : BackgroundService
         string FinishedMessage,
         WorkerCommandTarget? Target,
         WorkspacePreparationResult? WorkspaceResult,
+        string? GitUsername,
+        string? GitAccessToken,
         CancellationToken stoppingToken)
     {
+        WorkerDiagnostics.Info(
+            "Worker启动平台Codex运行",
+            $"commandId={command.Id}, runType={RunType}, targetType={TargetType ?? string.Empty}, targetId={TargetId ?? string.Empty}, localRunId={request.RunId}, workingDirectory={request.WorkingDirectory}, promptPath={paths.PromptPath}, stdoutPath={paths.StdoutPath}, stderrPath={paths.StderrPath}, finalPath={paths.FinalPath}");
         await _apiClient.StartCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
+        WorkerDiagnostics.Info("Worker命令START完成", $"commandId={command.Id}, commandType={command.CommandType}, sessionId={sessionId}");
         if (!snapshot.CanEnterWorkLoop)
         {
+            WorkerDiagnostics.Warn(
+                "Worker阻止Codex运行",
+                $"commandId={command.Id}, localRunId={request.RunId}, reason=Codex CLI is unavailable.");
             await FinishFailedRunWithoutCodexAsync(
                 command,
                 sessionId,
@@ -543,6 +623,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     paths.FinalPath,
                     paths.ManifestPath),
                 stoppingToken);
+            WorkerDiagnostics.Info(
+                "平台Run已创建",
+                $"platformRunId={platformRun.Id}, localRunId={request.RunId}, status={platformRun.Status}, workerId={platformRun.WorkerId}, sessionId={platformRun.SessionId}");
 
             if (WorkspaceResult is not null)
             {
@@ -550,12 +633,53 @@ public sealed class AgentSprintWorkerService : BackgroundService
             }
 
             await ReportEventAsync(sessionId, platformRun.Id, "codex_started", "info", StartedMessage, stoppingToken);
+            WorkerDiagnostics.Info("Codex开始事件已上报", $"platformRunId={platformRun.Id}, localRunId={request.RunId}, message={StartedMessage}");
             runCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             heartbeatTask = MaintainBusyHeartbeatAsync(sessionId, platformRun.Id, runCancellation, stoppingToken);
+            WorkerDiagnostics.Info("Codex本地执行开始", $"platformRunId={platformRun.Id}, localRunId={request.RunId}");
             var result = await _codexProcessRunner.RunAsync(request, runCancellation.Token);
+            WorkspacePublishResult? publishResult = null;
+            WorkerDiagnostics.Info(
+                "Codex本地执行结束",
+                $"platformRunId={platformRun.Id}, localRunId={result.RunId}, status={result.Status}, exitCode={result.ExitCode?.ToString() ?? "<null>"}, timedOut={result.TimedOut}, error={result.Error ?? string.Empty}, runDirectory={result.RunDirectory}");
+            if (result.Status == WorkerPlatformStatuses.Success &&
+                WorkspaceResult?.RepositoryAvailable == true &&
+                !string.IsNullOrWhiteSpace(WorkspaceResult.RepositoryUrl))
+            {
+                WorkerDiagnostics.Info(
+                    "Worker发布Git改动开始",
+                    $"platformRunId={platformRun.Id}, localRunId={result.RunId}, workspace={request.WorkingDirectory}, branch={WorkspaceResult.Branch ?? string.Empty}");
+                publishResult = await _gitWorkspaceManager.PublishAsync(
+                    request.WorkingDirectory,
+                    WorkspaceResult.RepositoryUrl,
+                    GitUsername,
+                    GitAccessToken,
+                    BuildWorkerCommitMessage(Target, result),
+                    (conflict, token) => ResolveGitConflictWithCodexAsync(conflict, request, paths, token),
+                    CancellationToken.None);
+                WorkerDiagnostics.Info(
+                    "Worker发布Git改动结束",
+                    $"platformRunId={platformRun.Id}, succeeded={publishResult.Succeeded}, hasChanges={publishResult.HasChanges}, pushed={publishResult.Pushed}, conflictResolved={publishResult.ConflictResolved}, branch={publishResult.Branch ?? string.Empty}, commit={publishResult.Commit ?? string.Empty}, error={publishResult.Error ?? string.Empty}");
+                await ReportWorkspacePublishedAsync(sessionId, platformRun.Id, publishResult, CancellationToken.None);
+                if (!publishResult.Succeeded)
+                {
+                    result = result with
+                    {
+                        Status = WorkerPlatformStatuses.Blocked,
+                        Error = publishResult.Error ?? "Git publish failed after Codex completed."
+                    };
+                }
+            }
+
             if (result.Status == WorkerPlatformStatuses.Success && Target is not null && Target.TargetId is not null)
             {
+                WorkerDiagnostics.Info(
+                    "Worker完成业务目标开始",
+                    $"platformRunId={platformRun.Id}, targetType={Target.TargetType}, targetId={Target.TargetId}");
                 await _apiClient.CompleteWorkAsync(Target.TargetType!, Target.TargetId, CancellationToken.None);
+                WorkerDiagnostics.Info(
+                    "Worker完成业务目标结束",
+                    $"platformRunId={platformRun.Id}, targetType={Target.TargetType}, targetId={Target.TargetId}");
             }
 
             await _apiClient.FinishRunAsync(
@@ -565,12 +689,19 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     result.ExitCode,
                     result.TimedOut,
                     result.Error,
-                    ResultJson: BuildRunResultJson(result)),
+                    ResultJson: BuildRunResultJson(result, publishResult)),
                 CancellationToken.None);
+            WorkerDiagnostics.Info(
+                "平台Run结束已上报",
+                $"platformRunId={platformRun.Id}, localRunId={result.RunId}, status={result.Status}, exitCode={result.ExitCode?.ToString() ?? "<null>"}, error={result.Error ?? string.Empty}");
             await ReportEventAsync(sessionId, platformRun.Id, "codex_finished", ResolveEventLevel(result.Status), FinishedMessage, CancellationToken.None);
+            WorkerDiagnostics.Info("Codex结束事件已上报", $"platformRunId={platformRun.Id}, localRunId={result.RunId}, message={FinishedMessage}");
         }
         catch (Exception ex)
         {
+            WorkerDiagnostics.Error(
+                "Worker平台Codex运行异常",
+                $"commandId={command.Id}, platformRunId={platformRun?.Id ?? string.Empty}, localRunId={request.RunId}, error={ex}");
             if (platformRun is not null)
             {
                 await _apiClient.FinishRunAsync(
@@ -584,7 +715,13 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     CancellationToken.None);
             }
 
-            throw;
+            await ReportEventAsync(
+                sessionId,
+                platformRun?.Id,
+                "worker_command_failed",
+                "error",
+                ex.Message,
+                CancellationToken.None);
         }
         finally
         {
@@ -607,6 +744,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
         string error,
         CancellationToken stoppingToken)
     {
+        WorkerDiagnostics.Warn(
+            "Worker不启动Codex直接结束Run",
+            $"commandId={command.Id}, status={status}, runType={runType}, targetType={targetType ?? string.Empty}, targetId={targetId ?? string.Empty}, workspacePath={workspacePath ?? string.Empty}, error={error}");
         var platformRun = await _apiClient.StartRunAsync(
             new StartWorkerRunRequest(
                 _options.WorkerId,
@@ -656,6 +796,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
 
             foreach (var command in heartbeat.Commands)
             {
+                WorkerDiagnostics.Info(
+                    "Worker忙碌心跳收到控制命令",
+                    $"runId={runId}, commandId={command.Id}, commandType={command.CommandType}, commandStatus={command.Status}, payload={WorkerDiagnostics.TrimAndRedact(command.PayloadJson, 2000)}");
                 if (command.CommandType == WorkerPlatformCommandTypes.CancelCurrentRun)
                 {
                     runCancellation.Cancel();
@@ -708,6 +851,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
     {
         var runId = "smoke-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
         var workspace = ResolveSmokeWorkspace(snapshot.WorkspaceRoot);
+        WorkerDiagnostics.Info(
+            "Worker启动本地Smoke",
+            $"runId={runId}, workspace={workspace}, promptLength={_options.SmokePrompt.Length}, sandboxMode={_options.SandboxMode}, timeoutMinutes={_options.MaxRunMinutes}");
         var request = new CodexRunRequest(
             runId,
             workspace,
@@ -719,6 +865,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
             _options.CodexExecutable);
 
         var result = await _codexProcessRunner.RunAsync(request, stoppingToken);
+        WorkerDiagnostics.Info(
+            "Worker本地Smoke结束",
+            $"runId={result.RunId}, status={result.Status}, exitCode={result.ExitCode?.ToString() ?? "<null>"}, timedOut={result.TimedOut}, error={result.Error ?? string.Empty}, finalPath={result.FinalPath}");
         try
         {
             AppRealization.TraceLog.Write(
@@ -867,7 +1016,71 @@ public sealed class AgentSprintWorkerService : BackgroundService
             string.Equals(target.RepositoryUrl, prompt.Context.RepositoryUrl, StringComparison.Ordinal);
     }
 
-    private static string BuildRunResultJson(CodexRunResult result)
+    private async Task<GitConflictResolutionResult> ResolveGitConflictWithCodexAsync(
+        GitConflictResolutionRequest conflict,
+        CodexRunRequest originalRequest,
+        RunPaths originalPaths,
+        CancellationToken cancellationToken)
+    {
+        var conflictRunId = originalRequest.RunId + "-conflict-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
+        var prompt = BuildConflictResolutionPrompt(conflict, originalPaths);
+        var request = new CodexRunRequest(
+            conflictRunId,
+            conflict.WorkspacePath,
+            prompt,
+            originalRequest.SandboxMode,
+            SkipGitRepoCheck: false,
+            originalRequest.Timeout,
+            originalRequest.IdleTimeout,
+            originalRequest.CodexExecutable);
+        var result = await _codexProcessRunner.RunAsync(request, cancellationToken);
+        if (result.Status != WorkerPlatformStatuses.Success)
+        {
+            return new GitConflictResolutionResult(false, result.Error ?? "Codex conflict resolution failed.");
+        }
+
+        return new GitConflictResolutionResult(true, null);
+    }
+
+    private static string BuildConflictResolutionPrompt(
+        GitConflictResolutionRequest conflict,
+        RunPaths originalPaths)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("AgentSprint.Worker Git conflict resolution:");
+        builder.AppendLine($"- Workspace path: {conflict.WorkspacePath}");
+        builder.AppendLine($"- Branch: {conflict.Branch}");
+        builder.AppendLine($"- Operation: {conflict.Operation}");
+        builder.AppendLine($"- Original run directory: {originalPaths.RunDirectory}");
+        builder.AppendLine("- Conflict files:");
+        foreach (var file in conflict.ConflictFiles)
+        {
+            builder.AppendLine($"  - {file}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Resolve the Git merge conflicts in the listed files only.");
+        builder.AppendLine("Do not run git commit or git push. AgentSprint.Worker will stage, commit, and push after you finish.");
+        builder.AppendLine("Remove all Git conflict markers: <<<<<<<, =======, and >>>>>>>.");
+        builder.AppendLine("Do not completely delete either side of a conflict. If one side should not be active code, keep it as a clear code comment near the resolved code.");
+        builder.AppendLine("Preserve behavior from both local task changes and remote branch changes whenever possible, then run focused verification if practical.");
+        builder.AppendLine();
+        builder.AppendLine("Merge error:");
+        builder.AppendLine(conflict.Error);
+        return builder.ToString().Trim();
+    }
+
+    private static string BuildWorkerCommitMessage(
+        WorkerCommandTarget? target,
+        CodexRunResult result)
+    {
+        var targetText = target is null || string.IsNullOrWhiteSpace(target.TargetId)
+            ? result.RunId
+            : $"{target.TargetType ?? target.RunType} {target.TargetId}";
+        return $"AgentSprint worker update: {targetText}";
+    }
+
+    private static string BuildRunResultJson(CodexRunResult result, WorkspacePublishResult? publishResult = null)
     {
         return JsonSerializer.Serialize(
             new
@@ -878,7 +1091,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 result.StderrPath,
                 result.FinalPath,
                 result.StartedAt,
-                result.CompletedAt
+                result.CompletedAt,
+                GitPublish = publishResult
             },
             JsonOptions);
     }
@@ -1080,6 +1294,36 @@ public sealed class AgentSprintWorkerService : BackgroundService
             result.Succeeded
                 ? "Worker workspace prepared."
                 : "Worker workspace preparation failed.",
+            payload,
+            cancellationToken);
+    }
+
+    private async Task ReportWorkspacePublishedAsync(
+        string sessionId,
+        string? runId,
+        WorkspacePublishResult result,
+        CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.Serialize(
+            new
+            {
+                result.WorkspacePath,
+                result.HasChanges,
+                result.Pushed,
+                result.ConflictResolved,
+                result.Branch,
+                result.Commit,
+                result.Error
+            },
+            JsonOptions);
+        await ReportEventAsync(
+            sessionId,
+            runId,
+            "workspace_published",
+            result.Succeeded ? "info" : "error",
+            result.Succeeded
+                ? "Worker workspace published."
+                : "Worker workspace publish failed.",
             payload,
             cancellationToken);
     }

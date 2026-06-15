@@ -48,10 +48,12 @@ public sealed class AgentSprintApiClient
     {
         if (string.IsNullOrWhiteSpace(agentToken))
         {
+            WorkerDiagnostics.Warn("平台AgentToken未更新", "runtime config did not return an Agent token.");
             return;
         }
 
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", agentToken);
+        WorkerDiagnostics.Info("平台AgentToken已更新", "AgentSprint API Authorization header refreshed from runtime config.");
     }
 
     /// <summary>
@@ -213,8 +215,14 @@ public sealed class AgentSprintApiClient
         TRequest request,
         CancellationToken cancellationToken)
     {
+        WorkerDiagnostics.Info(
+            "AgentSprint API POST开始",
+            $"path={path}, request={WorkerDiagnostics.TrimAndRedact(JsonSerializer.Serialize(request, JsonOptions), 2000)}");
         using var response = await _httpClient.PostAsJsonAsync(path, request, JsonOptions, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        WorkerDiagnostics.Info(
+            "AgentSprint API POST结束",
+            $"path={path}, status={(int)response.StatusCode}, body={WorkerDiagnostics.TrimAndRedact(body, 3000)}");
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -240,8 +248,12 @@ public sealed class AgentSprintApiClient
         string path,
         CancellationToken cancellationToken)
     {
+        WorkerDiagnostics.Info("AgentSprint API GET开始", $"path={path}");
         using var response = await _httpClient.GetAsync(path, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        WorkerDiagnostics.Info(
+            "AgentSprint API GET结束",
+            $"path={path}, status={(int)response.StatusCode}, body={WorkerDiagnostics.TrimAndRedact(body, 3000)}");
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(

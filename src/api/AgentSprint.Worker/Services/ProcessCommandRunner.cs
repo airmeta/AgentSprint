@@ -14,6 +14,31 @@ internal static class ProcessCommandRunner
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        return await RunAsync(
+            fileName,
+            arguments,
+            workingDirectory,
+            timeout,
+            Array.Empty<string>(),
+            cancellationToken);
+    }
+
+    public static async Task<CommandProbeResult> RunAsync(
+        string fileName,
+        string arguments,
+        string? workingDirectory,
+        TimeSpan timeout,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : workingDirectory;
+        var safeArguments = WorkerDiagnostics.TrimAndRedact(arguments, secretValues, 2000);
+        WorkerDiagnostics.Info(
+            "进程命令启动",
+            $"fileName={fileName}, arguments={safeArguments}, workingDirectory={effectiveWorkingDirectory}, timeout={timeout}");
+
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
 
@@ -26,9 +51,7 @@ internal static class ProcessCommandRunner
             {
                 FileName = fileName,
                 Arguments = arguments,
-                WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
-                    ? Environment.CurrentDirectory
-                    : workingDirectory,
+                WorkingDirectory = effectiveWorkingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -56,6 +79,9 @@ internal static class ProcessCommandRunner
 
             if (!process.Start())
             {
+                WorkerDiagnostics.Error(
+                    "进程命令启动失败",
+                    $"fileName={fileName}, arguments={safeArguments}, workingDirectory={effectiveWorkingDirectory}, reason=Process failed to start.");
                 return new CommandProbeResult(fileName, arguments, null, string.Empty, string.Empty, false, "Process failed to start.");
             }
 
@@ -64,6 +90,9 @@ internal static class ProcessCommandRunner
 
             await process.WaitForExitAsync(timeoutCts.Token);
 
+            WorkerDiagnostics.Info(
+                "进程命令结束",
+                $"fileName={fileName}, arguments={safeArguments}, exitCode={process.ExitCode}, stdout={WorkerDiagnostics.TrimAndRedact(stdout.ToString(), secretValues)}, stderr={WorkerDiagnostics.TrimAndRedact(stderr.ToString(), secretValues)}");
             return new CommandProbeResult(
                 fileName,
                 arguments,
@@ -76,11 +105,17 @@ internal static class ProcessCommandRunner
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             TryKillProcessTree(process);
+            WorkerDiagnostics.Warn(
+                "进程命令超时",
+                $"fileName={fileName}, arguments={safeArguments}, timeout={timeout}, stdout={WorkerDiagnostics.TrimAndRedact(stdout.ToString(), secretValues)}, stderr={WorkerDiagnostics.TrimAndRedact(stderr.ToString(), secretValues)}");
             return new CommandProbeResult(fileName, arguments, null, stdout.ToString(), stderr.ToString(), true, "Process timed out.");
         }
         catch (Exception ex)
         {
             TryKillProcessTree(process);
+            WorkerDiagnostics.Error(
+                "进程命令异常",
+                $"fileName={fileName}, arguments={safeArguments}, error={WorkerDiagnostics.TrimAndRedact(ex.Message, secretValues)}, stdout={WorkerDiagnostics.TrimAndRedact(stdout.ToString(), secretValues)}, stderr={WorkerDiagnostics.TrimAndRedact(stderr.ToString(), secretValues)}");
             return new CommandProbeResult(fileName, arguments, null, stdout.ToString(), stderr.ToString(), false, ex.Message);
         }
     }

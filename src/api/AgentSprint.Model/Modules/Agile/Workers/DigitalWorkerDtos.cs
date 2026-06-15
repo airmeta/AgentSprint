@@ -21,6 +21,7 @@ public sealed record CreateDigitalWorkerRequest(
     string? SandboxMode = null,
     bool? RunSmokeOnStartup = null,
     string? SmokePrompt = null,
+    string? AiPlatformCode = null,
     string? CodexProvider = null,
     string? CodexModel = null,
     string? OpenAiBaseUrl = null,
@@ -47,6 +48,7 @@ public sealed record UpdateDigitalWorkerRequest(
     string? SandboxMode = null,
     bool? RunSmokeOnStartup = null,
     string? SmokePrompt = null,
+    string? AiPlatformCode = null,
     string? CodexProvider = null,
     string? CodexModel = null,
     string? OpenAiBaseUrl = null,
@@ -139,6 +141,7 @@ public sealed record DigitalWorkerResult(
     string SandboxMode,
     bool RunSmokeOnStartup,
     string? SmokePrompt,
+    string AiPlatformCode,
     string CodexProvider,
     string CodexModel,
     string? OpenAiBaseUrl,
@@ -166,6 +169,7 @@ public sealed record WorkerRuntimeConfigResult(
     string CodexProvider,
     string CodexModel,
     string? OpenAiBaseUrl,
+    string? OpenAiApiKey,
     string? AgentToken,
     int ConfigVersion);
 

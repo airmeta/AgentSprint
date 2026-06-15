@@ -43,6 +43,7 @@ const pagination = reactive({
   pageSizeOptions: [30, 50, 100, 200],
 });
 const form = reactive<Partial<SystemApi.AiPlatform>>({
+  apiKey: '',
   code: 'openai',
   description: '',
   id: undefined,
@@ -68,6 +69,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'name', title: '平台名称', width: 160 },
   { colKey: 'provider', title: 'Provider', width: 150 },
   { colKey: 'model', title: '模型', width: 170 },
+  { colKey: 'hasApiKey', title: 'API Key', cell: 'hasApiKey', width: 110 },
   { colKey: 'openAiBaseUrl', title: 'OpenAI Base URL', ellipsis: true },
   { colKey: 'status', title: '状态', cell: 'status', width: 90 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 150 },
@@ -81,6 +83,7 @@ const tablePagination = computed(() => ({
 
 function resetForm() {
   Object.assign(form, {
+    apiKey: '',
     code: 'openai',
     description: '',
     id: undefined,
@@ -99,7 +102,7 @@ function openCreate() {
 }
 
 function openEdit(row: SystemApi.AiPlatform) {
-  Object.assign(form, row);
+  Object.assign(form, row, { apiKey: '' });
   visible.value = true;
 }
 
@@ -136,6 +139,7 @@ async function save() {
   try {
     await saveAiPlatformApi({
       ...form,
+      apiKey: form.apiKey?.trim() || undefined,
       code: form.code?.trim(),
       model: form.model?.trim(),
       name: form.name?.trim(),
@@ -201,6 +205,12 @@ onMounted(loadRows);
       </TTag>
     </template>
 
+    <template #hasApiKey="{ row }">
+      <TTag :theme="row.hasApiKey ? 'success' : 'warning'" variant="light">
+        {{ row.hasApiKey ? '已配置' : '未配置' }}
+      </TTag>
+    </template>
+
     <template #actions="{ row }">
       <TSpace>
         <RowAction label="编辑" @click="openEdit(row)" />
@@ -228,6 +238,9 @@ onMounted(loadRows);
       </TFormItem>
       <TFormItem label="模型" name="model">
         <TInput v-model="form.model" placeholder="gpt-5.4" />
+      </TFormItem>
+      <TFormItem label="API Key">
+        <TInput v-model="form.apiKey" type="password" placeholder="留空则保持原密钥" />
       </TFormItem>
       <TFormItem label="OpenAI Base URL">
         <TInput v-model="form.openAiBaseUrl" placeholder="https://api.openai.com/v1" />

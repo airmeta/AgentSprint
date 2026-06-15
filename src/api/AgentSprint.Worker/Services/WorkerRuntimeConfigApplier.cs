@@ -28,6 +28,10 @@ public sealed class WorkerRuntimeConfigApplier
 
     public async Task ApplyAsync(WorkerRuntimeConfigResult config, CancellationToken cancellationToken)
     {
+        WorkerDiagnostics.Info(
+            "Worker运行配置开始应用",
+            $"workerId={config.WorkerId}, workerCode={config.WorkerCode}, workerName={config.WorkerName}, projectCode={config.ProjectCode ?? string.Empty}, workspaceRoot={config.WorkspaceRoot}, runsRoot={config.RunsRoot}, codexHome={config.CodexHome}, sandboxMode={config.SandboxMode}, codexProvider={config.CodexProvider}, codexModel={config.CodexModel}, openAiBaseUrl={config.OpenAiBaseUrl ?? string.Empty}, configVersion={config.ConfigVersion}, hasOpenAiApiKey={!string.IsNullOrWhiteSpace(config.OpenAiApiKey)}, hasAgentToken={!string.IsNullOrWhiteSpace(config.AgentToken)}");
+
         _options.WorkerId = config.WorkerId;
         _options.WorkerName = config.WorkerName;
         _options.ProjectId = config.ProjectId;
@@ -44,12 +48,19 @@ public sealed class WorkerRuntimeConfigApplier
         _options.CodexProvider = Normalize(config.CodexProvider, _options.CodexProvider);
         _options.CodexModel = Normalize(config.CodexModel, _options.CodexModel);
         _options.OpenAiBaseUrl = NormalizeOptional(config.OpenAiBaseUrl);
+        var runtimeApiKey = NormalizeOptional(config.OpenAiApiKey);
+        var containerApiKey = NormalizeOptional(Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
+        _options.OpenAiApiKey = runtimeApiKey ?? containerApiKey ?? _options.OpenAiApiKey;
         _options.ConfigVersion = config.ConfigVersion <= 0 ? _options.ConfigVersion : config.ConfigVersion;
 
         Directory.CreateDirectory(_options.WorkspaceRoot);
         Directory.CreateDirectory(_options.RunsRoot);
         Directory.CreateDirectory(_options.CodexHome);
+        Environment.SetEnvironmentVariable("CODEX_HOME", _options.CodexHome);
         await WriteCodexConfigAsync(config.AgentToken, cancellationToken);
+        WorkerDiagnostics.Info(
+            "Worker运行配置应用完成",
+            $"workerId={_options.WorkerId}, workspaceRoot={_options.WorkspaceRoot}, runsRoot={_options.RunsRoot}, codexHome={_options.CodexHome}, configPath={Path.Combine(_options.CodexHome, "config.toml")}, configVersion={_options.ConfigVersion}");
 
         try
         {
@@ -79,14 +90,19 @@ public sealed class WorkerRuntimeConfigApplier
         var configPath = Path.Combine(_options.CodexHome, "config.toml");
         var tempPath = configPath + ".tmp";
         var content = BuildCodexConfig(agentToken);
+        WorkerDiagnostics.Info(
+            "Codex配置写入开始",
+            $"configPath={configPath}, tempPath={tempPath}, codexProvider={_options.CodexProvider}, codexModel={_options.CodexModel}, openAiBaseUrl={_options.OpenAiBaseUrl ?? string.Empty}, hasOpenAiApiKey={!string.IsNullOrWhiteSpace(_options.OpenAiApiKey)}, hasContainerOpenAiApiKey={!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))}, hasAgentToken={!string.IsNullOrWhiteSpace(agentToken)}");
         await File.WriteAllTextAsync(tempPath, content, Encoding.UTF8, cancellationToken);
         File.Move(tempPath, configPath, overwrite: true);
+        WorkerDiagnostics.Info("Codex配置写入完成", $"configPath={configPath}, length={content.Length}");
     }
 
     internal string BuildCodexConfig(string? agentToken)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"model = \"{EscapeToml(_options.CodexModel)}\"");
+        builder.AppendLine("model_provider = \"agentsprint\"");
         builder.AppendLine($"sandbox_mode = \"{EscapeToml(_options.SandboxMode)}\"");
         builder.AppendLine();
         builder.AppendLine("[model_providers.agentsprint]");
@@ -96,7 +112,18 @@ public sealed class WorkerRuntimeConfigApplier
             builder.AppendLine($"base_url = \"{EscapeToml(_options.OpenAiBaseUrl)}\"");
         }
 
-        builder.AppendLine("bearer_token_env_var = \"AGENTSPRINT_AGENT_TOKEN\"");
+        builder.AppendLine("env_key = \"OPENAI_API_KEY\"");
+        builder.AppendLine("wire_api = \"responses\"");
+        if (!string.IsNullOrWhiteSpace(_options.OpenAiApiKey))
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", _options.OpenAiApiKey);
+            WorkerDiagnostics.Info("OPENAI_API_KEY已写入Worker进程环境", "source=runtime-config-or-container, hasOpenAiApiKey=True");
+        }
+        else
+        {
+            WorkerDiagnostics.Warn("OPENAI_API_KEY缺失", "Runtime config did not include openAiApiKey and container environment variable OPENAI_API_KEY is empty.");
+        }
+
         if (!string.IsNullOrWhiteSpace(agentToken))
         {
             Environment.SetEnvironmentVariable("AGENTSPRINT_AGENT_TOKEN", agentToken);

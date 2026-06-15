@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Agile;
@@ -8,6 +9,7 @@ using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AgileServices;
+using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Service.Impls.AgileServices;
 
@@ -20,6 +22,8 @@ public sealed class DigitalWorkerManagementService :
     private readonly IWorkerCommandDomain _commandDomain;
     private readonly IWorkerRunDomain _runDomain;
     private readonly IWorkerEventDomain _eventDomain;
+    private readonly ISprintDevelopmentTaskDomain _taskDomain;
+    private readonly ISprintBugDomain _bugDomain;
 
     /// <summary>
     /// zh-cn: 创建数字员工管理服务，聚合主档、会话、命令、运行和事件领域对象，供后台管理端维护 AgentSprint.Worker。
@@ -30,13 +34,17 @@ public sealed class DigitalWorkerManagementService :
         IWorkerSessionDomain sessionDomain,
         IWorkerCommandDomain commandDomain,
         IWorkerRunDomain runDomain,
-        IWorkerEventDomain eventDomain)
+        IWorkerEventDomain eventDomain,
+        ISprintDevelopmentTaskDomain taskDomain,
+        ISprintBugDomain bugDomain)
     {
         _workerDomain = workerDomain;
         _sessionDomain = sessionDomain;
         _commandDomain = commandDomain;
         _runDomain = runDomain;
         _eventDomain = eventDomain;
+        _taskDomain = taskDomain;
+        _bugDomain = bugDomain;
     }
 
     /// <inheritdoc />
@@ -73,6 +81,7 @@ public sealed class DigitalWorkerManagementService :
             SandboxMode = NormalizeSandboxMode(request.SandboxMode),
             RunSmokeOnStartup = request.RunSmokeOnStartup ?? false,
             SmokePrompt = NormalizeOptional(request.SmokePrompt) ?? "你好",
+            AiPlatformCode = NormalizeAiPlatformCode(request.AiPlatformCode),
             CodexProvider = NormalizeOptional(request.CodexProvider) ?? "openai",
             CodexModel = NormalizeOptional(request.CodexModel) ?? "gpt-5.4",
             OpenAiBaseUrl = NormalizeOptional(request.OpenAiBaseUrl),
@@ -108,6 +117,7 @@ public sealed class DigitalWorkerManagementService :
         entity.SandboxMode = NormalizeSandboxMode(request.SandboxMode ?? entity.SandboxMode);
         entity.RunSmokeOnStartup = request.RunSmokeOnStartup ?? entity.RunSmokeOnStartup;
         entity.SmokePrompt = NormalizeOptional(request.SmokePrompt) ?? entity.SmokePrompt;
+        entity.AiPlatformCode = NormalizeAiPlatformCode(request.AiPlatformCode ?? entity.AiPlatformCode);
         entity.CodexProvider = NormalizeOptional(request.CodexProvider) ?? entity.CodexProvider;
         entity.CodexModel = NormalizeOptional(request.CodexModel) ?? entity.CodexModel;
         entity.OpenAiBaseUrl = NormalizeOptional(request.OpenAiBaseUrl);
@@ -186,13 +196,65 @@ public sealed class DigitalWorkerManagementService :
             await GetSessionOrThrowAsync(request.SessionId);
         }
 
+        var commandType = NormalizeCommandType(request.CommandType);
+        var payloadJson = NormalizeOptional(request.PayloadJson);
+        await EnsureWorkerCanReceiveCommandAsync(worker, commandType, payloadJson);
+
         var entity = new WorkerCommandEntity
         {
             WorkerId = worker.Id,
             SessionId = NormalizeOptional(request.SessionId),
-            CommandType = NormalizeCommandType(request.CommandType),
-            PayloadJson = NormalizeOptional(request.PayloadJson),
+            CommandType = commandType,
+            PayloadJson = payloadJson,
             ExpiresAt = request.ExpiresAt,
+            CreatedBy = userId
+        };
+        await _commandDomain.CreateAsync(entity);
+        return ToResult(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<WorkerCommandResult>> ListCommandsAsync(
+        string? workerId = null,
+        string? sessionId = null,
+        string? commandType = null,
+        string? status = null)
+    {
+        var normalizedWorkerId = await ResolveWorkerFilterIdAsync(workerId);
+        var normalizedSessionId = NormalizeOptional(sessionId);
+        var normalizedCommandType = NormalizeOptional(commandType);
+        var normalizedStatus = NormalizeOptional(status);
+        var entities = await _commandDomain.ListAsync(entity =>
+            (string.IsNullOrWhiteSpace(normalizedWorkerId) || entity.WorkerId == normalizedWorkerId) &&
+            (string.IsNullOrWhiteSpace(normalizedSessionId) || entity.SessionId == normalizedSessionId) &&
+            (string.IsNullOrWhiteSpace(normalizedCommandType) || entity.CommandType == normalizedCommandType) &&
+            (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus));
+        return entities
+            .OrderByDescending(entity => entity.CreateTime)
+            .Select(ToResult)
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<WorkerCommandResult> ReplayCommandAsync(string commandId, string userId)
+    {
+        var source = await _commandDomain.GetAsync(commandId)
+            ?? throw new InvalidOperationException("Worker command does not exist.");
+        var worker = await GetWorkerOrThrowAsync(source.WorkerId);
+        if (worker.Status == DigitalWorkerStatuses.Disabled)
+        {
+            throw new InvalidOperationException("Disabled worker cannot receive commands.");
+        }
+
+        var commandType = NormalizeCommandType(source.CommandType);
+        var payloadJson = NormalizeOptional(source.PayloadJson);
+        await EnsureWorkerCanReceiveCommandAsync(worker, commandType, payloadJson);
+
+        var entity = new WorkerCommandEntity
+        {
+            WorkerId = worker.Id,
+            CommandType = commandType,
+            PayloadJson = payloadJson,
             CreatedBy = userId
         };
         await _commandDomain.CreateAsync(entity);
@@ -314,6 +376,7 @@ public sealed class DigitalWorkerManagementService :
             entity.SandboxMode,
             entity.RunSmokeOnStartup,
             entity.SmokePrompt,
+            entity.AiPlatformCode,
             entity.CodexProvider,
             entity.CodexModel,
             entity.OpenAiBaseUrl,
@@ -488,6 +551,65 @@ public sealed class DigitalWorkerManagementService :
         };
     }
 
+    private async Task EnsureWorkerCanReceiveCommandAsync(
+        DigitalWorkerEntity worker,
+        string commandType,
+        string? payloadJson)
+    {
+        if (commandType == WorkerCommandTypes.StartTask)
+        {
+            var taskId = ReadRequiredPayloadId(payloadJson, "taskId", "task_id");
+            var task = await _taskDomain.GetAsync(taskId)
+                ?? throw new InvalidOperationException("Target task does not exist.");
+            EnsureWorkerCanReceiveAssignedTarget(worker, task.AssigneeId);
+            return;
+        }
+
+        if (commandType == WorkerCommandTypes.StartBug)
+        {
+            var bugId = ReadRequiredPayloadId(payloadJson, "bugId", "bug_id");
+            var bug = await _bugDomain.GetAsync(bugId)
+                ?? throw new InvalidOperationException("Target bug does not exist.");
+            EnsureWorkerCanReceiveAssignedTarget(worker, bug.DeveloperId);
+        }
+    }
+
+    private static void EnsureWorkerCanReceiveAssignedTarget(DigitalWorkerEntity worker, string? assigneeId)
+    {
+        if (!string.Equals(NormalizeOptional(assigneeId), worker.AgentUserId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Target is assigned to another user.");
+        }
+    }
+
+    private static string ReadRequiredPayloadId(string? payloadJson, params string[] names)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            throw new InvalidOperationException("Worker command target id is required.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            foreach (var name in names)
+            {
+                if (document.RootElement.TryGetProperty(name, out var value) &&
+                    value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(value.GetString()))
+                {
+                    return value.GetString()!.Trim();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("Worker command payload is not valid JSON.");
+        }
+
+        throw new InvalidOperationException("Worker command target id is required.");
+    }
+
     internal static string NormalizeCommandStatus(string? value)
     {
         var normalized = NormalizeOptional(value) ?? WorkerCommandStatuses.Pending;
@@ -617,6 +739,17 @@ public sealed class DigitalWorkerManagementService :
             !string.IsNullOrWhiteSpace(value) &&
             value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static string NormalizeAiPlatformCode(string? value)
+    {
+        var normalized = NormalizeOptional(value) ?? "openai";
+        if (normalized.Any(character => !char.IsLetterOrDigit(character) && character is not '_' and not '-' and not '.'))
+        {
+            throw new InvalidOperationException("AI platform code can only contain letters, numbers, underscores, hyphens, or dots.");
+        }
+
+        return normalized.ToLowerInvariant();
+    }
 }
 
 public sealed class DigitalWorkerRuntimeService :
@@ -628,6 +761,7 @@ public sealed class DigitalWorkerRuntimeService :
     private const string DigitalWorkerTaskPromptTemplateCode = "digital_worker_task_execution";
 
     private readonly IAgentTokenDomain _agentTokenDomain;
+    private readonly ISystemConfigurationService _configurationService;
     private readonly IDigitalWorkerDomain _workerDomain;
     private readonly ISprintProjectDomain _projectDomain;
     private readonly IGitRepositoryDomain _gitRepositoryDomain;
@@ -653,6 +787,7 @@ public sealed class DigitalWorkerRuntimeService :
     public DigitalWorkerRuntimeService(
         IDigitalWorkerDomain workerDomain,
         IAgentTokenDomain agentTokenDomain,
+        ISystemConfigurationService configurationService,
         ISprintProjectDomain projectDomain,
         IGitRepositoryDomain gitRepositoryDomain,
         IGitAccountDomain gitAccountDomain,
@@ -668,6 +803,7 @@ public sealed class DigitalWorkerRuntimeService :
     {
         _workerDomain = workerDomain;
         _agentTokenDomain = agentTokenDomain;
+        _configurationService = configurationService;
         _projectDomain = projectDomain;
         _gitRepositoryDomain = gitRepositoryDomain;
         _gitAccountDomain = gitAccountDomain;
@@ -703,6 +839,7 @@ public sealed class DigitalWorkerRuntimeService :
             agentToken = token.TokenValue;
         }
 
+        var aiPlatform = await ResolveAiPlatformAsync(worker);
         var projectId = DigitalWorkerManagementService.DeserializeIds(worker.ProjectIds).FirstOrDefault();
         return new WorkerRuntimeConfigResult(
             worker.Id,
@@ -719,9 +856,10 @@ public sealed class DigitalWorkerRuntimeService :
             worker.SandboxMode,
             worker.RunSmokeOnStartup,
             worker.SmokePrompt ?? "你好",
-            worker.CodexProvider,
-            worker.CodexModel,
-            worker.OpenAiBaseUrl,
+            aiPlatform.Provider,
+            aiPlatform.Model,
+            aiPlatform.OpenAiBaseUrl,
+            aiPlatform.ApiKey,
             agentToken,
             worker.ConfigVersion);
     }
@@ -737,7 +875,7 @@ public sealed class DigitalWorkerRuntimeService :
         token.LastUsedAt = DateTime.UtcNow;
         await _agentTokenDomain.UpdateAsync(token);
 
-        return BuildRuntimeConfig(worker, token.TokenValue);
+        return await BuildRuntimeConfigAsync(worker, token.TokenValue);
     }
 
     /// <inheritdoc />
@@ -1512,13 +1650,14 @@ public sealed class DigitalWorkerRuntimeService :
         return token!;
     }
 
-    private static WorkerRuntimeConfigResult BuildRuntimeConfig(DigitalWorkerEntity worker, string? agentToken)
+    private async Task<WorkerRuntimeConfigResult> BuildRuntimeConfigAsync(DigitalWorkerEntity worker, string? agentToken)
     {
         if (worker.Status != DigitalWorkerStatuses.Active)
         {
             throw new InvalidOperationException("Worker is not active.");
         }
 
+        var aiPlatform = await ResolveAiPlatformAsync(worker);
         var projectId = DigitalWorkerManagementService.DeserializeIds(worker.ProjectIds).FirstOrDefault();
         return new WorkerRuntimeConfigResult(
             worker.Id,
@@ -1535,11 +1674,32 @@ public sealed class DigitalWorkerRuntimeService :
             worker.SandboxMode,
             worker.RunSmokeOnStartup,
             worker.SmokePrompt ?? "浣犲ソ",
-            worker.CodexProvider,
-            worker.CodexModel,
-            worker.OpenAiBaseUrl,
+            aiPlatform.Provider,
+            aiPlatform.Model,
+            aiPlatform.OpenAiBaseUrl,
+            aiPlatform.ApiKey,
             agentToken,
             worker.ConfigVersion);
+    }
+
+    private async Task<ResolvedAiPlatform> ResolveAiPlatformAsync(DigitalWorkerEntity worker)
+    {
+        var platformCode = string.IsNullOrWhiteSpace(worker.AiPlatformCode) ? "openai" : worker.AiPlatformCode;
+        var platform = await _configurationService.GetAiPlatformRuntimeAsync(platformCode);
+        if (platform is null)
+        {
+            return new ResolvedAiPlatform(
+                worker.CodexProvider,
+                worker.CodexModel,
+                null,
+                worker.OpenAiBaseUrl);
+        }
+
+        return new ResolvedAiPlatform(
+            platform.Provider,
+            platform.Model,
+            platform.ApiKey,
+            platform.OpenAiBaseUrl);
     }
 
     private static bool IsUsableAgentToken(AgentTokenEntity? token)
@@ -1667,4 +1827,10 @@ public sealed class DigitalWorkerRuntimeService :
         string? DefaultBranch,
         string? Username,
         string? AccessToken);
+
+    private sealed record ResolvedAiPlatform(
+        string Provider,
+        string Model,
+        string? ApiKey,
+        string? OpenAiBaseUrl);
 }

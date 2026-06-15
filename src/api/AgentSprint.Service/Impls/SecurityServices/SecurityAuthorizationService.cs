@@ -289,6 +289,8 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "/sprint/git" => "/sprint/git/accounts",
             "/operations" => "/operations/scripts",
             "/system" => "/system/users",
+            "/code-review" => "/code-review/tasks",
+            "/automation" => "/automation/digital-workers",
             "/global-config" => "/global-config/prompt-templates",
             "/security" => "/system/agent-tokens",
             _ => null
@@ -303,6 +305,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             "/sprint/requirements/detail/:id" => "/sprint/requirements",
             "/sprint/tasks/detail/:id" => "/sprint/tasks",
             "/sprint/defects/detail/:id" => "/sprint/defects",
+            "/automation/digital-workers/:id/command-audit" => "/automation/digital-workers",
             "/system/roles/authorize/:id" => "/system/roles",
             _ => null
         };

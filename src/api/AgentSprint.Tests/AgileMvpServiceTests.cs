@@ -2040,11 +2040,16 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
 {
     private readonly string? _key;
     private readonly string? _value;
+    private readonly AiPlatformRuntimeResult? _aiPlatform;
 
-    public StaticSystemConfigurationService(string? key = null, string? value = null)
+    public StaticSystemConfigurationService(
+        string? key = null,
+        string? value = null,
+        AiPlatformRuntimeResult? aiPlatform = null)
     {
         _key = key;
         _value = value;
+        _aiPlatform = aiPlatform;
     }
 
     public Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null)
@@ -2080,10 +2085,19 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
             request.Name,
             request.Provider,
             request.Model,
+            !string.IsNullOrWhiteSpace(request.ApiKey),
             request.OpenAiBaseUrl,
             request.Description,
             request.Sort,
             request.Status));
+    }
+
+    public Task<AiPlatformRuntimeResult?> GetAiPlatformRuntimeAsync(string code)
+    {
+        return Task.FromResult(
+            string.Equals(_aiPlatform?.Code, code, StringComparison.OrdinalIgnoreCase)
+                ? _aiPlatform
+                : null);
     }
 
     public Task<bool> DeleteAiPlatformAsync(string id)

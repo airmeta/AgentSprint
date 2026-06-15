@@ -14,6 +14,8 @@ public interface ISystemConfigurationService
 
     Task<AiPlatformResult> UpsertAiPlatformAsync(UpsertAiPlatformRequest request);
 
+    Task<AiPlatformRuntimeResult?> GetAiPlatformRuntimeAsync(string code);
+
     Task<bool> DeleteAiPlatformAsync(string id);
 
     Task<string> GetValueAsync(string key, string defaultValue);

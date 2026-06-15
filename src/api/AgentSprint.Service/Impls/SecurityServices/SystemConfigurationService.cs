@@ -165,6 +165,7 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
                 request.Name.Trim(),
                 request.Provider.Trim(),
                 request.Model.Trim(),
+                ResolveApiKey(request.ApiKey, entity.Value),
                 NormalizeOptional(request.OpenAiBaseUrl),
                 request.Sort),
             JsonOptions);
@@ -182,6 +183,31 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         }
 
         return MapAiPlatform(entity, code, ReadAiPlatformValue(entity.Value));
+    }
+
+    public async Task<AiPlatformRuntimeResult?> GetAiPlatformRuntimeAsync(string code)
+    {
+        var normalizedCode = NormalizeCode(code);
+        var entity = await _configurationDomain.FindByKeyAsync(ToAiPlatformKey(normalizedCode));
+        if (entity is null || entity.Status != 1 || entity.IsDelete != 0)
+        {
+            return null;
+        }
+
+        var value = ReadAiPlatformValue(entity.Value);
+        if (string.IsNullOrWhiteSpace(value.Provider) || string.IsNullOrWhiteSpace(value.Model))
+        {
+            return null;
+        }
+
+        return new AiPlatformRuntimeResult(
+            normalizedCode,
+            value.Name,
+            value.Provider,
+            value.Model,
+            value.ApiKey,
+            value.OpenAiBaseUrl,
+            entity.Status);
     }
 
     public Task<bool> DeleteAiPlatformAsync(string id)
@@ -243,6 +269,7 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
             value.Name,
             value.Provider,
             value.Model,
+            !string.IsNullOrWhiteSpace(value.ApiKey),
             value.OpenAiBaseUrl,
             entity.Description,
             value.Sort,
@@ -265,6 +292,22 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
     private static string ToAiPlatformKey(string code)
     {
         return $"{AiPlatformKeyPrefix}{code}";
+    }
+
+    private static string? ResolveApiKey(string? requestApiKey, string? existingValue)
+    {
+        var normalized = NormalizeOptional(requestApiKey);
+        if (normalized is not null)
+        {
+            return normalized;
+        }
+
+        if (string.IsNullOrWhiteSpace(existingValue))
+        {
+            return null;
+        }
+
+        return ReadAiPlatformValue(existingValue).ApiKey;
     }
 
     private static string NormalizeCode(string value)
@@ -302,6 +345,7 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         string Name,
         string Provider,
         string Model,
+        string? ApiKey,
         string? OpenAiBaseUrl,
         int Sort)
     {
@@ -309,6 +353,7 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
             string.Empty,
             string.Empty,
             string.Empty,
+            null,
             null,
             0);
     }

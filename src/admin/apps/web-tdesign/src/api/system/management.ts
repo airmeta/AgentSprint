@@ -84,8 +84,10 @@ export namespace SystemApi {
   }
 
   export interface AiPlatform {
+    apiKey?: string;
     code: string;
     description?: string;
+    hasApiKey: boolean;
     id: string;
     model: string;
     name: string;

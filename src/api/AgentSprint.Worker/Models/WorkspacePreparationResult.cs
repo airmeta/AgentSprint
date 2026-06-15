@@ -9,3 +9,24 @@ public sealed record WorkspacePreparationResult(
     string? Commit,
     bool Dirty,
     string? Error);
+
+public sealed record WorkspacePublishResult(
+    bool Succeeded,
+    string WorkspacePath,
+    bool HasChanges,
+    bool Pushed,
+    bool ConflictResolved,
+    string? Branch,
+    string? Commit,
+    string? Error);
+
+public sealed record GitConflictResolutionRequest(
+    string WorkspacePath,
+    string Branch,
+    IReadOnlyList<string> ConflictFiles,
+    string Operation,
+    string Error);
+
+public sealed record GitConflictResolutionResult(
+    bool Succeeded,
+    string? Error);

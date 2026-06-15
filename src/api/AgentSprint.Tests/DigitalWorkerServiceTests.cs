@@ -7,7 +7,9 @@ using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
+using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Impls.AgileServices;
+using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Tests;
 
@@ -44,6 +46,14 @@ public sealed class DigitalWorkerServiceTests
     public async Task Runtime_GetRuntimeConfig_ReturnsPlatformManagedSettingsAndToken()
     {
         var domains = new DigitalWorkerTestDomains();
+        domains.ConfigurationService.SetAiPlatform(new AiPlatformRuntimeResult(
+            "openai",
+            "OpenAI",
+            "openai",
+            "gpt-platform",
+            "platform-api-key",
+            "https://platform.example/v1",
+            1));
         var management = domains.CreateManagementService();
         var runtime = domains.CreateRuntimeService();
         var token = new AgentTokenEntity
@@ -83,7 +93,9 @@ public sealed class DigitalWorkerServiceTests
         Assert.Equal(120, config.MaxRunMinutes);
         Assert.True(config.RunSmokeOnStartup);
         Assert.Equal("hello", config.SmokePrompt);
-        Assert.Equal("gpt-5.4", config.CodexModel);
+        Assert.Equal("gpt-platform", config.CodexModel);
+        Assert.Equal("https://platform.example/v1", config.OpenAiBaseUrl);
+        Assert.Equal("platform-api-key", config.OpenAiApiKey);
         Assert.Equal("agent-token-value", config.AgentToken);
     }
 
@@ -406,6 +418,16 @@ public sealed class DigitalWorkerServiceTests
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-auth"),
             "admin");
         var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
+        {
+            Id = "task-1",
+            ProjectId = "project-1",
+            RequirementId = "requirement-1",
+            Title = "Auth required task",
+            Status = SprintDevelopmentTaskStatuses.Assigned,
+            AssigneeId = "agent-1",
+            CreatedBy = "pm"
+        });
         await management.CreateCommandAsync(
             new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, "{\"taskId\":\"task-1\"}"),
             "admin");
@@ -414,6 +436,63 @@ public sealed class DigitalWorkerServiceTests
             new WorkerHeartbeatRequest(worker.Id, session.Id, WorkerSessionStatuses.AuthRequired));
 
         Assert.Empty(heartbeat.Commands);
+    }
+
+    [Fact]
+    public async Task Management_CreateStartTaskCommand_RejectsTaskAssignedToAnotherUser()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-wrong-assignee"),
+            "admin");
+        var task = new SprintDevelopmentTaskEntity
+        {
+            ProjectId = "project-1",
+            RequirementId = "requirement-1",
+            Title = "Assigned elsewhere",
+            Description = "Should not be dispatched.",
+            Status = SprintDevelopmentTaskStatuses.Assigned,
+            AssigneeId = "agent-2",
+            CreatedBy = "pm"
+        };
+        await domains.Tasks.CreateAsync(task);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            management.CreateCommandAsync(
+                new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, $$"""{"taskId":"{{task.Id}}"}"""),
+                "admin"));
+
+        Assert.Equal("Target is assigned to another user.", error.Message);
+        Assert.Empty(await management.ListCommandsAsync(worker.Id));
+    }
+
+    [Fact]
+    public async Task Management_CreateStartTaskCommand_AllowsTaskAssignedToWorkerAgentUser()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-right-assignee"),
+            "admin");
+        var task = new SprintDevelopmentTaskEntity
+        {
+            ProjectId = "project-1",
+            RequirementId = "requirement-1",
+            Title = "Assigned to worker",
+            Description = "Should be dispatched.",
+            Status = SprintDevelopmentTaskStatuses.Assigned,
+            AssigneeId = "agent-1",
+            CreatedBy = "pm"
+        };
+        await domains.Tasks.CreateAsync(task);
+
+        var command = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, $$"""{"taskId":"{{task.Id}}"}"""),
+            "admin");
+
+        Assert.Equal(worker.Id, command.WorkerId);
+        Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
     }
 
     [Fact]
@@ -426,6 +505,16 @@ public sealed class DigitalWorkerServiceTests
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-busy"),
             "admin");
         var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
+        {
+            Id = "task-1",
+            ProjectId = "project-1",
+            RequirementId = "requirement-1",
+            Title = "Busy task",
+            Status = SprintDevelopmentTaskStatuses.Assigned,
+            AssigneeId = "agent-1",
+            CreatedBy = "pm"
+        });
         await management.CreateCommandAsync(
             new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, "{\"taskId\":\"task-1\"}"),
             "admin");
@@ -483,6 +572,71 @@ public sealed class DigitalWorkerServiceTests
     }
 
     [Fact]
+    public async Task Management_ListCommands_FiltersByWorkerCodeAndStatus()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-command-audit"),
+            "admin");
+        var otherWorker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Other Worker", "agent-1", Code: "codex-command-other"),
+            "admin");
+        var command = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"hi\"}"),
+            "admin");
+        await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(otherWorker.Id, WorkerCommandTypes.ReloadConfig),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await runtime.AckCommandAsync(command.Id, new AckWorkerCommandRequest(session.Id));
+
+        var commands = await management.ListCommandsAsync(worker.Code, status: WorkerCommandStatuses.Acked);
+
+        var audited = Assert.Single(commands);
+        Assert.Equal(command.Id, audited.Id);
+        Assert.Equal(WorkerCommandTypes.Smoke, audited.CommandType);
+        Assert.Equal("{\"prompt\":\"hi\"}", audited.PayloadJson);
+    }
+
+    [Fact]
+    public async Task Management_ReplayCommand_CopiesCommandTypeAndPayloadAsPending()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-command-replay"),
+            "admin");
+        await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
+        {
+            Id = "task-1",
+            ProjectId = "project-1",
+            RequirementId = "requirement-1",
+            Title = "Replay task",
+            Status = SprintDevelopmentTaskStatuses.Assigned,
+            AssigneeId = "agent-1",
+            CreatedBy = "pm"
+        });
+        var source = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.StartTask, "{\"taskId\":\"task-1\"}"),
+            "admin");
+
+        var replayed = await management.ReplayCommandAsync(source.Id, "auditor");
+        var commands = await management.ListCommandsAsync(worker.Id);
+
+        Assert.Equal(worker.Id, replayed.WorkerId);
+        Assert.Equal(WorkerCommandTypes.StartTask, replayed.CommandType);
+        Assert.Equal("{\"taskId\":\"task-1\"}", replayed.PayloadJson);
+        Assert.Equal(WorkerCommandStatuses.Pending, replayed.Status);
+        Assert.Null(replayed.SessionId);
+        Assert.Equal("auditor", replayed.CreatedBy);
+        Assert.Contains(commands, item => item.Id == source.Id);
+        Assert.Contains(commands, item => item.Id == replayed.Id);
+    }
+
+    [Fact]
     public async Task Runtime_RegisterSession_RejectsDisabledWorker()
     {
         var domains = new DigitalWorkerTestDomains();
@@ -503,6 +657,83 @@ public sealed class DigitalWorkerServiceTests
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         return Convert.ToHexString(bytes);
+    }
+}
+
+internal sealed class MutableSystemConfigurationService : ISystemConfigurationService
+{
+    private AiPlatformRuntimeResult? _aiPlatform;
+
+    public void SetAiPlatform(AiPlatformRuntimeResult aiPlatform)
+    {
+        _aiPlatform = aiPlatform;
+    }
+
+    public Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null)
+    {
+        return Task.FromResult<IReadOnlyList<SystemConfigurationResult>>([]);
+    }
+
+    public Task<SystemConfigurationResult> UpsertConfigurationAsync(UpsertSystemConfigurationRequest request)
+    {
+        return Task.FromResult(new SystemConfigurationResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.Key,
+            request.Value,
+            request.Description,
+            request.Status));
+    }
+
+    public Task<bool> DeleteConfigurationAsync(string id)
+    {
+        return Task.FromResult(true);
+    }
+
+    public Task<IReadOnlyList<AiPlatformResult>> ListAiPlatformsAsync(string? keyword = null, int? status = null)
+    {
+        return Task.FromResult<IReadOnlyList<AiPlatformResult>>([]);
+    }
+
+    public Task<AiPlatformResult> UpsertAiPlatformAsync(UpsertAiPlatformRequest request)
+    {
+        var result = new AiPlatformResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.Code,
+            request.Name,
+            request.Provider,
+            request.Model,
+            !string.IsNullOrWhiteSpace(request.ApiKey),
+            request.OpenAiBaseUrl,
+            request.Description,
+            request.Sort,
+            request.Status);
+        _aiPlatform = new AiPlatformRuntimeResult(
+            result.Code,
+            result.Name,
+            result.Provider,
+            result.Model,
+            request.ApiKey,
+            result.OpenAiBaseUrl,
+            result.Status);
+        return Task.FromResult(result);
+    }
+
+    public Task<AiPlatformRuntimeResult?> GetAiPlatformRuntimeAsync(string code)
+    {
+        return Task.FromResult(
+            string.Equals(_aiPlatform?.Code, code, StringComparison.OrdinalIgnoreCase)
+                ? _aiPlatform
+                : null);
+    }
+
+    public Task<bool> DeleteAiPlatformAsync(string id)
+    {
+        return Task.FromResult(true);
+    }
+
+    public Task<string> GetValueAsync(string key, string defaultValue)
+    {
+        return Task.FromResult(defaultValue);
     }
 }
 
@@ -538,6 +769,8 @@ internal sealed class DigitalWorkerTestDomains
 
     public InMemoryAgentTokenDomain AgentTokens { get; }
 
+    public MutableSystemConfigurationService ConfigurationService { get; } = new();
+
     public DigitalWorkerTestDomains()
     {
         AgentTokens = new InMemoryAgentTokenDomain(_agentTokens);
@@ -545,7 +778,7 @@ internal sealed class DigitalWorkerTestDomains
 
     public DigitalWorkerManagementService CreateManagementService()
     {
-        return new DigitalWorkerManagementService(Workers, Sessions, Commands, Runs, Events);
+        return new DigitalWorkerManagementService(Workers, Sessions, Commands, Runs, Events, Tasks, Bugs);
     }
 
     public DigitalWorkerRuntimeService CreateRuntimeService()
@@ -553,6 +786,7 @@ internal sealed class DigitalWorkerTestDomains
         return new DigitalWorkerRuntimeService(
             Workers,
             AgentTokens,
+            ConfigurationService,
             Projects,
             GitRepositories,
             GitAccounts,

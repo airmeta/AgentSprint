@@ -20,6 +20,8 @@ public sealed class CodexProcessRunnerTests
     [Theory]
     [InlineData("Started codex exec for run smoke-20260614113807.")]
     [InlineData("thinking")]
+    [InlineData("- Git commit: 85f21ff29849b29f340942d0e648401926bb890d")]
+    [InlineData("- Requirement ID: e3babbea1899412ab15b95e74ac4684d")]
     public void TryClassifyFatalOutputLine_IgnoresNormalProgress(string line)
     {
         var detected = CodexProcessRunner.TryClassifyFatalOutputLine(line, out var reason);

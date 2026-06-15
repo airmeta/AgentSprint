@@ -43,6 +43,21 @@ public sealed class DigitalWorkerControllerTests
     }
 
     [Fact]
+    public async Task Management_ReplayCommand_UsesAuthenticatedUser()
+    {
+        var service = new CapturingDigitalWorkerManagementService();
+        var controller = CreateManagementController(service, "admin-3");
+
+        var result = await controller.ReplayCommand("command-id");
+
+        var response = Assert.IsType<ApiResponse<WorkerCommandResult>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.Equal("admin-3", service.LastUserId);
+        Assert.Equal("command-id", service.LastReplayCommandId);
+        Assert.Equal(WorkerCommandStatuses.Pending, response.Data?.Status);
+    }
+
+    [Fact]
     public async Task Runtime_RegisterSession_ForwardsPayload()
     {
         var service = new CapturingDigitalWorkerRuntimeService();
@@ -116,6 +131,8 @@ public sealed class DigitalWorkerControllerTests
 internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerManagementService
 {
     public string? LastUserId { get; private set; }
+
+    public string? LastReplayCommandId { get; private set; }
 
     public Task<DigitalWorkerResult> CreateWorkerAsync(CreateDigitalWorkerRequest request, string userId)
     {
@@ -233,6 +250,37 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             DateTime.UtcNow));
     }
 
+    public Task<IReadOnlyList<WorkerCommandResult>> ListCommandsAsync(
+        string? workerId = null,
+        string? sessionId = null,
+        string? commandType = null,
+        string? status = null)
+    {
+        IReadOnlyList<WorkerCommandResult> commands = [];
+        return Task.FromResult(commands);
+    }
+
+    public Task<WorkerCommandResult> ReplayCommandAsync(string commandId, string userId)
+    {
+        LastReplayCommandId = commandId;
+        LastUserId = userId;
+        return Task.FromResult(new WorkerCommandResult(
+            "replayed-command-id",
+            "worker-id",
+            null,
+            WorkerCommandTypes.Smoke,
+            null,
+            WorkerCommandStatuses.Pending,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            userId,
+            DateTime.UtcNow));
+    }
+
     public Task<IReadOnlyList<WorkerSessionResult>> ListSessionsAsync(string? workerId = null, string? status = null)
     {
         IReadOnlyList<WorkerSessionResult> sessions = [];
@@ -302,6 +350,7 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             false,
             "你好",
             "openai",
+            "openai",
             "gpt-5.4",
             null,
             1,
@@ -340,6 +389,7 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             "openai",
             "gpt-5.4",
             null,
+            null,
             "agent-token",
             1));
     }
@@ -364,6 +414,7 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             "浣犲ソ",
             "openai",
             "gpt-5.4",
+            null,
             null,
             agentToken,
             1));

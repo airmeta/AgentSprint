@@ -40,7 +40,9 @@ const props = withDefaults(
     resetButtonText?: string;
     resetDisabled?: boolean;
     rowKey?: string;
+    rowSelection?: Record<string, any>;
     serial?: boolean;
+    selectedRowKeys?: Array<number | string>;
     showFilterForm?: boolean;
     stripe?: boolean;
     tableKey?: number | string;
@@ -70,6 +72,7 @@ const emit = defineEmits<{
   pageChange: [pageInfo: { current: number; pageSize: number }];
   refresh: [];
   reset: [];
+  selectChange: [keys: Array<number | string>, context: any];
   search: [];
 }>();
 
@@ -80,14 +83,30 @@ const tableSlots = computed(() =>
 const safeData = computed(() => (Array.isArray(props.data) ? props.data.filter(Boolean) : []));
 const total = computed(() => props.pagination.total ?? safeData.value.length);
 const pageSizeOptions = computed(() => props.pagination.pageSizeOptions ?? [30, 50, 100, 200]);
+const rowSelectionType = computed(() => {
+  const type = props.rowSelection?.type;
+  return type === 'single' || type === 'multiple' ? type : undefined;
+});
 const tableColumns = computed(() => {
-  if (!props.serial) {
-    return props.columns;
+  const columns = props.serial
+    ? withSerialColumn(props.columns, {
+        offset: () => (props.pagination.current - 1) * props.pagination.pageSize,
+      })
+    : props.columns;
+
+  if (!rowSelectionType.value || columns.some((column) => column?.colKey === 'row-select')) {
+    return columns;
   }
 
-  return withSerialColumn(props.columns, {
-    offset: () => (props.pagination.current - 1) * props.pagination.pageSize,
-  });
+  return [
+    {
+      align: 'center' as const,
+      colKey: 'row-select',
+      type: rowSelectionType.value,
+      width: 48,
+    },
+    ...columns,
+  ];
 });
 const pageData = computed(() => {
   const start = (props.pagination.current - 1) * props.pagination.pageSize;
@@ -196,12 +215,16 @@ function normalizeSlotProps(slotProps: any) {
         :columns="tableColumns"
         :data="pageData"
         :expanded-tree-nodes="expandedTreeNodes"
+        :selected-row-keys="selectedRowKeys"
+        :row-selection="rowSelection"
+        :row-selection-type="rowSelectionType"
         :loading="loading"
         :bordered="bordered"
         hover
         :stripe="stripe"
         :tree="tableTree"
         @expanded-tree-nodes-change="emit('expandedTreeNodesChange', $event)"
+        @select-change="(keys, context) => emit('selectChange', keys, context)"
       >
         <template v-for="name in tableSlots" :key="name" #[name]="slotProps">
           <slot :name="name" v-bind="normalizeSlotProps(slotProps)"></slot>
@@ -215,11 +238,15 @@ function normalizeSlotProps(slotProps: any) {
         :columns="tableColumns"
         :data="pageData"
         :expanded-row-keys="expandedRowKeys"
+        :selected-row-keys="selectedRowKeys"
+        :row-selection="rowSelection"
+        :row-selection-type="rowSelectionType"
         :loading="loading"
         :bordered="bordered"
         hover
         :stripe="stripe"
         @expand-change="emit('expandChange', $event)"
+        @select-change="(keys, context) => emit('selectChange', keys, context)"
       >
         <template v-for="name in tableSlots" :key="name" #[name]="slotProps">
           <slot :name="name" v-bind="normalizeSlotProps(slotProps)"></slot>

@@ -4,6 +4,9 @@ import type { SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-vue-next';
 
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
+
+import { IconifyIcon } from '@vben/icons';
 
 import {
   createDigitalWorkerApi,
@@ -24,6 +27,7 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
+  Button as TButton,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -32,24 +36,29 @@ import {
   Select as TSelect,
   Space as TSpace,
   Switch as TSwitch,
+  TabPanel as TTabPanel,
+  Tabs as TTabs,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
 
 defineOptions({ name: 'AutomationDigitalWorkers' });
 
+const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
 const detailLoading = ref(false);
 const visible = ref(false);
 const detailVisible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
+const activeWorkerFormTab = ref('employee');
 const workers = ref<AutomationApi.DigitalWorker[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const tokens = ref<SystemApi.AgentToken[]>([]);
 const aiPlatforms = ref<SystemApi.AiPlatform[]>([]);
 const employeeTypeItems = ref<SystemApi.DictionaryItem[]>([]);
 const detail = ref<AutomationApi.DigitalWorkerDetail>();
+const selectedWorkerId = ref('');
 
 const filters = reactive({
   keyword: '',
@@ -125,7 +134,6 @@ const commandOptions = [
   { label: '取消当前运行', value: 'cancel_current_run' },
 ];
 const columns: PrimaryTableCol[] = [
-  { colKey: 'code', title: '编码', width: 140 },
   { colKey: 'name', title: '名称', width: 170 },
   { colKey: 'employeeType', title: '员工类型', cell: 'employeeType', width: 120 },
   { colKey: 'workerType', title: '驱动类型', cell: 'workerType', width: 120 },
@@ -135,6 +143,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'updateTime', title: '更新时间', cell: 'updateTime', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 260 },
 ];
+const workerRowSelection = { type: 'single' };
 
 const tablePagination = computed(() => ({
   current: pagination.current,
@@ -142,6 +151,8 @@ const tablePagination = computed(() => ({
   pageSizeOptions: pagination.pageSizeOptions,
   total: workers.value.length,
 }));
+const selectedWorkerKeys = computed(() => (selectedWorkerId.value ? [selectedWorkerId.value] : []));
+const selectedWorker = computed(() => workers.value.find((item) => item.id === selectedWorkerId.value));
 const activeEmployeeTypeItems = computed(() =>
   (employeeTypeItems.value.length ? employeeTypeItems.value : fallbackEmployeeTypeItems).filter(
     (item) => item.status === 1,
@@ -199,6 +210,10 @@ function resolveAiPlatformCode(row?: AutomationApi.DigitalWorker) {
     return activeAiPlatforms.value[0]?.code || 'openai';
   }
 
+  if (row.aiPlatformCode) {
+    return row.aiPlatformCode;
+  }
+
   return activeAiPlatforms.value.find((item) =>
     item.provider === row.codexProvider &&
     item.model === row.codexModel &&
@@ -253,11 +268,13 @@ function commandText(commandType?: string) {
 
 function openCreate() {
   resetForm();
+  activeWorkerFormTab.value = 'employee';
   visible.value = true;
 }
 
 function openEdit(row: AutomationApi.DigitalWorker) {
   resetForm(row);
+  activeWorkerFormTab.value = 'employee';
   visible.value = true;
 }
 
@@ -277,6 +294,7 @@ function buildPayload() {
   return {
     agentTokenId: form.agentTokenId,
     agentUserId: selectedToken?.ownerUserId || form.agentUserId,
+    aiPlatformCode: selectedAiPlatform?.code || form.aiPlatformCode || 'openai',
     code: form.id ? form.code?.trim() : undefined,
     description: form.description?.trim() || undefined,
     employeeType: form.employeeType,
@@ -348,6 +366,19 @@ function sendCommand(row: AutomationApi.DigitalWorker, commandType: AutomationAp
   });
 }
 
+function handleWorkerSelectChange(keys: Array<number | string>) {
+  selectedWorkerId.value = keys[0]?.toString() || '';
+}
+
+async function openCommandAudit() {
+  if (!selectedWorker.value) {
+    MessagePlugin.warning('请先勾选一个数字员工');
+    return;
+  }
+
+  await router.push(`/automation/digital-workers/${selectedWorker.value.id}/command-audit`);
+}
+
 async function applyFilters() {
   Object.assign(query, filters);
   pagination.current = 1;
@@ -383,6 +414,9 @@ async function load() {
   loading.value = true;
   try {
     workers.value = await listDigitalWorkersApi(query);
+    if (selectedWorkerId.value && !workers.value.some((item) => item.id === selectedWorkerId.value)) {
+      selectedWorkerId.value = '';
+    }
   } finally {
     loading.value = false;
   }
@@ -403,12 +437,24 @@ onMounted(async () => {
     :data="workers"
     :loading="loading"
     :pagination="tablePagination"
+    :row-selection="workerRowSelection"
+    :selected-row-keys="selectedWorkerKeys"
     @add="openCreate"
     @page-change="handlePageChange"
     @refresh="load"
     @reset="resetFilters"
     @search="applyFilters"
+    @select-change="handleWorkerSelectChange"
   >
+    <template #toolbar>
+      <TButton variant="outline" :disabled="!selectedWorker" @click="openCommandAudit">
+        <template #icon>
+          <IconifyIcon icon="lucide:history" />
+        </template>
+        行为审计
+      </TButton>
+    </template>
+
     <template #filters>
       <label class="filter-field">
         <span>员工信息</span>
@@ -467,105 +513,101 @@ onMounted(async () => {
     @confirm="save"
   >
     <TForm ref="formRef" class="worker-form" :data="form" :rules="rules" label-width="120px">
-      <div class="form-grid form-grid--single">
-        <TFormItem label="员工名称" name="name">
-          <TInput v-model="form.name" placeholder="Codex worker" />
-        </TFormItem>
-      </div>
-      <div v-if="form.id" class="form-grid">
-        <TFormItem v-if="form.id" label="员工编码">
-          <TInput v-model="form.code" disabled />
-        </TFormItem>
-      </div>
-      <div class="form-grid form-grid--single">
-        <TFormItem label="Agent Token" name="agentTokenId">
-          <TSelect v-model="form.agentTokenId" filterable placeholder="请选择 Agent Token" :options="tokenOptions" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="员工类型" name="employeeType">
-          <TSelect v-model="form.employeeType" :options="employeeTypeOptions" />
-        </TFormItem>
-        <TFormItem label="驱动类型">
-          <TSelect v-model="form.workerType" :options="driverTypeOptions" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="最大并发" name="maxConcurrentRuns">
-          <TSelect v-model="form.maxConcurrentRuns" :options="maxConcurrentOptions" />
-        </TFormItem>
-        <TFormItem label="心跳超时" name="heartbeatTimeoutSeconds">
-          <TSelect v-model="form.heartbeatTimeoutSeconds" :options="heartbeatTimeoutOptions" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="轮询间隔">
-          <TInput v-model="form.pollIntervalSeconds" type="number" placeholder="15" />
-        </TFormItem>
-        <TFormItem label="最大空闲间隔">
-          <TInput v-model="form.idleMaxIntervalSeconds" type="number" placeholder="180" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="最大运行分钟">
-          <TInput v-model="form.maxRunMinutes" type="number" placeholder="60" />
-        </TFormItem>
-        <TFormItem label="沙箱模式">
-          <TSelect v-model="form.sandboxMode" :options="sandboxModeOptions" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="工作区根目录">
-          <TInput v-model="form.workspaceRoot" placeholder="/workspaces" />
-        </TFormItem>
-        <TFormItem label="运行日志目录">
-          <TInput v-model="form.runsRoot" placeholder="/runs" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="Codex Home">
-          <TInput v-model="form.codexHome" placeholder="/codex-home" />
-        </TFormItem>
-      </div>
-      <div class="form-grid form-grid--single">
-        <TFormItem label="AI平台" name="aiPlatformCode">
-          <TSelect
-            v-model="form.aiPlatformCode"
-            filterable
-            placeholder="请选择AI平台"
-            :options="aiPlatformOptions"
-          />
-        </TFormItem>
-      </div>
-      <div v-if="false" class="form-grid">
-        <TFormItem label="Provider">
-          <TInput v-model="form.codexProvider" placeholder="openai" />
-        </TFormItem>
-        <TFormItem label="模型">
-          <TInput v-if="false" v-model="form.codexModel" placeholder="gpt-5.4" />
-        </TFormItem>
-      </div>
-      <div class="form-grid form-grid--single">
-        <TFormItem v-if="false" label="OpenAI Base URL">
-          <TInput v-model="form.openAiBaseUrl" placeholder="https://api.openai.com/v1" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="启动烟测">
-          <TSwitch v-model="form.runSmokeOnStartup" />
-        </TFormItem>
-        <TFormItem label="烟测提示词">
-          <TInput v-model="form.smokePrompt" placeholder="你好" />
-        </TFormItem>
-      </div>
-      <div class="form-grid">
-        <TFormItem label="状态">
-          <TSelect v-model="form.status" :options="statusOptions" />
-        </TFormItem>
-      </div>
-      <TFormItem label="说明">
-        <TTextarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="记录部署位置、用途或接单边界" />
-      </TFormItem>
+      <TTabs v-model="activeWorkerFormTab" theme="card" :destroy-on-hide="false">
+        <TTabPanel value="employee" label="员工信息">
+          <div class="tab-form-body">
+            <div class="form-grid form-grid--single">
+              <TFormItem label="员工名称" name="name">
+                <TInput v-model="form.name" placeholder="Codex worker" />
+              </TFormItem>
+            </div>
+            <div class="form-grid form-grid--single">
+              <TFormItem label="Agent Token" name="agentTokenId">
+                <TSelect v-model="form.agentTokenId" filterable placeholder="请选择 Agent Token" :options="tokenOptions" />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="员工类型" name="employeeType">
+                <TSelect v-model="form.employeeType" :options="employeeTypeOptions" />
+              </TFormItem>
+              <TFormItem label="AI平台" name="aiPlatformCode">
+                <TSelect
+                  v-model="form.aiPlatformCode"
+                  filterable
+                  placeholder="请选择AI平台"
+                  :options="aiPlatformOptions"
+                />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="状态">
+                <TSelect v-model="form.status" :options="statusOptions" />
+              </TFormItem>
+            </div>
+            <TFormItem label="说明">
+              <TTextarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="记录部署位置、用途或接单边界" />
+            </TFormItem>
+          </div>
+        </TTabPanel>
+
+        <TTabPanel value="work" label="工作选项">
+          <div class="tab-form-body">
+            <div class="form-grid">
+              <TFormItem label="启动烟测">
+                <TSwitch v-model="form.runSmokeOnStartup" />
+              </TFormItem>
+              <TFormItem label="烟测提示词">
+                <TInput v-model="form.smokePrompt" placeholder="你好" />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="最大并发" name="maxConcurrentRuns">
+                <TSelect v-model="form.maxConcurrentRuns" :options="maxConcurrentOptions" />
+              </TFormItem>
+              <TFormItem label="心跳超时" name="heartbeatTimeoutSeconds">
+                <TSelect v-model="form.heartbeatTimeoutSeconds" :options="heartbeatTimeoutOptions" />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="轮询间隔">
+                <TInput v-model="form.pollIntervalSeconds" type="number" placeholder="15" />
+              </TFormItem>
+              <TFormItem label="最大空闲间隔">
+                <TInput v-model="form.idleMaxIntervalSeconds" type="number" placeholder="180" />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="最大运行分钟">
+                <TInput v-model="form.maxRunMinutes" type="number" placeholder="60" />
+              </TFormItem>
+              <TFormItem label="沙箱模式">
+                <TSelect v-model="form.sandboxMode" :options="sandboxModeOptions" />
+              </TFormItem>
+            </div>
+          </div>
+        </TTabPanel>
+
+        <TTabPanel value="advanced" label="高级选项">
+          <div class="tab-form-body">
+            <div class="form-grid">
+              <TFormItem label="驱动类型">
+                <TSelect v-model="form.workerType" :options="driverTypeOptions" />
+              </TFormItem>
+              <TFormItem label="工作区根目录">
+                <TInput v-model="form.workspaceRoot" placeholder="/workspaces" />
+              </TFormItem>
+            </div>
+            <div class="form-grid">
+              <TFormItem label="运行日志目录">
+                <TInput v-model="form.runsRoot" placeholder="/runs" />
+              </TFormItem>
+              <TFormItem label="Codex Home">
+                <TInput v-model="form.codexHome" placeholder="/codex-home" />
+              </TFormItem>
+            </div>
+          </div>
+        </TTabPanel>
+      </TTabs>
     </TForm>
   </TDrawer>
 
@@ -641,6 +683,13 @@ onMounted(async () => {
   margin-bottom: 0;
 }
 
+.tab-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+}
+
 .detail-panel {
   display: flex;
   flex-direction: column;
@@ -670,6 +719,7 @@ onMounted(async () => {
   background: var(--td-bg-color-container-hover);
   border-radius: 4px;
 }
+
 
 @media (max-width: 760px) {
   .filter-field,

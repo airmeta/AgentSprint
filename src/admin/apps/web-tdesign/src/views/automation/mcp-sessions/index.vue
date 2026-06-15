@@ -3,44 +3,39 @@ import type { AutomationApi } from '#/api';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   listDigitalWorkersApi,
-  listWorkerEventsApi,
-  listWorkerRunsApi,
   listWorkerSessionsApi,
 } from '#/api';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import { formatDateTime } from '#/views/_shared/date-format';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Drawer as TDrawer,
   Input as TInput,
   Select as TSelect,
   Space as TSpace,
-  Table as TTable,
   Tag as TTag,
 } from 'tdesign-vue-next';
 
 defineOptions({ name: 'AutomationMcpSessions' });
+
+const router = useRouter();
 
 type SessionRow = AutomationApi.WorkerSession & {
   worker?: AutomationApi.DigitalWorker;
 };
 
 const loading = ref(false);
-const detailLoading = ref(false);
-const detailVisible = ref(false);
 const sessions = ref<AutomationApi.WorkerSession[]>([]);
 const workers = ref<AutomationApi.DigitalWorker[]>([]);
-const runs = ref<AutomationApi.WorkerRun[]>([]);
-const events = ref<AutomationApi.WorkerEvent[]>([]);
-const selected = ref<SessionRow>();
-const filters = reactive({
+const defaultFilters = {
   keyword: '',
-  status: '',
+  status: 'idle',
   workerId: '',
-});
+};
+const filters = reactive({ ...defaultFilters });
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
@@ -65,21 +60,6 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'lastHeartbeatAt', title: '最后心跳', cell: 'lastHeartbeatAt', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 120 },
 ];
-const runColumns: PrimaryTableCol[] = [
-  { colKey: 'runType', title: '类型', width: 90 },
-  { colKey: 'target', title: '目标', cell: 'target', minWidth: 180 },
-  { colKey: 'status', title: '状态', cell: 'runStatus', width: 120 },
-  { colKey: 'startedAt', title: '开始时间', cell: 'startedAt', width: 170 },
-  { colKey: 'completedAt', title: '完成时间', cell: 'completedAt', width: 170 },
-  { colKey: 'error', title: '错误', ellipsis: true, minWidth: 180 },
-];
-const eventColumns: PrimaryTableCol[] = [
-  { colKey: 'eventType', title: '事件', width: 150 },
-  { colKey: 'level', title: '级别', cell: 'level', width: 90 },
-  { colKey: 'message', title: '消息', ellipsis: true, minWidth: 220 },
-  { colKey: 'createTime', title: '时间', cell: 'createTime', width: 170 },
-];
-
 const workerMap = computed(() => Object.fromEntries(workers.value.map((item) => [item.id, item])));
 const sessionRows = computed<SessionRow[]>(() =>
   sessions.value.map((session) => ({ ...session, worker: workerMap.value[session.workerId] })),
@@ -129,19 +109,6 @@ function statusText(status?: string) {
   return statusOptions.find((item) => item.value === status)?.label || status || '-';
 }
 
-function levelTheme(level?: string) {
-  if (level === 'error') return 'danger';
-  if (level === 'warn') return 'warning';
-  return 'primary';
-}
-
-function runStatusTheme(status?: string) {
-  if (status === 'success') return 'success';
-  if (status === 'running' || status === 'pending') return 'primary';
-  if (status === 'blocked') return 'warning';
-  return 'danger';
-}
-
 function resolveWorker(row: SessionRow) {
   return row.worker ? `${row.worker.name} (${row.worker.code})` : row.workerId;
 }
@@ -158,24 +125,15 @@ async function applyFilters() {
 }
 
 async function resetFilters() {
-  Object.assign(filters, { keyword: '', status: '', workerId: '' });
+  Object.assign(filters, defaultFilters);
   await applyFilters();
 }
 
 async function openDetail(row: SessionRow) {
-  selected.value = row;
-  detailVisible.value = true;
-  detailLoading.value = true;
-  try {
-    const [runRows, eventRows] = await Promise.all([
-      listWorkerRunsApi({ sessionId: row.id, workerId: row.workerId }),
-      listWorkerEventsApi({ sessionId: row.id, workerId: row.workerId }),
-    ]);
-    runs.value = runRows;
-    events.value = eventRows;
-  } finally {
-    detailLoading.value = false;
-  }
+  await router.push({
+    path: `/automation/digital-workers/${row.workerId}/command-audit`,
+    query: { sessionId: row.id },
+  });
 }
 
 async function loadReferences() {
@@ -261,61 +219,6 @@ onMounted(async () => {
     </template>
   </AdminListPage>
 
-  <TDrawer v-model:visible="detailVisible" size="920px" header="Worker会话详情" :footer="false">
-    <div v-if="selected" class="detail-panel">
-      <section class="detail-section">
-        <h3>{{ resolveWorker(selected) }}</h3>
-        <div class="detail-grid">
-          <span>实例: {{ selected.instanceId }}</span>
-          <span>状态: {{ statusText(selected.status) }}</span>
-          <span>主机: {{ selected.hostName || '-' }}</span>
-          <span>容器: {{ selected.containerId || '-' }}</span>
-          <span>宸ヤ綔鍖猴細{{ selected.workspaceRoot || '-' }}</span>
-          <span>Codex Home: {{ selected.codexHome || '-' }}</span>
-          <span>运行目录: {{ selected.runsRoot || '-' }}</span>
-          <span>启动时间: {{ formatDateTime(selected.startedAt) }}</span>
-          <span>最后心跳: {{ formatDateTime(selected.lastHeartbeatAt) }}</span>
-        </div>
-        <p v-if="selected.errorSummary" class="error-summary">{{ selected.errorSummary }}</p>
-      </section>
-
-      <section class="detail-section">
-        <h3>运行记录</h3>
-        <TTable
-          row-key="id"
-          size="small"
-          :columns="runColumns"
-          :data="runs"
-          :loading="detailLoading"
-          hover
-        >
-          <template #target="{ row }">{{ row.targetType || '-' }} / {{ row.targetId || '-' }}</template>
-          <template #runStatus="{ row }">
-            <TTag :theme="runStatusTheme(row.status)" variant="light">{{ row.status }}</TTag>
-          </template>
-          <template #startedAt="{ row }">{{ formatDateTime(row.startedAt) }}</template>
-          <template #completedAt="{ row }">{{ formatDateTime(row.completedAt) }}</template>
-        </TTable>
-      </section>
-
-      <section class="detail-section">
-        <h3>事件审计</h3>
-        <TTable
-          row-key="id"
-          size="small"
-          :columns="eventColumns"
-          :data="events"
-          :loading="detailLoading"
-          hover
-        >
-          <template #level="{ row }">
-            <TTag :theme="levelTheme(row.level)" variant="light">{{ row.level }}</TTag>
-          </template>
-          <template #createTime="{ row }">{{ formatDateTime(row.createTime) }}</template>
-        </TTable>
-      </section>
-    </div>
-  </TDrawer>
 </template>
 
 <style scoped>
@@ -350,40 +253,10 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.detail-section {
-  padding: 12px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.detail-section h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
-}
-
-.error-summary {
-  margin: 10px 0 0;
-  color: var(--td-error-color);
-}
-
 @media (max-width: 760px) {
-  .filter-field,
-  .detail-grid {
+  .filter-field {
     grid-template-columns: 1fr;
     width: 100%;
   }
 }
 </style>
-

@@ -38,5 +38,7 @@ public sealed class WorkerOptions
 
     public string? OpenAiBaseUrl { get; set; }
 
+    public string? OpenAiApiKey { get; set; }
+
     public int ConfigVersion { get; set; } = 1;
 }

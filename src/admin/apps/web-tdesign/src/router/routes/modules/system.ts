@@ -128,7 +128,7 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       icon: 'lucide:sliders-horizontal',
-      order: 92,
+      order: 93,
       title: '全局配置',
     },
     name: 'GlobalConfig',
@@ -169,8 +169,38 @@ const routes: RouteRecordRaw[] = [
   },
   {
     meta: {
+      icon: 'lucide:scan-search',
+      order: 92,
+      title: '代码审查',
+    },
+    name: 'CodeReviewManagement',
+    path: '/code-review',
+    redirect: '/code-review/tasks',
+    children: [
+      {
+        name: 'CodeReviewTasks',
+        path: '/code-review/tasks',
+        component: () => import('#/views/code-review/tasks/index.vue'),
+        meta: {
+          icon: 'lucide:list-checks',
+          title: '代码审计任务',
+        },
+      },
+      {
+        name: 'CodeReviewResults',
+        path: '/code-review/results',
+        component: () => import('#/views/code-review/results/index.vue'),
+        meta: {
+          icon: 'lucide:clipboard-check',
+          title: '代码审计结果',
+        },
+      },
+    ],
+  },
+  {
+    meta: {
       icon: 'lucide:bot',
-      order: 93,
+      order: 94,
       title: '自动化管理',
     },
     name: 'AutomationManagement',
@@ -184,6 +214,17 @@ const routes: RouteRecordRaw[] = [
         meta: {
           icon: 'lucide:bot',
           title: '数字员工管理',
+        },
+      },
+      {
+        name: 'AutomationDigitalWorkerCommandAudit',
+        path: '/automation/digital-workers/:id/command-audit',
+        component: () => import('#/views/automation/digital-workers/command-audit.vue'),
+        meta: {
+          activePath: '/automation/digital-workers',
+          hideInMenu: true,
+          icon: 'lucide:history',
+          title: '行为审计',
         },
       },
       {

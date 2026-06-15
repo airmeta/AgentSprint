@@ -53,6 +53,9 @@ public sealed class CodexProcessRunner
         var idleTimeout = request.IdleTimeout.GetValueOrDefault(DefaultIdleTimeout);
 
         Directory.CreateDirectory(request.WorkingDirectory);
+        WorkerDiagnostics.Info(
+            "Codex运行准备完成",
+            $"runId={request.RunId}, workingDirectory={request.WorkingDirectory}, runDirectory={paths.RunDirectory}, promptPath={paths.PromptPath}, stdoutPath={paths.StdoutPath}, stderrPath={paths.StderrPath}, finalPath={paths.FinalPath}, sandboxMode={request.SandboxMode}, skipGitRepoCheck={request.SkipGitRepoCheck}, timeout={request.Timeout}, idleTimeout={idleTimeout}, codexExecutable={request.CodexExecutable ?? "codex"}");
 
         await using var stdout = new StreamWriter(paths.StdoutPath, append: false);
         await using var stderr = new StreamWriter(paths.StderrPath, append: false);
@@ -76,15 +79,22 @@ public sealed class CodexProcessRunner
             EnableRaisingEvents = true
         };
         AddCodexArguments(process.StartInfo, request, paths.FinalPath);
+        WorkerDiagnostics.Info(
+            "Codex进程启动参数",
+            $"runId={request.RunId}, fileName={process.StartInfo.FileName}, workingDirectory={process.StartInfo.WorkingDirectory}, arguments={FormatArguments(process.StartInfo.ArgumentList)}");
 
         try
         {
             if (!process.Start())
             {
                 error = "Codex process failed to start.";
+                WorkerDiagnostics.Error("Codex进程启动失败", $"runId={request.RunId}, error={error}");
             }
             else
             {
+                WorkerDiagnostics.Info(
+                    "Codex进程已启动",
+                    $"runId={request.RunId}, processId={process.Id}, startedAt={startedAt:O}");
                 try
                 {
                     AppRealization.TraceLog.Write(
@@ -131,12 +141,16 @@ public sealed class CodexProcessRunner
 
                     exitCode = process.ExitCode;
                     status = exitCode == 0 && File.Exists(paths.FinalPath) ? "success" : "codex_failed";
+                    WorkerDiagnostics.Info(
+                        "Codex进程正常退出",
+                        $"runId={request.RunId}, exitCode={exitCode}, finalExists={File.Exists(paths.FinalPath)}, status={status}");
                 }
                 else if (completedTask == runTimeoutTask)
                 {
                     timedOut = true;
                     status = "timeout";
                     error = $"Codex process timed out after {FormatDuration(request.Timeout)}.";
+                    WorkerDiagnostics.Warn("Codex进程总超时", $"runId={request.RunId}, error={error}");
                     await StopProcessAsync(process, watcherCts, pumpCts);
                     await WaitForPumpsAsync(stdoutTask, stderrTask);
                 }
@@ -145,6 +159,7 @@ public sealed class CodexProcessRunner
                     timedOut = true;
                     status = "timeout";
                     error = await idleTimeoutTask;
+                    WorkerDiagnostics.Warn("Codex进程空闲超时", $"runId={request.RunId}, error={error}");
                     await StopProcessAsync(process, watcherCts, pumpCts);
                     await WaitForPumpsAsync(stdoutTask, stderrTask);
                 }
@@ -152,6 +167,7 @@ public sealed class CodexProcessRunner
                 {
                     status = "codex_failed";
                     error = await fatalOutput.Task;
+                    WorkerDiagnostics.Error("Codex进程检测到致命输出", $"runId={request.RunId}, error={error}");
                     await StopProcessAsync(process, watcherCts, pumpCts);
                     await WaitForPumpsAsync(stdoutTask, stderrTask);
                 }
@@ -161,20 +177,24 @@ public sealed class CodexProcessRunner
         {
             status = "cancelled";
             error = "Codex process was cancelled.";
+            WorkerDiagnostics.Warn("Codex进程被取消", $"runId={request.RunId}, error={error}");
             ProcessCommandRunner.TryKillProcessTree(process);
         }
         catch (Exception ex)
         {
             status = "codex_failed";
             error = ex.Message;
+            WorkerDiagnostics.Error("Codex进程异常", $"runId={request.RunId}, error={ex}");
             ProcessCommandRunner.TryKillProcessTree(process);
         }
 
         void OnOutputLine(string line)
         {
             Interlocked.Exchange(ref lastOutputTicks, DateTimeOffset.UtcNow.UtcTicks);
+            WorkerDiagnostics.Info("Codex输出", $"runId={request.RunId}, line={WorkerDiagnostics.Trim(line, 2000)}");
             if (TryClassifyFatalOutputLine(line, out var reason))
             {
+                WorkerDiagnostics.Error("Codex输出命中快速失败规则", $"runId={request.RunId}, reason={reason}, line={WorkerDiagnostics.Trim(line, 2000)}");
                 fatalOutput.TrySetResult(reason);
             }
         }
@@ -197,6 +217,9 @@ public sealed class CodexProcessRunner
         };
 
         await _runLogger.WriteManifestAsync(paths, manifest, CancellationToken.None);
+        WorkerDiagnostics.Info(
+            "Codex运行结果已写入",
+            $"runId={request.RunId}, status={status}, exitCode={exitCode?.ToString() ?? "<null>"}, timedOut={timedOut}, error={error ?? string.Empty}, manifestPath={paths.ManifestPath}, stdoutPath={paths.StdoutPath}, stderrPath={paths.StderrPath}, finalPath={paths.FinalPath}, completedAt={completedAt:O}");
 
         return new CodexRunResult(
             request.RunId,
@@ -250,14 +273,15 @@ public sealed class CodexProcessRunner
             lower.Contains("timeout", StringComparison.Ordinal) ||
             lower.Contains("timed out", StringComparison.Ordinal);
 
-        if (lower.Contains("401", StringComparison.Ordinal) ||
-            lower.Contains("403", StringComparison.Ordinal) ||
-            lower.Contains("unauthorized", StringComparison.Ordinal) ||
+        if (lower.Contains("unauthorized", StringComparison.Ordinal) ||
             lower.Contains("forbidden", StringComparison.Ordinal) ||
             lower.Contains("invalid api key", StringComparison.Ordinal) ||
             lower.Contains("authentication", StringComparison.Ordinal) ||
             lower.Contains("not logged in", StringComparison.Ordinal) ||
-            lower.Contains("access is denied", StringComparison.Ordinal))
+            lower.Contains("access is denied", StringComparison.Ordinal) ||
+            ((lower.Contains("401", StringComparison.Ordinal) ||
+              lower.Contains("403", StringComparison.Ordinal)) &&
+             hasErrorSignal))
         {
             reason = $"Codex authentication failed: {normalized}";
             return true;
@@ -379,5 +403,13 @@ public sealed class CodexProcessRunner
         }
 
         return $"{duration.TotalSeconds:0.#} second(s)";
+    }
+
+    private static string FormatArguments(System.Collections.ObjectModel.Collection<string> arguments)
+    {
+        return string.Join(" ", arguments.Select(argument =>
+            argument.Contains(' ', StringComparison.Ordinal) || argument.Contains('"', StringComparison.Ordinal)
+                ? "\"" + argument.Replace("\"", "\\\"", StringComparison.Ordinal) + "\""
+                : argument));
     }
 }

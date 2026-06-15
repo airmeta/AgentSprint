@@ -290,6 +290,99 @@ public sealed class WorkerProbeTests
     }
 
     [Fact]
+    public async Task GitWorkspaceManager_PublishAsync_CommitsMergesAndPushes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
+        var remote = Path.Combine(root, "remote.git");
+        var source = Path.Combine(root, "source");
+        var workspaces = Path.Combine(root, "workspaces");
+        Directory.CreateDirectory(root);
+        await RunGitForTestAsync("init --bare " + Quote(remote), root);
+        await RunGitForTestAsync("init -b main " + Quote(source), root);
+        await ConfigureGitUserAsync(source);
+        await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "first");
+        await RunGitForTestAsync("add README.md", source);
+        await RunGitForTestAsync("commit -m first", source);
+        await RunGitForTestAsync("remote add origin " + Quote(remote), source);
+        await RunGitForTestAsync("push -u origin main", source);
+
+        var manager = new GitWorkspaceManager();
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
+        await ConfigureGitUserAsync(prepared.WorkspacePath);
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "README.md"), "worker");
+
+        var published = await manager.PublishAsync(
+            prepared.WorkspacePath,
+            remote,
+            null,
+            null,
+            "worker update",
+            (_, _) => Task.FromResult(new GitConflictResolutionResult(false, "unexpected")),
+            CancellationToken.None);
+        await RunGitForTestAsync("pull --ff-only", source);
+
+        Assert.True(published.Succeeded);
+        Assert.True(published.HasChanges);
+        Assert.True(published.Pushed);
+        Assert.False(published.ConflictResolved);
+        Assert.Equal("worker", await File.ReadAllTextAsync(Path.Combine(source, "README.md")));
+    }
+
+    [Fact]
+    public async Task GitWorkspaceManager_PublishAsync_UsesResolverWhenRemoteMergeConflicts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
+        var remote = Path.Combine(root, "remote.git");
+        var source = Path.Combine(root, "source");
+        var workspaces = Path.Combine(root, "workspaces");
+        Directory.CreateDirectory(root);
+        await RunGitForTestAsync("init --bare " + Quote(remote), root);
+        await RunGitForTestAsync("init -b main " + Quote(source), root);
+        await ConfigureGitUserAsync(source);
+        await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "first");
+        await RunGitForTestAsync("add README.md", source);
+        await RunGitForTestAsync("commit -m first", source);
+        await RunGitForTestAsync("remote add origin " + Quote(remote), source);
+        await RunGitForTestAsync("push -u origin main", source);
+
+        var manager = new GitWorkspaceManager();
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
+        await ConfigureGitUserAsync(prepared.WorkspacePath);
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "README.md"), "local worker");
+        await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "remote update");
+        await RunGitForTestAsync("add README.md", source);
+        await RunGitForTestAsync("commit -m remote", source);
+        await RunGitForTestAsync("push", source);
+
+        var resolverCalled = false;
+        var published = await manager.PublishAsync(
+            prepared.WorkspacePath,
+            remote,
+            null,
+            null,
+            "worker update",
+            async (request, _) =>
+            {
+                resolverCalled = true;
+                Assert.Contains("README.md", request.ConflictFiles);
+                await File.WriteAllTextAsync(
+                    Path.Combine(request.WorkspacePath, "README.md"),
+                    "local worker\n# Remote side kept for review: remote update");
+                return new GitConflictResolutionResult(true, null);
+            },
+            CancellationToken.None);
+        await RunGitForTestAsync("pull", source);
+
+        Assert.True(resolverCalled);
+        Assert.True(published.Succeeded);
+        Assert.True(published.Pushed);
+        Assert.True(published.ConflictResolved);
+        var content = await File.ReadAllTextAsync(Path.Combine(source, "README.md"));
+        Assert.Contains("local worker", content);
+        Assert.Contains("Remote side kept for review", content);
+    }
+
+    [Fact]
     public async Task GitWorkspaceManager_PrepareAsync_WithoutRepositoryCreatesUnavailableWorkspace()
     {
         var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
@@ -317,24 +410,54 @@ public sealed class WorkerProbeTests
     }
 
     [Fact]
+    public void WorkerDiagnostics_TrimAndRedact_RemovesGitCredentials()
+    {
+        var redacted = WorkerDiagnostics.TrimAndRedact(
+            "git clone https://codex%20user:token%3A123@example.com/org/repo.git",
+            ["token%3A123"]);
+
+        Assert.DoesNotContain("token%3A123", redacted);
+        Assert.Contains("***REDACTED***:***REDACTED***@example.com", redacted);
+    }
+
+    [Fact]
     public void WorkerRuntimeConfigApplier_BuildsCodexConfigWithoutInlineToken()
     {
+        var previousApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         var options = Options.Create(new WorkerOptions
         {
             CodexModel = "gpt-5.4",
             CodexProvider = "openai",
+            OpenAiApiKey = "platform-api-key",
             OpenAiBaseUrl = "https://api.openai.com/v1",
             SandboxMode = "workspace-write"
         });
         var applier = new WorkerRuntimeConfigApplier(options);
 
-        var configToml = applier.BuildCodexConfig("secret-token");
+        try
+        {
+            var configToml = applier.BuildCodexConfig("secret-token");
 
-        Assert.Contains("model = \"gpt-5.4\"", configToml);
-        Assert.Contains("base_url = \"https://api.openai.com/v1\"", configToml);
-        Assert.Contains("bearer_token_env_var = \"AGENTSPRINT_AGENT_TOKEN\"", configToml);
-        Assert.DoesNotContain("[mcp_servers.agentsprint]", configToml);
-        Assert.DoesNotContain("secret-token", configToml);
+            Assert.Contains("model = \"gpt-5.4\"", configToml);
+            Assert.Contains("model_provider = \"agentsprint\"", configToml);
+            Assert.Contains("base_url = \"https://api.openai.com/v1\"", configToml);
+            Assert.Contains("env_key = \"OPENAI_API_KEY\"", configToml);
+            Assert.Contains("wire_api = \"responses\"", configToml);
+            Assert.Equal("platform-api-key", Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
+            Assert.DoesNotContain("platform-api-key", configToml);
+            Assert.DoesNotContain("bearer_token_env_var = \"AGENTSPRINT_AGENT_TOKEN\"", configToml);
+            Assert.DoesNotContain("[mcp_servers.agentsprint]", configToml);
+            Assert.DoesNotContain("secret-token", configToml);
+
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", "container-api-key");
+            options.Value.OpenAiApiKey = null;
+            applier.BuildCodexConfig("secret-token");
+            Assert.Equal("container-api-key", Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", previousApiKey);
+        }
     }
 
     [Fact]
@@ -370,6 +493,12 @@ public sealed class WorkerProbeTests
         {
             throw new InvalidOperationException(result.Stderr + result.Stdout + result.Error);
         }
+    }
+
+    private static async Task ConfigureGitUserAsync(string workingDirectory)
+    {
+        await RunGitForTestAsync("config user.email worker@example.com", workingDirectory);
+        await RunGitForTestAsync("config user.name Worker", workingDirectory);
     }
 
     private static string Quote(string value)
