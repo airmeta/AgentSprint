@@ -1,6 +1,7 @@
 using AgentSprint.Domain.Impls.Common;
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
+using AgentSprint.Model.Modules.Agile.Workers;
 
 using Air.Cloud.EntityFrameWork.Core.Repositories;
 
@@ -17,6 +18,53 @@ public sealed class SprintProjectDomain : EntityDomainBase<SprintProjectEntity>,
     /// en-us: Project entity repository.
     /// </param>
     public SprintProjectDomain(IRepository<SprintProjectEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class GitAccountDomain : EntityDomainBase<GitAccountEntity>, IGitAccountDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Git 账户领域对象，复用 Air.Cloud 仓储维护仓库访问账号和令牌信息。
+    /// en-us: Creates the Git account domain and reuses the Air.Cloud repository to maintain repository access accounts and tokens.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Git 账户实体仓储。
+    /// en-us: Git account entity repository.
+    /// </param>
+    public GitAccountDomain(IRepository<GitAccountEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class GitRepositoryDomain : EntityDomainBase<GitRepositoryEntity>, IGitRepositoryDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Git 仓库领域对象，复用 Air.Cloud 仓储维护仓库地址、默认分支、关联账户和本地路径。
+    /// en-us: Creates the Git repository domain and reuses the Air.Cloud repository to maintain repository URL, default branch, linked account, and local path.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Git 仓库实体仓储。
+    /// en-us: Git repository entity repository.
+    /// </param>
+    public GitRepositoryDomain(IRepository<GitRepositoryEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class GitBranchOperationDomain :
+    EntityDomainBase<GitBranchOperationEntity>,
+    IGitBranchOperationDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Git 分支操作领域对象，复用 Air.Cloud 仓储记录新增分支、备份删除分支和推送读取结果。
+    /// en-us: Creates the Git branch-operation domain and reuses the Air.Cloud repository to record branch creation, backup-before-delete, and push-log reads.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Git 分支操作实体仓储。
+    /// en-us: Git branch operation entity repository.
+    /// </param>
+    public GitBranchOperationDomain(IRepository<GitBranchOperationEntity> repository) : base(repository)
     {
     }
 }
@@ -190,6 +238,81 @@ public sealed class SprintTaskLeaseDomain : EntityDomainBase<SprintTaskLeaseEnti
     /// en-us: Task lease entity repository.
     /// </param>
     public SprintTaskLeaseDomain(IRepository<SprintTaskLeaseEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DigitalWorkerDomain : EntityDomainBase<DigitalWorkerEntity>, IDigitalWorkerDomain
+{
+    /// <summary>
+    /// zh-cn: 创建数字员工主档领域对象，复用 Air.Cloud 仓储维护 Worker 管理配置。
+    /// en-us: Creates the digital-worker domain and reuses the Air.Cloud repository to maintain Worker management configuration.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 数字员工主档实体仓储。
+    /// en-us: Digital-worker entity repository.
+    /// </param>
+    public DigitalWorkerDomain(IRepository<DigitalWorkerEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class WorkerSessionDomain : EntityDomainBase<WorkerSessionEntity>, IWorkerSessionDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Worker 会话领域对象，用于记录 AgentSprint.Worker 进程生命周期和心跳状态。
+    /// en-us: Creates the Worker-session domain used to record AgentSprint.Worker process lifecycles and heartbeat state.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Worker 会话实体仓储。
+    /// en-us: Worker-session entity repository.
+    /// </param>
+    public WorkerSessionDomain(IRepository<WorkerSessionEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class WorkerCommandDomain : EntityDomainBase<WorkerCommandEntity>, IWorkerCommandDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Worker 命令领域对象，用于维护平台下发给受控端的命令队列。
+    /// en-us: Creates the Worker-command domain used to maintain commands issued by the platform to controlled workers.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Worker 命令实体仓储。
+    /// en-us: Worker-command entity repository.
+    /// </param>
+    public WorkerCommandDomain(IRepository<WorkerCommandEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class WorkerRunDomain : EntityDomainBase<WorkerRunEntity>, IWorkerRunDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Worker 运行记录领域对象，用于保存 Codex 执行摘要和本地产物路径。
+    /// en-us: Creates the Worker-run domain used to store Codex execution summaries and local artifact paths.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Worker 运行记录实体仓储。
+    /// en-us: Worker-run entity repository.
+    /// </param>
+    public WorkerRunDomain(IRepository<WorkerRunEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class WorkerEventDomain : EntityDomainBase<WorkerEventEntity>, IWorkerEventDomain
+{
+    /// <summary>
+    /// zh-cn: 创建 Worker 事件领域对象，用于保存受控端生命周期、命令和运行过程审计事件。
+    /// en-us: Creates the Worker-event domain used to store audit events for controlled-worker lifecycles, commands, and runs.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Worker 事件实体仓储。
+    /// en-us: Worker-event entity repository.
+    /// </param>
+    public WorkerEventDomain(IRepository<WorkerEventEntity> repository) : base(repository)
     {
     }
 }

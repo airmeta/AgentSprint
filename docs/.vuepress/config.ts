@@ -44,6 +44,8 @@ export default defineUserConfig({
           children: [
             '/运行环境与提示词管理说明.md',
             '/Skill配置管理说明.md',
+            '/Git管理说明.md',
+            '/数字员工受控端探针服务说明.md',
             '/系统字典管理说明.md',
             '/业务数据清空说明.md',
             '/权限管理模型后续演进方案.md',

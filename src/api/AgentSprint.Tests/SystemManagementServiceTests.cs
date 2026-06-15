@@ -41,6 +41,49 @@ public sealed class SystemManagementServiceTests
     }
 
     [Fact]
+    public async Task UpsertUserAsync_NewUserDoesNotIssueUpdateBeforeSaveChanges()
+    {
+        var userDomain = new CountingUserDomain([]);
+        var service = CreateService(userDomain: userDomain);
+
+        await service.UpsertUserAsync(new UpsertUserRequest(
+            null,
+            "baoyl",
+            "Bao Yuanlong",
+            "123456",
+            null,
+            null,
+            null,
+            1,
+            ["role-1"]));
+
+        Assert.Equal(1, userDomain.CreateCalls);
+        Assert.Equal(0, userDomain.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task UpsertUserAsync_RequiresAtLeastOneRole()
+    {
+        var users = new List<UserEntity>();
+        var service = CreateService(users: users);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpsertUserAsync(new UpsertUserRequest(
+                null,
+                "maintainer",
+                "Maintainer",
+                "123456",
+                null,
+                null,
+                null,
+                1,
+                [])));
+
+        Assert.Equal("At least one role is required.", ex.Message);
+        Assert.Empty(users);
+    }
+
+    [Fact]
     public async Task UpsertUserAsync_RestoresSoftDeletedUserRoleAssociation()
     {
         var user = new UserEntity
@@ -548,6 +591,7 @@ public sealed class SystemManagementServiceTests
     }
 
     private static SystemManagementService CreateService(
+        AgentSprint.Model.Modules.Security.Domains.IUserDomain? userDomain = null,
         IList<UserEntity>? users = null,
         IList<RoleEntity>? roles = null,
         IList<MenuEntity>? menus = null,
@@ -567,7 +611,7 @@ public sealed class SystemManagementServiceTests
         IList<EntityAssociationEntity>? associations = null)
     {
         return new SystemManagementService(
-            new InMemoryUserDomain(users ?? []),
+            userDomain ?? new InMemoryUserDomain(users ?? []),
             new InMemoryRoleDomain(roles ?? []),
             new InMemoryMenuDomain(menus ?? []),
             new InMemoryPermissionDomain(permissions ?? []),
@@ -613,3 +657,22 @@ internal sealed class InMemoryRuntimeEnvironmentContainerDomain(IList<RuntimeEnv
 
 internal sealed class InMemorySystemPromptTemplateDomain(IList<PromptTemplateEntity> entities)
     : InMemorySecurityDomain<PromptTemplateEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IPromptTemplateDomain;
+
+internal sealed class CountingUserDomain(IList<UserEntity> entities) : InMemoryUserDomain(entities)
+{
+    public int CreateCalls { get; private set; }
+
+    public int UpdateCalls { get; private set; }
+
+    public override async Task<string> CreateAsync(UserEntity entity)
+    {
+        CreateCalls++;
+        return await base.CreateAsync(entity);
+    }
+
+    public override async Task<string> UpdateAsync(UserEntity entity)
+    {
+        UpdateCalls++;
+        return await base.UpdateAsync(entity);
+    }
+}

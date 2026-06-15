@@ -8,43 +8,6 @@ namespace AgentSprint.Service.Impls.SecurityServices;
 
 public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecurityAuthorizationService
 {
-    private static readonly HashSet<string> SprintMenuNames =
-    [
-        "Workspace",
-        "ProjectGroup",
-        "SprintProjects",
-        "SprintMultiEndpoints",
-        "SprintProjectDetail",
-        "ProductGroup",
-        "SprintRequirements",
-        "SprintRequirementDetail",
-        "SprintRequirementReviews",
-        "WorkerGroup",
-        "SprintTasks",
-        "SprintTaskDetail",
-        "SprintMyTasks",
-        "TestGroup",
-        "SprintTests",
-        "SprintDefects",
-        "SprintDefectDetail",
-        "OperationManagement",
-        "OperationScripts",
-        "OperationEnvironments",
-        "System",
-        "SystemUsers",
-        "SystemRoles",
-        "SystemMenus",
-        "SystemConfigurations",
-        "SystemDepartments",
-        "SystemAssignments",
-        "GlobalConfig",
-        "GlobalConfigEnvironments",
-        "GlobalConfigPromptTemplates",
-        "GlobalConfigSkills",
-        "Security",
-        "SystemAgentTokens"
-    ];
-
     private readonly IRoleDomain _roleDomain;
     private readonly IMenuDomain _menuDomain;
     private readonly IPermissionDomain _permissionDomain;
@@ -206,7 +169,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         }
 
         var menus = (await _menuDomain.ListAsync(entity => menuIds.Contains(entity.Id) && entity.Status == 1))
-            .Where(entity => !IsRemovedMenu(entity.Name, entity.Path))
+            .Where(entity => !IsRemovedMenu(entity.Path))
             .OrderBy(entity => entity.Sort)
             .Select(entity => new MenuTreeItem(
                 entity.Id,
@@ -214,17 +177,17 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
                 new MenuResult
                 {
                     Path = entity.Path,
-                    Name = entity.Name,
+                    Name = ToRouteName(entity.Id),
                     Component = entity.Component,
-                    Redirect = ResolveRedirect(entity.Name),
+                    Redirect = ResolveRedirect(entity.Path),
                     Meta = new MenuMetaResult
                     {
                         Icon = entity.Icon,
                         Order = entity.Sort,
-                        Title = ResolveMenuTitle(entity.Name),
+                        Title = entity.Name,
                         HideInMenu = entity.Type == 2 ? true : null,
-                        ActivePath = ResolveActivePath(entity.Name),
-                        AffixTab = entity.Name is "Workspace" or "SprintProjects" or "SprintMultiEndpoints" ? true : null
+                        ActivePath = ResolveActivePath(entity.Path),
+                        AffixTab = IsAffixTab(entity.Path) ? true : null
                     }
                 }))
             .ToList();
@@ -281,7 +244,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             .ToHashSet(StringComparer.Ordinal);
     }
 
-    private static bool IsRemovedMenu(string name, string path)
+    private static bool IsRemovedMenu(string path)
     {
         if (path == "/sprint" ||
             path == "/system/org" ||
@@ -292,7 +255,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
             return true;
         }
 
-        return path.StartsWith("/sprint/", StringComparison.Ordinal) && !SprintMenuNames.Contains(name);
+        return path is "/sprint/mvp" or "/sprint/decomposition";
     }
 
     private static List<MenuResult> BuildTree(IReadOnlyList<MenuTreeItem> menus)
@@ -315,73 +278,44 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         return roots;
     }
 
-    private static string ResolveMenuTitle(string name)
+    private static string? ResolveRedirect(string path)
     {
-        return name switch
+        return path switch
         {
-            "ProjectGroup" => "项目管理",
-            "SprintProjects" => "项目配置",
-            "SprintMultiEndpoints" => "多端管理",
-            "SprintProjectDetail" => "项目详情",
-            "ProductGroup" => "产品管理",
-            "SprintRequirements" => "需求管理",
-            "SprintRequirementDetail" => "需求详情",
-            "SprintRequirementReviews" => "需求评审",
-            "WorkerGroup" => "研发执行",
-            "SprintTasks" => "任务大厅",
-            "SprintTaskDetail" => "任务详情",
-            "SprintMyTasks" => "我的任务",
-            "TestGroup" => "测试验证",
-            "SprintTests" => "测试计划",
-            "SprintDefects" => "缺陷跟踪",
-            "SprintDefectDetail" => "缺陷详情",
-            "OperationManagement" => "运维管理",
-            "OperationScripts" => "脚本管理",
-            "OperationEnvironments" => "环境配置",
-            "System" => "系统管理",
-            "SystemUsers" => "用户管理",
-            "SystemRoles" => "角色管理",
-            "SystemMenus" => "菜单管理",
-            "SystemConfigurations" => "系统配置",
-            "GlobalConfig" => "全局配置",
-            "GlobalConfigEnvironments" => "环境管理",
-            "GlobalConfigPromptTemplates" => "提示词设置",
-            "GlobalConfigSkills" => "Skill配置",
-            "SystemAgentTokens" => "令牌管理",
-            "SystemDepartments" => "部门管理",
-            "SystemAssignments" => "岗位管理",
-            "Security" => "安全管理",
-            "Workspace" => "工作台",
-            _ => name
-        };
-    }
-
-    private static string? ResolveRedirect(string name)
-    {
-        return name switch
-        {
-            "ProjectGroup" => "/sprint/projects",
-            "ProductGroup" => "/sprint/requirements",
-            "WorkerGroup" => "/sprint/my-tasks",
-            "TestGroup" => "/sprint/tests",
-            "OperationManagement" => "/operations/scripts",
-            "System" => "/system/users",
-            "GlobalConfig" => "/global-config/prompt-templates",
-            "Security" => "/system/agent-tokens",
+            "/sprint/project" => "/sprint/projects",
+            "/sprint/product" => "/sprint/requirements",
+            "/sprint/worker" => "/sprint/my-tasks",
+            "/sprint/test" => "/sprint/tests",
+            "/sprint/git" => "/sprint/git/accounts",
+            "/operations" => "/operations/scripts",
+            "/system" => "/system/users",
+            "/global-config" => "/global-config/prompt-templates",
+            "/security" => "/system/agent-tokens",
             _ => null
         };
     }
 
-    private static string? ResolveActivePath(string name)
+    private static string? ResolveActivePath(string path)
     {
-        return name switch
+        return path switch
         {
-            "SprintProjectDetail" => "/sprint/projects",
-            "SprintRequirementDetail" => "/sprint/requirements",
-            "SprintTaskDetail" => "/sprint/tasks",
-            "SprintDefectDetail" => "/sprint/defects",
+            "/sprint/projects/detail/:id" => "/sprint/projects",
+            "/sprint/requirements/detail/:id" => "/sprint/requirements",
+            "/sprint/tasks/detail/:id" => "/sprint/tasks",
+            "/sprint/defects/detail/:id" => "/sprint/defects",
+            "/system/roles/authorize/:id" => "/system/roles",
             _ => null
         };
+    }
+
+    private static bool IsAffixTab(string path)
+    {
+        return path is "/dashboard/workspace" or "/sprint/projects" or "/sprint/multi-endpoints";
+    }
+
+    private static string ToRouteName(string id)
+    {
+        return $"Menu_{id}";
     }
 
     private sealed record MenuTreeItem(string Id, string? ParentId, MenuResult Route);

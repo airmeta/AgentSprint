@@ -1,6 +1,14 @@
 namespace AgentSprint.Model.Modules.Security.Dtos;
 
-public sealed record LoginRequest(string? Username, string? Password);
+public sealed record LoginRequest(string? Username, string? Password, CaptchaVerifyRequest? Captcha = null);
+
+public sealed record CaptchaVerifyRequest(string? Id, int? X);
+
+public sealed record CaptchaChallengeResult(
+    string Id,
+    int Width,
+    int SliderWidth,
+    int TargetX);
 
 public sealed record LoginResult(
     string AccessToken,

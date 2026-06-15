@@ -5,5 +5,7 @@ defineOptions({ name: 'Fallback500Demo' });
 </script>
 
 <template>
-  <Fallback status="500" />
+  <div class="fallback-page">
+    <Fallback status="500" />
+  </div>
 </template>

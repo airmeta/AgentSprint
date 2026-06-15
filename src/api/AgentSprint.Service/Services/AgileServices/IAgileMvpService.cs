@@ -9,8 +9,8 @@ public interface IAgileMvpService
     /// en-us: Creates the basic project record used by the MVP delivery loop.
     /// </summary>
     /// <param name="request">
-    /// zh-cn: 项目标识、名称、仓库和测试环境地址。
-    /// en-us: Project code, name, repository, and test environment URL.
+    /// zh-cn: 项目标识、名称、仓库地址、数字员工 Git 凭据和测试环境地址。
+    /// en-us: Project code, name, repository URL, digital-worker Git credentials, and test environment URL.
     /// </param>
     /// <param name="userId">
     /// zh-cn: 当前登录用户标识，写入 CreatedBy。
@@ -33,16 +33,16 @@ public interface IAgileMvpService
     Task<IReadOnlyList<SprintProjectResult>> ListProjectsAsync();
 
     /// <summary>
-    /// zh-cn: 更新项目基础配置，保留项目编码和创建人不变，用于项目管理抽屉编辑仓库地址和测试环境。
-    /// en-us: Updates basic project configuration while preserving the project code and creator, so the project drawer can edit repository and test environment settings.
+    /// zh-cn: 更新项目基础配置，保留项目编码和创建人不变，用于项目管理抽屉编辑仓库地址、数字员工 Git 凭据和测试环境。
+    /// en-us: Updates basic project configuration while preserving the project code and creator, so the project drawer can edit repository, digital-worker Git credentials, and test environment settings.
     /// </summary>
     /// <param name="id">
     /// zh-cn: 项目标识。
     /// en-us: Project identifier.
     /// </param>
     /// <param name="request">
-    /// zh-cn: 项目名称、仓库地址和测试环境地址。
-    /// en-us: Project name, repository URL, and test environment URL.
+    /// zh-cn: 项目名称、仓库地址、数字员工 Git 凭据和测试环境地址。
+    /// en-us: Project name, repository URL, digital-worker Git credentials, and test environment URL.
     /// </param>
     /// <returns>
     /// zh-cn: 更新后的项目。
@@ -576,8 +576,8 @@ public interface IAgileMvpService
         string assignedBy);
 
     /// <summary>
-    /// zh-cn: 为任务推进生成可复制到本地 Codex 的提示词。
-    /// en-us: Generates a prompt that can be copied into local Codex to continue task execution.
+    /// zh-cn: 为任务推进生成可复制到本地 Codex 的提示词；该读取动作只刷新提示词内容，不把任务或需求标记为开发中。
+    /// en-us: Generates a prompt that can be copied into local Codex; this read action only refreshes prompt content and does not mark the task or requirement as in progress.
     /// </summary>
     /// <param name="id">
     /// zh-cn: 任务标识。
@@ -612,8 +612,8 @@ public interface IAgileMvpService
     Task<SprintDevelopmentTaskResult> CompleteDevelopmentTaskAsync(string id, string userId);
 
     /// <summary>
-    /// zh-cn: 为当前负责人领取一个已分配的开发任务并创建活跃任务租约，避免同一任务被多个 Codex 会话窗口同时推进。
-    /// en-us: Claims an assigned development task for the current assignee and creates an active task lease so multiple Codex session windows do not advance the same task concurrently.
+    /// zh-cn: 为当前负责人领取一个已分配的开发任务并创建活跃任务租约，避免同一任务被多个 Codex 会话窗口同时推进；租约本身不代表任务已开始。
+    /// en-us: Claims an assigned development task for the current assignee and creates an active task lease so multiple Codex session windows do not advance the same task concurrently; the lease itself does not mean the task has started.
     /// </summary>
     /// <param name="id">
     /// zh-cn: 任务标识。

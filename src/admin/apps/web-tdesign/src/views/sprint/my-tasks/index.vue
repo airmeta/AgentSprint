@@ -1,4 +1,4 @@
-﻿<script lang="ts" setup>
+<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import type { TableRowData } from 'tdesign-vue-next';
@@ -15,6 +15,7 @@ import {
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
+  Input as TInput,
   Link as TLink,
   MessagePlugin,
   Select as TSelect,
@@ -62,12 +63,12 @@ const currentTask = ref<SprintMvpApi.DevelopmentTask>();
 const selectedTaskKeys = ref<Array<number | string>>([]);
 const filters = reactive({
   projectId: '',
-  requirementId: '',
+  requirementKeyword: '',
   status: '',
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const projectMap = computed(() => Object.fromEntries(projects.value.map((item) => [item.id, item])));
@@ -90,12 +91,6 @@ const agentTokenOptions = computed(() =>
 const selectedProject = computed(() =>
   projects.value.find((project) => project.id === filters.projectId),
 );
-const requirementOptions = computed(() =>
-  requirements.value
-    .filter((item) => !filters.projectId || item.projectId === filters.projectId)
-    .map((item) => ({ label: item.title, value: item.id })),
-);
-
 const columns: PrimaryTableCol[] = [
   {
     colKey: 'row-select',
@@ -140,7 +135,7 @@ const statusOptions = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
@@ -177,6 +172,18 @@ function handleSelectChange(keys: Array<number | string>) {
   });
 }
 
+function filterTasksByRequirementKeyword(items: SprintMvpApi.DevelopmentTask[]) {
+  const keyword = filters.requirementKeyword.trim().toLowerCase();
+  if (!keyword) return items;
+
+  return items.filter((task) => {
+    const requirement = requirementMap.value[task.requirementId];
+    return [requirement?.title, requirement?.id, task.requirementId]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
+}
+
 function isTaskCompleted(task: SprintMvpApi.DevelopmentTask) {
   return task.status === 'completed';
 }
@@ -194,17 +201,21 @@ function resolveTaskRowClassName({ row }: { row: TableRowData }) {
 async function loadTasks() {
   loading.value = true;
   try {
-    [projects.value, requirements.value, users.value, tasks.value, agentTokens.value] = await Promise.all([
+    const [projectItems, requirementItems, userItems, taskItems, agentTokenItems] = await Promise.all([
       listProjectsApi(),
       listRequirementsApi(),
       listUserOptionsApi(),
       listMyDevelopmentTasksApi({
         projectId: filters.projectId || undefined,
-        requirementId: filters.requirementId || undefined,
         status: filters.status || undefined,
       }),
       listAgentTokensApi(),
     ]);
+    projects.value = projectItems;
+    requirements.value = requirementItems;
+    users.value = userItems;
+    tasks.value = filterTasksByRequirementKeyword(taskItems);
+    agentTokens.value = agentTokenItems;
     filters.projectId ||= projects.value[0]?.id || '';
     selectedTaskKeys.value = selectedTaskKeys.value.filter((id) =>
       tasks.value.some((task) => task.id === id && !isTaskCompleted(task)),
@@ -216,7 +227,7 @@ async function loadTasks() {
 }
 
 async function handleProjectChange() {
-  filters.requirementId = '';
+  filters.requirementKeyword = '';
   selectedTaskKeys.value = [];
   pagination.current = 1;
   await loadTasks();
@@ -236,7 +247,7 @@ async function queryTasks() {
 async function resetFilters() {
   Object.assign(filters, {
     projectId: projects.value[0]?.id || '',
-    requirementId: '',
+    requirementKeyword: '',
     status: '',
   });
   selectedTaskKeys.value = [];
@@ -388,12 +399,11 @@ onMounted(loadTasks);
       <div class="sprint-filter-grid">
         <div class="sprint-filter-field">
           <span>需求</span>
-          <TSelect
-            v-model="filters.requirementId"
+          <TInput
+            v-model="filters.requirementKeyword"
             clearable
-            :options="requirementOptions"
-            placeholder="全部需求"
-            @change="handleFilterChange"
+            placeholder="输入需求标题或ID"
+            @enter="queryTasks"
           />
         </div>
         <div class="sprint-filter-field">
@@ -407,15 +417,15 @@ onMounted(loadTasks);
           />
         </div>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :disabled="loading" @click="queryTasks">
+          <TButton theme="primary" :loading="loading" @click="queryTasks">
             <template #icon>
               <IconifyIcon icon="lucide:search" />
             </template>
             查询
           </TButton>
-          <TButton :disabled="loading" @click="resetFilters">
+          <TButton theme="default" :disabled="loading" @click="resetFilters">
             <template #icon>
-              <IconifyIcon icon="lucide:refresh-cw" />
+              <IconifyIcon icon="lucide:rotate-ccw" />
             </template>
             重置
           </TButton>

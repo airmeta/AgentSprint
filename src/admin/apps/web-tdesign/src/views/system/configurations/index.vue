@@ -12,7 +12,6 @@ import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -22,6 +21,7 @@ import {
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -46,7 +46,7 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const columns = [
@@ -60,7 +60,7 @@ const columns = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: rows.value.length,
 }));
 
@@ -129,7 +129,7 @@ async function save() {
 }
 
 function remove(row: SystemApi.Configuration) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除配置 ${row.key}？删除后业务会回退默认值。`,
     confirmBtn: '删除',
     header: '删除配置',

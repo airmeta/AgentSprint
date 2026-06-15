@@ -223,6 +223,8 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryGitRepositoryDomain(),
+            new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
@@ -489,14 +491,13 @@ public sealed class AgileMvpServiceTests
     {
         var service = CreateService();
         var project = await service.CreateProjectAsync(
-            CreateProjectRequest("MVP-UPDATE", "Original", repositoryUrl: "https://example.com/old.git"),
+            CreateProjectRequest("MVP-UPDATE", "Original"),
             "pm-1");
 
         var updated = await service.UpdateProjectAsync(
             project.Id,
             new UpdateSprintProjectRequest(
                 "Updated",
-                " https://example.com/new.git ",
                 " http://localhost:5999 ",
                 " Updated detail ",
                 " Vue 3 ",
@@ -509,7 +510,6 @@ public sealed class AgileMvpServiceTests
 
         Assert.Equal("MVP-UPDATE", updated.Code);
         Assert.Equal("Updated", updated.Name);
-        Assert.Equal("https://example.com/new.git", updated.RepositoryUrl);
         Assert.Equal("http://localhost:5999", updated.TestEnvironmentUrl);
         Assert.Equal("Updated detail", updated.Description);
         Assert.Equal("Vue 3", updated.FrontendTechStack);
@@ -530,22 +530,63 @@ public sealed class AgileMvpServiceTests
             "pm-1");
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateProjectAsync(project.Id, new UpdateSprintProjectRequest("", null, null)));
+            service.UpdateProjectAsync(project.Id, new UpdateSprintProjectRequest("", null)));
 
         Assert.Equal("Project name is required.", exception.Message);
     }
 
     [Fact]
-    public async Task CreateProject_RejectsLocalRepositoryPath()
+    public async Task CreateProject_UsesSelectedGitRepositoryAndAccount()
+    {
+        var repositoryDomain = new InMemoryGitRepositoryDomain();
+        var accountDomain = new InMemoryGitAccountDomain();
+        var account = new GitAccountEntity
+        {
+            Code = "MAIN",
+            Name = "Main account",
+            Username = "codex",
+            AccessToken = "token",
+            Status = GitAccountStatuses.Active,
+            CreatedBy = "admin"
+        };
+        var repository = new GitRepositoryEntity
+        {
+            Code = "AGENTSPRINT",
+            Name = "AgentSprint",
+            RepositoryUrl = "https://example.com/selected.git",
+            DefaultBranch = "main",
+            GitAccountId = account.Id,
+            Status = GitRepositoryStatuses.Active,
+            CreatedBy = "admin"
+        };
+        await accountDomain.CreateAsync(account);
+        await repositoryDomain.CreateAsync(repository);
+        var service = CreateService(
+            gitRepositoryDomain: repositoryDomain,
+            gitAccountDomain: accountDomain);
+
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest(
+                "MVP-GIT-SOURCE",
+                "Git source",
+                gitRepositoryId: repository.Id),
+            "pm-1");
+
+        Assert.Equal(repository.Id, project.GitRepositoryId);
+        Assert.Equal(account.Id, project.GitAccountId);
+    }
+
+    [Fact]
+    public async Task CreateProject_AllowsProjectWithoutGitSelection()
     {
         var service = CreateService();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CreateProjectAsync(
-                CreateProjectRequest("MVP-LOCAL-REPO", "Local repo path", repositoryUrl: @"F:\AI\AgentSprint"),
-                "pm-1"));
+        var project = await service.CreateProjectAsync(
+                CreateProjectRequest("MVP-NO-REPO", "No repo"),
+                "pm-1");
 
-        Assert.Equal("Repository URL must be an http or https URL.", exception.Message);
+        Assert.Null(project.GitRepositoryId);
+        Assert.Null(project.GitAccountId);
     }
 
     [Fact]
@@ -741,6 +782,7 @@ public sealed class AgileMvpServiceTests
         Assert.All(tasks, task =>
         {
             Assert.Equal("dev-selected", task.AssigneeId);
+            Assert.Equal(SprintTaskAssigneeTypes.Employee, task.AssigneeType);
             Assert.Equal("po-1", task.AssignedBy);
             Assert.Equal(SprintDevelopmentTaskStatuses.Assigned, task.Status);
             Assert.NotNull(task.AssignedAt);
@@ -749,6 +791,33 @@ public sealed class AgileMvpServiceTests
         Assert.Equal(SprintRequirementStatuses.Decomposed, updatedRequirement.Status);
         Assert.Equal("dev-selected", updatedRequirement.DeveloperId);
         Assert.Single(projectMembers);
+    }
+
+    [Fact]
+    public async Task DecomposeRequirementAsync_ManualModePreservesDigitalWorkerAssigneeType()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DIGITAL-DECOMPOSE", "Digital decompose"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Digital assigned tasks", "Assign worker", 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(
+                "Create implementation task.",
+                SprintTaskAssignmentModes.Manual,
+                1,
+                "worker-agent-1",
+                SprintTaskAssigneeTypes.DigitalWorker),
+            "po-1");
+
+        var task = Assert.Single(tasks);
+        Assert.Equal("worker-agent-1", task.AssigneeId);
+        Assert.Equal(SprintTaskAssigneeTypes.DigitalWorker, task.AssigneeType);
     }
 
     [Fact]
@@ -815,6 +884,8 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryGitRepositoryDomain(),
+            new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
@@ -860,6 +931,8 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryGitRepositoryDomain(),
+            new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
@@ -1038,8 +1111,7 @@ public sealed class AgileMvpServiceTests
         var project = await service.CreateProjectAsync(
             CreateProjectRequest(
                 "MVP-REVIEW",
-                "MVP review path",
-                repositoryUrl: "https://example.com/agentsprint.git"),
+                "MVP review path"),
             "pm-1");
         var requirement = await service.CreateRequirementAsync(
             new CreateSprintRequirementRequest(project.Id, "Build task hall", "Show decomposed tasks", 1, "pm-1"),
@@ -1071,9 +1143,10 @@ public sealed class AgileMvpServiceTests
 
         Assert.Equal(SprintRequirementStatuses.Approved, requirement.Status);
         Assert.Equal(SprintRequirementStatuses.Decomposed, requirementBeforePrompt.Status);
-        Assert.Equal(SprintRequirementStatuses.Developing, requirementAfterPrompt.Status);
+        Assert.Equal(SprintRequirementStatuses.Decomposed, requirementAfterPrompt.Status);
         Assert.NotEmpty(tasks);
         Assert.Equal("dev-1", assigned.AssigneeId);
+        Assert.Equal(SprintTaskAssigneeTypes.Employee, assigned.AssigneeType);
         Assert.Equal("pm-1", assigned.AssignedBy);
         Assert.Contains(project.Code, prompt.Prompt, StringComparison.Ordinal);
         Assert.Contains(assigned.Id, prompt.Prompt, StringComparison.Ordinal);
@@ -1097,6 +1170,33 @@ public sealed class AgileMvpServiceTests
         Assert.DoesNotContain("按仓库内 Air.Cloud 风格完成实现、测试和文档同步", prompt.TaskExecutionPrompt.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("按仓库内 Air.Cloud 风格完成实现、测试和文档同步", prompt.Prompt, StringComparison.Ordinal);
         Assert.NotEmpty(prompt.TaskExecutionPrompt.Usage);
+    }
+
+    [Fact]
+    public async Task AssignDevelopmentTaskAsync_PreservesDigitalWorkerAssigneeType()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DIGITAL-ASSIGN", "Digital assign"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Digital task", "Assign worker", 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest("Keep MVP scope."),
+            "po-1");
+
+        var assigned = await service.AssignDevelopmentTaskAsync(
+            tasks[0].Id,
+            new AssignSprintDevelopmentTaskRequest(
+                "worker-agent-1",
+                SprintTaskAssigneeTypes.DigitalWorker),
+            "pm-1");
+
+        Assert.Equal("worker-agent-1", assigned.AssigneeId);
+        Assert.Equal(SprintTaskAssigneeTypes.DigitalWorker, assigned.AssigneeType);
     }
 
     [Fact]
@@ -1169,11 +1269,40 @@ public sealed class AgileMvpServiceTests
         var claimedRequirement = (await service.ListRequirementsAsync(project.Id)).Single();
 
         Assert.Equal(SprintRequirementStatuses.Decomposed, beforeClaimRequirement.Status);
-        Assert.Equal(SprintRequirementStatuses.Developing, claimedRequirement.Status);
+        Assert.Equal(SprintRequirementStatuses.Decomposed, claimedRequirement.Status);
         Assert.Equal(SprintTaskTargetTypes.DevelopmentTask, lease.TargetType);
         Assert.Equal(assigned.Id, lease.TargetId);
         Assert.Equal(lease.Id, sameWindowLease.Id);
         Assert.Equal("Target already has an active lease.", exception.Message);
+    }
+
+    [Fact]
+    public async Task GetDevelopmentTaskPromptAsync_DoesNotStartAssignedTask()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-PROMPT-NO-START", "Prompt should not start task"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Keep assigned until worker starts", null, 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var tasks = await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(null),
+            "po-1");
+        var assigned = await service.AssignDevelopmentTaskAsync(
+            tasks[0].Id,
+            new AssignSprintDevelopmentTaskRequest("dev-1"),
+            "pm-1");
+
+        await service.GetDevelopmentTaskPromptAsync(assigned.Id, "dev-1");
+        var afterPromptTask = (await service.ListDevelopmentTasksAsync(project.Id, requirement.Id, null)).Single();
+        var afterPromptRequirement = (await service.ListRequirementsAsync(project.Id)).Single();
+
+        Assert.Equal(SprintDevelopmentTaskStatuses.Assigned, afterPromptTask.Status);
+        Assert.Null(afterPromptTask.StartedAt);
+        Assert.Equal(SprintRequirementStatuses.Decomposed, afterPromptRequirement.Status);
     }
 
     [Fact]
@@ -1207,12 +1336,23 @@ public sealed class AgileMvpServiceTests
     [Fact]
     public async Task GetDevelopmentTaskPromptAsync_RedactsRepositoryCredentials()
     {
-        var service = CreateService();
+        var repositoryDomain = new InMemoryGitRepositoryDomain();
+        var repository = new GitRepositoryEntity
+        {
+            Code = "SECRET",
+            Name = "Secret Repository",
+            RepositoryUrl = "https://token-user:s3cr3t@example.com/org/repo.git",
+            DefaultBranch = "main",
+            Status = GitRepositoryStatuses.Active,
+            CreatedBy = "admin"
+        };
+        await repositoryDomain.CreateAsync(repository);
+        var service = CreateService(gitRepositoryDomain: repositoryDomain);
         var project = await service.CreateProjectAsync(
             CreateProjectRequest(
                 "MVP-PROMPT-SECRET",
                 "Prompt secret guard",
-                repositoryUrl: "https://token-user:s3cr3t@example.com/org/repo.git"),
+                gitRepositoryId: repository.Id),
             "pm-1");
         var requirement = await service.CreateRequirementAsync(
             new CreateSprintRequirementRequest(project.Id, "Protect task prompt", "Do not leak credentials", 1),
@@ -1601,6 +1741,8 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            new InMemoryGitRepositoryDomain(),
+            new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             new RequirementDecompositionService(),
@@ -1724,7 +1866,9 @@ public sealed class AgileMvpServiceTests
         IRequirementDecompositionService? decompositionService = null,
         InMemorySprintProjectMemberDomain? projectMemberDomain = null,
         InMemorySprintProjectEndpointDomain? endpointDomain = null,
-        ISystemConfigurationService? configurationService = null)
+        ISystemConfigurationService? configurationService = null,
+        InMemoryGitRepositoryDomain? gitRepositoryDomain = null,
+        InMemoryGitAccountDomain? gitAccountDomain = null)
     {
         return new AgileMvpService(
             new InMemorySprintProjectDomain(),
@@ -1740,6 +1884,8 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
+            gitRepositoryDomain ?? new InMemoryGitRepositoryDomain(),
+            gitAccountDomain ?? new InMemoryGitAccountDomain(),
             new InMemoryAgilePromptTemplateDomain(),
             new InMemoryAgileTestPlanDomain(),
             decompositionService ?? new RequirementDecompositionService(),
@@ -1749,7 +1895,6 @@ public sealed class AgileMvpServiceTests
     private static CreateSprintProjectRequest CreateProjectRequest(
         string code,
         string name,
-        string repositoryUrl = "https://example.com/agentsprint.git",
         string? testEnvironmentUrl = null,
         string description = "Project detail",
         string frontendTechStack = "Vue 3 / Vite / TDesign",
@@ -1758,12 +1903,13 @@ public sealed class AgileMvpServiceTests
         IReadOnlyList<string>? productManagerIds = null,
         IReadOnlyList<string>? developerIds = null,
         IReadOnlyList<string>? testerIds = null,
-        string architectId = "arch-1")
+        string architectId = "arch-1",
+        string? gitRepositoryId = null,
+        string? gitAccountId = null)
     {
         return new CreateSprintProjectRequest(
             code,
             name,
-            repositoryUrl,
             testEnvironmentUrl,
             description,
             frontendTechStack,
@@ -1772,7 +1918,10 @@ public sealed class AgileMvpServiceTests
             productManagerIds ?? ["pm-1"],
             developerIds ?? ["dev-1"],
             testerIds ?? ["tester-1"],
-            architectId);
+            architectId,
+            null,
+            gitRepositoryId,
+            gitAccountId);
     }
 
     private static async Task<SprintRequirementResult> SubmitAndApproveRequirementAsync(
@@ -1857,6 +2006,30 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
         return Task.FromResult(true);
     }
 
+    public Task<IReadOnlyList<AiPlatformResult>> ListAiPlatformsAsync(string? keyword = null, int? status = null)
+    {
+        return Task.FromResult<IReadOnlyList<AiPlatformResult>>([]);
+    }
+
+    public Task<AiPlatformResult> UpsertAiPlatformAsync(UpsertAiPlatformRequest request)
+    {
+        return Task.FromResult(new AiPlatformResult(
+            request.Id ?? Guid.NewGuid().ToString("N"),
+            request.Code,
+            request.Name,
+            request.Provider,
+            request.Model,
+            request.OpenAiBaseUrl,
+            request.Description,
+            request.Sort,
+            request.Status));
+    }
+
+    public Task<bool> DeleteAiPlatformAsync(string id)
+    {
+        return Task.FromResult(true);
+    }
+
     public Task<string> GetValueAsync(string key, string defaultValue)
     {
         return Task.FromResult(_key == key && !string.IsNullOrWhiteSpace(_value) ? _value : defaultValue);
@@ -1864,6 +2037,14 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
 }
 
 internal sealed class InMemorySprintProjectDomain : InMemoryDomainBase<SprintProjectEntity>, ISprintProjectDomain;
+
+internal sealed class InMemoryGitRepositoryDomain : InMemoryDomainBase<GitRepositoryEntity>, IGitRepositoryDomain;
+
+internal sealed class InMemoryGitAccountDomain : InMemoryDomainBase<GitAccountEntity>, IGitAccountDomain;
+
+internal sealed class InMemoryGitBranchOperationDomain :
+    InMemoryDomainBase<GitBranchOperationEntity>,
+    IGitBranchOperationDomain;
 
 internal sealed class InMemorySprintProjectMemberDomain :
     InMemoryDomainBase<SprintProjectMemberEntity>,
@@ -1939,6 +2120,7 @@ internal sealed class SnapshotOnListSprintDevelopmentTaskDomain :
             Status = entity.Status,
             Priority = entity.Priority,
             AssigneeId = entity.AssigneeId,
+            AssigneeType = entity.AssigneeType,
             AssignedBy = entity.AssignedBy,
             CreatedBy = entity.CreatedBy,
             Prompt = entity.Prompt,

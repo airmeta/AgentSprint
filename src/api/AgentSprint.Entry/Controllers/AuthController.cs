@@ -13,10 +13,19 @@ namespace AgentSprint.Entry.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ICaptchaService _captchaService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, ICaptchaService captchaService)
     {
         _authService = authService;
+        _captchaService = captchaService;
+    }
+
+    [HttpGet("captcha")]
+    [AllowAnonymous]
+    public async Task<ApiResponse<CaptchaChallengeResult>> CreateCaptcha()
+    {
+        return ApiResponse<CaptchaChallengeResult>.Ok(await _captchaService.CreateChallengeAsync());
     }
 
     [HttpPost("login")]
@@ -55,4 +64,3 @@ public sealed class AuthController : ControllerBase
         return User.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException();
     }
 }
-

@@ -19,7 +19,6 @@ import { withSerialColumn } from '#/views/_shared/table-columns';
 import {
   Button as TButton,
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -30,11 +29,11 @@ import {
 } from 'tdesign-vue-next';
 import { IconifyIcon } from '@vben/icons';
 import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 
 type MenuTreeNode = SystemApi.Menu & {
   buttonPermissionCount: number;
   children?: MenuTreeNode[];
-  displayName: string;
 };
 
 const loading = ref(false);
@@ -84,43 +83,11 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
-const menuNameMap: Record<string, string> = {
-  ProductDefects: '缺陷跟踪',
-  ProductGroup: '产品管理',
-  ProductReviews: '需求评审',
-  ProductRequirements: '需求管理',
-  ProjectGroup: '项目管理',
-  Security: '安全管理',
-  SprintDefectDetail: '缺陷详情',
-  SprintDefects: '缺陷跟踪',
-  SprintProjectDetail: '项目详情',
-  SprintProjects: '项目配置',
-  SprintRequirementDetail: '需求详情',
-  SprintRequirementReviews: '需求评审',
-  SprintRequirements: '需求管理',
-  SprintTaskDetail: '任务详情',
-  SprintTasks: '任务大厅',
-  SprintTests: '测试计划',
-  System: '系统管理',
-  SystemAgentTokens: '令牌管理',
-  SystemAssignments: '岗位管理',
-  SystemConfigurations: '系统配置',
-  SystemDepartments: '部门管理',
-  SystemMenus: '菜单管理',
-  SystemRoles: '角色管理',
-  SystemUsers: '用户管理',
-  TestGroup: '测试验证',
-  TestPlans: '测试计划',
-  WorkerGroup: '研发执行',
-  WorkerMyTasks: '我的任务',
-  WorkerTasks: '任务大厅',
-};
-
 const columns = [
-  { colKey: 'displayName', title: '菜单名称', treeNode: true, width: 220 },
+  { colKey: 'name', title: '菜单标识', treeNode: true, width: 220 },
   { colKey: 'path', title: '路由路径', width: 220 },
   { colKey: 'component', title: '组件路径' },
   {
@@ -161,7 +128,7 @@ const parentOptions = computed(() =>
   menus.value
     .filter((menu) => menu.type === 0 || menu.type === 1)
     .map((menu) => ({
-      label: `${getDisplayName(menu)} (${menu.path})`,
+      label: `${menu.name} (${menu.path})`,
       value: menu.id,
     })),
 );
@@ -172,7 +139,7 @@ const filteredMenus = computed(() => {
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: filteredMenus.value.length,
 }));
 
@@ -182,17 +149,12 @@ const selectedMenuPermissions = computed(() =>
     : [],
 );
 
-function getDisplayName(menu: SystemApi.Menu) {
-  return menuNameMap[menu.name] || menu.name;
-}
-
 function buildMenuTree(source: SystemApi.Menu[]) {
   const nodeMap = new Map<string, MenuTreeNode>();
   source.forEach((menu) =>
     nodeMap.set(menu.id, {
       ...menu,
       buttonPermissionCount: getMenuPermissions(menu.id).length,
-      displayName: getDisplayName(menu),
       children: [],
     }),
   );
@@ -207,7 +169,7 @@ function buildMenuTree(source: SystemApi.Menu[]) {
   });
 
   const sortNodes = (nodes: MenuTreeNode[]) => {
-    nodes.sort((left, right) => left.sort - right.sort || left.displayName.localeCompare(right.displayName));
+    nodes.sort((left, right) => left.sort - right.sort || left.name.localeCompare(right.name));
     nodes.forEach((node) => sortNodes(node.children || []));
   };
   sortNodes(roots);
@@ -306,7 +268,7 @@ async function savePermission() {
 }
 
 function removePermission(row: SystemApi.Permission) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除按钮权限 ${row.code}？`,
     confirmBtn: '删除',
     header: '删除按钮权限',
@@ -333,8 +295,8 @@ async function save() {
 }
 
 function remove(row: SystemApi.Menu) {
-  DialogPlugin.confirm({
-    body: `确认删除菜单 ${getDisplayName(row)}？`,
+  confirmAndClose({
+    body: `确认删除菜单 ${row.name}？`,
     confirmBtn: '删除',
     header: '删除菜单',
     onConfirm: async () => {
@@ -443,7 +405,7 @@ onMounted(load);
   <TDialog
     v-model:visible="permissionVisible"
     :footer="false"
-    :header="`${selectedMenu ? getDisplayName(selectedMenu) : ''} - 按钮权限`"
+    :header="`${selectedMenu ? selectedMenu.name : ''} - 按钮权限`"
     width="760px"
   >
     <TForm

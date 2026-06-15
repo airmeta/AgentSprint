@@ -6,6 +6,20 @@ namespace AgentSprint.Tests;
 public sealed class SecurityAuthorizationServiceTests
 {
     [Fact]
+    public async Task ResolveMenusAndPermissions_ReturnEmptyWhenUserHasNoRoles()
+    {
+        var service = CreateService();
+
+        var menus = await service.ResolveMenusAsync("user-without-role");
+        var permissions = await service.ResolvePermissionCodesAsync("user-without-role");
+        var roles = await service.ResolveRoleCodesAsync("user-without-role");
+
+        Assert.Empty(roles);
+        Assert.Empty(menus);
+        Assert.Empty(permissions);
+    }
+
+    [Fact]
     public void ResolveRoleIdsFromAssociations_IncludesUserGroupGrantedRoles()
     {
         var roleIds = SecurityAuthorizationService.ResolveRoleIdsFromAssociations(
@@ -81,5 +95,24 @@ public sealed class SecurityAuthorizationServiceTests
 
         var roleId = Assert.Single(roleIds);
         Assert.Equal("role-1", roleId);
+    }
+
+    private static SecurityAuthorizationService CreateService(
+        IList<RoleEntity>? roles = null,
+        IList<MenuEntity>? menus = null,
+        IList<PermissionEntity>? permissions = null,
+        IList<UserRoleEntity>? userRoles = null,
+        IList<RoleMenuEntity>? roleMenus = null,
+        IList<RolePermissionEntity>? rolePermissions = null,
+        IList<EntityAssociationEntity>? associations = null)
+    {
+        return new SecurityAuthorizationService(
+            new InMemoryRoleDomain(roles ?? []),
+            new InMemoryMenuDomain(menus ?? []),
+            new InMemoryPermissionDomain(permissions ?? []),
+            new InMemoryUserRoleDomain(userRoles ?? []),
+            new InMemoryRoleMenuDomain(roleMenus ?? []),
+            new InMemoryRolePermissionDomain(rolePermissions ?? []),
+            new InMemoryEntityAssociationDomain(associations ?? []));
     }
 }

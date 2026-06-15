@@ -35,6 +35,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private readonly ISprintBugDomain _bugDomain;
     private readonly ISprintTaskLeaseDomain _leaseDomain;
     private readonly IRuntimeEnvironmentDomain _runtimeEnvironmentDomain;
+    private readonly IGitRepositoryDomain _gitRepositoryDomain;
+    private readonly IGitAccountDomain _gitAccountDomain;
     private readonly IPromptTemplateDomain _promptTemplateDomain;
     private readonly ITestPlanDomain _testPlanDomain;
     private readonly IRequirementDecompositionService _decompositionService;
@@ -86,6 +88,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         ISprintBugDomain bugDomain,
         ISprintTaskLeaseDomain leaseDomain,
         IRuntimeEnvironmentDomain runtimeEnvironmentDomain,
+        IGitRepositoryDomain gitRepositoryDomain,
+        IGitAccountDomain gitAccountDomain,
         IPromptTemplateDomain promptTemplateDomain,
         ITestPlanDomain testPlanDomain,
         IRequirementDecompositionService decompositionService,
@@ -104,6 +108,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         _bugDomain = bugDomain;
         _leaseDomain = leaseDomain;
         _runtimeEnvironmentDomain = runtimeEnvironmentDomain;
+        _gitRepositoryDomain = gitRepositoryDomain;
+        _gitAccountDomain = gitAccountDomain;
         _promptTemplateDomain = promptTemplateDomain;
         _testPlanDomain = testPlanDomain;
         _decompositionService = decompositionService;
@@ -118,8 +124,12 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("Project code and name are required.");
         }
 
+        var gitSelection = await ResolveGitSelectionAsync(
+            request.GitRepositoryId,
+            request.GitAccountId);
         var projectProfile = NormalizeProjectProfile(
-            request.RepositoryUrl,
+            gitSelection.RepositoryId,
+            gitSelection.AccountId,
             request.Description,
             request.FrontendTechStack,
             request.BackendTechStack,
@@ -139,7 +149,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         {
             Code = code,
             Name = request.Name.Trim(),
-            RepositoryUrl = projectProfile.RepositoryUrl,
+            GitRepositoryId = projectProfile.GitRepositoryId,
+            GitAccountId = projectProfile.GitAccountId,
             TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId),
             TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
                 request.TestEnvironmentId,
@@ -179,8 +190,12 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("Project name is required.");
         }
 
+        var gitSelection = await ResolveGitSelectionAsync(
+            request.GitRepositoryId,
+            request.GitAccountId);
         var projectProfile = NormalizeProjectProfile(
-            request.RepositoryUrl,
+            gitSelection.RepositoryId,
+            gitSelection.AccountId,
             request.Description,
             request.FrontendTechStack,
             request.BackendTechStack,
@@ -191,7 +206,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             request.ArchitectId);
         var entity = await GetProjectOrThrowAsync(id);
         entity.Name = request.Name.Trim();
-        entity.RepositoryUrl = projectProfile.RepositoryUrl;
+        entity.GitRepositoryId = projectProfile.GitRepositoryId;
+        entity.GitAccountId = projectProfile.GitAccountId;
         entity.TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId);
         entity.TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
             request.TestEnvironmentId,
@@ -1009,6 +1025,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             request.Instruction,
             request.AssignmentMode,
             request.AssigneeId,
+            request.AssigneeType,
             userId,
             request.TaskCount);
 
@@ -1108,6 +1125,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("Target already has an active lease.");
         }
         task.AssigneeId = request.AssigneeId.Trim();
+        task.AssigneeType = NormalizeAssigneeType(request.AssigneeType);
         task.AssignedBy = string.IsNullOrWhiteSpace(assignedBy) ? null : assignedBy.Trim();
         task.Status = SprintDevelopmentTaskStatuses.Assigned;
         task.AssignedAt = DateTime.UtcNow;
@@ -1140,14 +1158,12 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             SprintDevelopmentTaskStatuses.Assigned,
             SprintDevelopmentTaskStatuses.InProgress);
 
-        var lease = await CreateTargetLeaseAsync(
+        return await CreateTargetLeaseAsync(
             task.ProjectId,
             SprintTaskTargetTypes.DevelopmentTask,
             task.Id,
             userId,
             request.OwnerDevice);
-        await MarkRequirementDevelopingFromTaskAsync(task, userId);
-        return lease;
     }
 
     /// <inheritdoc />
@@ -1161,20 +1177,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         var taskPrompt = await BuildTaskPromptAsync(task);
         task.Prompt = taskPrompt.Prompt;
-        var shouldMarkRequirementDeveloping = task.Status is
-            SprintDevelopmentTaskStatuses.Assigned or
-            SprintDevelopmentTaskStatuses.InProgress;
-        if (task.Status == SprintDevelopmentTaskStatuses.Assigned)
-        {
-            task.Status = SprintDevelopmentTaskStatuses.InProgress;
-            task.StartedAt = DateTime.UtcNow;
-        }
-
         await _taskDomain.UpdateAsync(task);
-        if (shouldMarkRequirementDeveloping)
-        {
-            await MarkRequirementDevelopingFromTaskAsync(task, userId);
-        }
 
         return taskPrompt;
     }
@@ -1525,6 +1528,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         string? instruction,
         string? assignmentMode,
         string? assigneeId,
+        int? assigneeType,
         string userId,
         int? taskCount)
     {
@@ -1537,6 +1541,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var tasks = await _decompositionService.DecomposeAsync(requirement, instruction, userId, taskCount);
         var normalizedAssignmentMode = NormalizeAssignmentMode(assignmentMode);
         var normalizedAssigneeId = NormalizeOptional(assigneeId);
+        var normalizedAssigneeType = NormalizeAssigneeType(assigneeType);
         var developers = await ResolveRequirementDevelopersAsync(requirement);
         var developerIndex = 0;
         foreach (var task in tasks)
@@ -1546,6 +1551,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 var autoAssigneeId = developers[developerIndex % developers.Count];
                 developerIndex++;
                 task.AssigneeId = autoAssigneeId;
+                task.AssigneeType = SprintTaskAssigneeTypes.Employee;
                 task.AssignedBy = userId;
                 task.AssignedAt = DateTime.UtcNow;
                 task.Status = SprintDevelopmentTaskStatuses.Assigned;
@@ -1555,6 +1561,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             else if (normalizedAssignmentMode == SprintTaskAssignmentModes.Manual && normalizedAssigneeId is not null)
             {
                 task.AssigneeId = normalizedAssigneeId;
+                task.AssigneeType = normalizedAssigneeType;
                 task.AssignedBy = userId;
                 task.AssignedAt = DateTime.UtcNow;
                 task.Status = SprintDevelopmentTaskStatuses.Assigned;
@@ -1564,6 +1571,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             else
             {
                 task.AssigneeId = null;
+                task.AssigneeType = SprintTaskAssigneeTypes.Employee;
                 task.AssignedBy = null;
                 task.AssignedAt = null;
                 task.Status = SprintDevelopmentTaskStatuses.PendingAssign;
@@ -1585,7 +1593,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private async Task<SprintTaskPromptResult> BuildTaskPromptAsync(SprintDevelopmentTaskEntity task)
     {
         var project = await GetProjectOrThrowAsync(task.ProjectId);
-        var workspacePath = SanitizeRepositoryReference(project.RepositoryUrl) ?? DefaultWorkspacePath;
+        var workspacePath = await ResolveProjectRepositoryReferenceAsync(project) ?? DefaultWorkspacePath;
         var mcpEndpoint = await _configurationService.GetValueAsync("Mcp:Endpoint", DefaultMcpEndpoint);
         var templates = await LoadCodexPromptTemplatesAsync();
         var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1613,6 +1621,19 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             ]);
 
         return new SprintTaskPromptResult(task.Id, mergedPrompt, mcpSetupPrompt, taskExecutionPrompt);
+    }
+
+    private async Task<string?> ResolveProjectRepositoryReferenceAsync(SprintProjectEntity project)
+    {
+        var repositoryId = NormalizeOptional(project.GitRepositoryId);
+        if (repositoryId is null)
+        {
+            return null;
+        }
+
+        var repository = await _gitRepositoryDomain.GetAsync(repositoryId)
+            ?? throw new InvalidOperationException("Git repository does not exist.");
+        return SanitizeRepositoryReference(repository.RepositoryUrl);
     }
 
     private async Task<IReadOnlyDictionary<string, PromptTemplateEntity>> LoadCodexPromptTemplatesAsync()
@@ -2332,7 +2353,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     private static ProjectProfile NormalizeProjectProfile(
-        string? repositoryUrl,
+        string? gitRepositoryId,
+        string? gitAccountId,
         string? description,
         string? frontendTechStack,
         string? backendTechStack,
@@ -2342,7 +2364,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         IReadOnlyList<string>? testerIds,
         string? architectId)
     {
-        var normalizedRepositoryUrl = NormalizeRepositoryUrl(repositoryUrl);
+        var normalizedGitRepositoryId = NormalizeOptional(gitRepositoryId);
+        var normalizedGitAccountId = NormalizeOptional(gitAccountId);
         var normalizedDescription = NormalizeOptional(description);
         var normalizedFrontendTechStack = NormalizeRequired(frontendTechStack, "Frontend tech stack is required.");
         var normalizedBackendTechStack = NormalizeRequired(backendTechStack, "Backend tech stack is required.");
@@ -2368,7 +2391,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         return new ProjectProfile(
-            normalizedRepositoryUrl,
+            normalizedGitRepositoryId,
+            normalizedGitAccountId,
             normalizedDescription,
             normalizedFrontendTechStack,
             normalizedBackendTechStack,
@@ -2377,6 +2401,40 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             normalizedDeveloperIds,
             normalizedTesterIds,
             normalizedArchitectId);
+    }
+
+    private async Task<GitSelection> ResolveGitSelectionAsync(
+        string? gitRepositoryId,
+        string? gitAccountId)
+    {
+        var normalizedRepositoryId = NormalizeOptional(gitRepositoryId);
+        var normalizedAccountId = NormalizeOptional(gitAccountId);
+
+        if (normalizedRepositoryId is not null)
+        {
+            var repository = await _gitRepositoryDomain.GetAsync(normalizedRepositoryId) ??
+                throw new InvalidOperationException("Git repository does not exist.");
+            if (repository.Status != GitRepositoryStatuses.Active)
+            {
+                throw new InvalidOperationException("Git repository is not active.");
+            }
+
+            normalizedAccountId ??= NormalizeOptional(repository.GitAccountId);
+        }
+
+        if (normalizedAccountId is not null)
+        {
+            var account = await _gitAccountDomain.GetAsync(normalizedAccountId) ??
+                throw new InvalidOperationException("Git account does not exist.");
+            if (account.Status != GitAccountStatuses.Active)
+            {
+                throw new InvalidOperationException("Git account is not active.");
+            }
+        }
+
+        return new GitSelection(
+            normalizedRepositoryId,
+            normalizedAccountId);
     }
 
     private static string NormalizeEndpointType(string? type)
@@ -2414,6 +2472,13 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         };
     }
 
+    private static int NormalizeAssigneeType(int? assigneeType)
+    {
+        return assigneeType == SprintTaskAssigneeTypes.DigitalWorker
+            ? SprintTaskAssigneeTypes.DigitalWorker
+            : SprintTaskAssigneeTypes.Employee;
+    }
+
     private static string NormalizeSkillType(string? type)
     {
         var normalized = NormalizeOptional(type) ?? SprintSkillTypes.Development;
@@ -2449,18 +2514,6 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         return normalizedSkillIds;
-    }
-
-    private static string NormalizeRepositoryUrl(string? repositoryUrl)
-    {
-        var normalized = NormalizeRequired(repositoryUrl, "Repository URL is required.");
-        if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new InvalidOperationException("Repository URL must be an http or https URL.");
-        }
-
-        return normalized;
     }
 
     private static string NormalizeRequired(string? value, string message)
@@ -2539,7 +2592,6 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Id,
             entity.Code,
             entity.Name,
-            entity.RepositoryUrl,
             entity.TestEnvironmentUrl,
             entity.Description,
             entity.FrontendTechStack,
@@ -2552,7 +2604,9 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.CreatedBy,
             entity.CreateTime,
             DeserializeIds(entity.TesterIds),
-            entity.TestEnvironmentId);
+            entity.TestEnvironmentId,
+            entity.GitRepositoryId,
+            entity.GitAccountId);
     }
 
     private static SprintSkillResult ToResult(SprintSkillEntity entity)
@@ -2749,6 +2803,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.Status,
             entity.Priority,
             entity.AssigneeId,
+            NormalizeAssigneeType(entity.AssigneeType),
             entity.AssignedBy,
             entity.CreatedBy,
             entity.Prompt,
@@ -2824,7 +2879,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     }
 
     private sealed record ProjectProfile(
-        string RepositoryUrl,
+        string? GitRepositoryId,
+        string? GitAccountId,
         string? Description,
         string FrontendTechStack,
         string BackendTechStack,
@@ -2833,4 +2889,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         IReadOnlyList<string> DeveloperIds,
         IReadOnlyList<string> TesterIds,
         string ArchitectId);
+
+    private sealed record GitSelection(
+        string? RepositoryId,
+        string? AccountId);
 }

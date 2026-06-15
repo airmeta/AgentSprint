@@ -3,7 +3,6 @@ namespace AgentSprint.Model.Modules.Agile.Dtos;
 public sealed record CreateSprintProjectRequest(
     string Code,
     string Name,
-    string? RepositoryUrl,
     string? TestEnvironmentUrl,
     string? Description = null,
     string? FrontendTechStack = null,
@@ -13,11 +12,12 @@ public sealed record CreateSprintProjectRequest(
     IReadOnlyList<string>? DeveloperIds = null,
     IReadOnlyList<string>? TesterIds = null,
     string? ArchitectId = null,
-    string? TestEnvironmentId = null);
+    string? TestEnvironmentId = null,
+    string? GitRepositoryId = null,
+    string? GitAccountId = null);
 
 public sealed record UpdateSprintProjectRequest(
     string Name,
-    string? RepositoryUrl,
     string? TestEnvironmentUrl,
     string? Description = null,
     string? FrontendTechStack = null,
@@ -27,7 +27,75 @@ public sealed record UpdateSprintProjectRequest(
     IReadOnlyList<string>? DeveloperIds = null,
     IReadOnlyList<string>? TesterIds = null,
     string? ArchitectId = null,
-    string? TestEnvironmentId = null);
+    string? TestEnvironmentId = null,
+    string? GitRepositoryId = null,
+    string? GitAccountId = null);
+
+public sealed record SaveGitAccountRequest(
+    string Code,
+    string Name,
+    string Username,
+    string? AccessToken = null,
+    string? Description = null,
+    string? Status = null);
+
+public sealed record SaveGitRepositoryRequest(
+    string Code,
+    string Name,
+    string RepositoryUrl,
+    string? DefaultBranch = null,
+    string? GitAccountId = null,
+    string? LocalPath = null,
+    string? Description = null,
+    string? Status = null);
+
+public sealed record CreateGitBranchRequest(
+    string BranchName,
+    string? SourceBranch = null);
+
+public sealed record DeleteGitBranchRequest(
+    string BranchName,
+    string? BackupBranch = null);
+
+public sealed record GitAccountResult(
+    string Id,
+    string Code,
+    string Name,
+    string Username,
+    string? AccessToken,
+    string? Description,
+    string Status,
+    string CreatedBy,
+    DateTime CreateTime);
+
+public sealed record GitRepositoryResult(
+    string Id,
+    string Code,
+    string Name,
+    string RepositoryUrl,
+    string? DefaultBranch,
+    string? GitAccountId,
+    string? LocalPath,
+    string? Description,
+    string Status,
+    string CreatedBy,
+    DateTime CreateTime);
+
+public sealed record GitBranchOperationResult(
+    string Id,
+    string RepositoryId,
+    string? AccountId,
+    string OperationType,
+    string BranchName,
+    string? SourceBranch,
+    string? BackupBranch,
+    string? CommitHash,
+    string? CommitMessage,
+    DateTime? PushedAt,
+    string Status,
+    string? Message,
+    string CreatedBy,
+    DateTime CreateTime);
 
 public sealed record CreateSprintProjectEndpointRequest(
     string ProjectId,
@@ -118,9 +186,14 @@ public sealed record DecomposeSprintRequirementRequest(
     string? Instruction,
     string? AssignmentMode = null,
     int? TaskCount = null,
-    string? AssigneeId = null);
+    string? AssigneeId = null,
+    int? AssigneeType = null);
 
-public sealed record AssignSprintDevelopmentTaskRequest(string AssigneeId);
+/// <summary>
+/// zh-cn: 开发任务指派请求，AssigneeId 存储实际承接任务的平台账号，AssigneeType 区分员工(0)和数字员工(1)来源。
+/// en-us: Development-task assignment request; AssigneeId stores the platform account that owns the work, while AssigneeType distinguishes employee (0) and digital worker (1) sources.
+/// </summary>
+public sealed record AssignSprintDevelopmentTaskRequest(string AssigneeId, int? AssigneeType = null);
 
 public sealed record ClaimSprintTaskRequest(string? OwnerDevice);
 
@@ -168,7 +241,6 @@ public sealed record SprintProjectResult(
     string Id,
     string Code,
     string Name,
-    string? RepositoryUrl,
     string? TestEnvironmentUrl,
     string? Description,
     string? FrontendTechStack,
@@ -181,7 +253,9 @@ public sealed record SprintProjectResult(
     string CreatedBy,
     DateTime CreateTime,
     IReadOnlyList<string>? TesterIds = null,
-    string? TestEnvironmentId = null);
+    string? TestEnvironmentId = null,
+    string? GitRepositoryId = null,
+    string? GitAccountId = null);
 
 public sealed record SprintSkillResult(
     string Id,
@@ -289,6 +363,7 @@ public sealed record SprintDevelopmentTaskResult(
     string Status,
     int Priority,
     string? AssigneeId,
+    int AssigneeType,
     string? AssignedBy,
     string CreatedBy,
     string? Prompt,

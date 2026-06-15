@@ -1,5 +1,5 @@
-﻿<script lang="ts" setup>
-import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
+<script lang="ts" setup>
+import type { SprintMvpApi, SprintTestApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { IconifyIcon } from '@vben/icons';
@@ -28,6 +28,7 @@ import {
   listRequirementsApi,
   listTestExecutionsApi,
   listTestPlansApi,
+  listUserOptionsApi,
   startTestPlanApi,
   submitTestExecutionApi,
   updateTestExecutionBugApi,
@@ -55,10 +56,11 @@ const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const plans = ref<SprintTestApi.TestPlan[]>([]);
 const executions = ref<SprintTestApi.TestExecution[]>([]);
 const bugs = ref<SprintMvpApi.Bug[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
 
 const filters = reactive({
   projectId: '',
-  requirementId: '',
+  requirementKeyword: '',
 });
 const planForm = reactive({
   environment: 'test',
@@ -89,7 +91,7 @@ const executionRules = computed<FormRules<typeof executionForm>>(() => ({
 }));
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 const testableRequirementStatuses = new Set(['ready_test', 'testing', 'tested', 'pending_fix']);
 
@@ -98,15 +100,6 @@ const projectOptions = computed(() =>
 );
 const selectedProject = computed(() =>
   projects.value.find((project) => project.id === filters.projectId),
-);
-const requirementOptions = computed(() =>
-  requirements.value
-    .filter(
-      (item) =>
-        (!filters.projectId || item.projectId === filters.projectId) &&
-        testableRequirementStatuses.has(item.status),
-    )
-    .map((item) => ({ label: item.title, value: item.id })),
 );
 const planRequirementOptions = computed(() =>
   requirements.value
@@ -121,6 +114,8 @@ const projectMap = computed(() => Object.fromEntries(projects.value.map((item) =
 const requirementMap = computed(() =>
   Object.fromEntries(requirements.value.map((item) => [item.id, item])),
 );
+const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+const userNameMap = computed(() => Object.fromEntries(users.value.map((item) => [item.username, item])));
 const bugOptions = computed(() =>
   bugs.value
     .filter((item) => item.status !== 'closed')
@@ -194,7 +189,7 @@ const statusTheme: Record<string, 'danger' | 'default' | 'primary' | 'success' |
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
@@ -206,9 +201,24 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   pagination.pageSize = pageInfo.pageSize;
 }
 
+function filterPlansByRequirementKeyword(items: SprintTestApi.TestPlan[]) {
+  const keyword = filters.requirementKeyword.trim().toLowerCase();
+  if (!keyword) return items;
+
+  return items.filter((plan) => {
+    const requirement = requirementMap.value[plan.requirementId];
+    return [requirement?.title, requirement?.id, plan.requirementId]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
+}
+
 async function loadBase() {
-  projects.value = await listProjectsApi();
-  requirements.value = await listRequirementsApi();
+  [projects.value, requirements.value, users.value] = await Promise.all([
+    listProjectsApi(),
+    listRequirementsApi(),
+    listUserOptionsApi(),
+  ]);
   filters.projectId ||= projects.value[0]?.id || '';
   if (!planForm.testUrl) {
     planForm.testUrl = projects.value.find((item) => item.id === filters.projectId)?.testEnvironmentUrl || '';
@@ -218,10 +228,8 @@ async function loadBase() {
 async function loadPlans() {
   loading.value = true;
   try {
-    plans.value = await listTestPlansApi(
-      filters.projectId || undefined,
-      filters.requirementId || undefined,
-    );
+    const planItems = await listTestPlansApi(filters.projectId || undefined);
+    plans.value = filterPlansByRequirementKeyword(planItems);
     pagination.current = 1;
   } finally {
     loading.value = false;
@@ -242,7 +250,7 @@ async function loadBugs(projectId?: string, requirementId?: string) {
 }
 
 async function handleProjectChange() {
-  filters.requirementId = '';
+  filters.requirementKeyword = '';
   planForm.testUrl = projects.value.find((item) => item.id === filters.projectId)?.testEnvironmentUrl || '';
   await loadPlans();
 }
@@ -254,7 +262,7 @@ async function queryPlans() {
 async function resetFilters() {
   Object.assign(filters, {
     projectId: projects.value[0]?.id || '',
-    requirementId: '',
+    requirementKeyword: '',
   });
   await loadPlans();
 }
@@ -269,7 +277,7 @@ function openCreate() {
   Object.assign(planForm, {
     environment: 'test',
     projectId: filters.projectId || projects.value[0]?.id || '',
-    requirementId: filters.requirementId || '',
+    requirementId: '',
     testUrl: '',
   });
   if (
@@ -345,6 +353,12 @@ function projectTestableRequirementCount(projectId: string) {
     (requirement) =>
       requirement.projectId === projectId && testableRequirementStatuses.has(requirement.status),
   ).length;
+}
+
+function resolveUserName(userId?: string) {
+  if (!userId) return '未指定';
+  const user = userMap.value[userId] || userNameMap.value[userId];
+  return user?.displayName || user?.username || userId;
 }
 
 async function openExecution(plan: SprintTestApi.TestPlan) {
@@ -470,11 +484,11 @@ onMounted(async () => {
         <div class="sprint-filter-grid">
           <label class="sprint-filter-field">
             <span>需求</span>
-            <TSelect
-              v-model="filters.requirementId"
+            <TInput
+              v-model="filters.requirementKeyword"
               clearable
-              :options="requirementOptions"
-              placeholder="全部可测需求"
+              placeholder="输入需求标题或ID"
+              @enter="queryPlans"
             />
           </label>
           <div class="sprint-filter-actions">
@@ -484,9 +498,9 @@ onMounted(async () => {
               </template>
               查询
             </TButton>
-            <TButton :disabled="loading" @click="resetFilters">
+            <TButton theme="default" :disabled="loading" @click="resetFilters">
               <template #icon>
-                <IconifyIcon icon="lucide:refresh-cw" />
+                <IconifyIcon icon="lucide:rotate-ccw" />
               </template>
               重置
             </TButton>
@@ -528,6 +542,9 @@ onMounted(async () => {
             <TTag :theme="canStartPlan(row) ? 'success' : 'default'" variant="light">
               {{ planTestabilityText(row) }}
             </TTag>
+          </template>
+          <template #createdBy="{ row }">
+            {{ resolveUserName(row.createdBy) }}
           </template>
           <template #actions="{ row }">
             <TSpace class="sprint-row-actions">
@@ -652,6 +669,9 @@ onMounted(async () => {
               {{ executionResultText[row.result] || row.result }}
             </TTag>
           </template>
+          <template #testerId="{ row }">
+            {{ resolveUserName(row.testerId) }}
+          </template>
           <template #createdBugId="{ row }">
             {{ row.createdBugId || row.bugId || '-' }}
           </template>
@@ -683,7 +703,7 @@ onMounted(async () => {
           <dt>测试地址</dt>
           <dd>{{ currentPlan.testUrl || '未配置' }}</dd>
           <dt>测试负责人</dt>
-          <dd>{{ currentPlan.createdBy }}</dd>
+          <dd>{{ resolveUserName(currentPlan.createdBy) }}</dd>
           <dt>总结</dt>
           <dd>{{ currentPlan.summary || '暂无' }}</dd>
         </dl>
@@ -706,6 +726,9 @@ onMounted(async () => {
               {{ executionResultText[row.result] || row.result }}
             </TTag>
           </template>
+          <template #testerId="{ row }">
+            {{ resolveUserName(row.testerId) }}
+          </template>
           <template #createdBugId="{ row }">
             {{ row.createdBugId || row.bugId || '-' }}
           </template>
@@ -719,6 +742,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.tests-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.tests-page :deep(.project-secondary-list-shell) {
+  flex: 1;
+  min-height: 0;
+}
+
 .detail h3,
 .execution-history h3 {
   margin: 0;

@@ -3,11 +3,13 @@ using System.Security.Claims;
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Service.Services.AgileServices;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgentSprint.Entry.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("mvp")]
 public sealed class AgileMvpController : ControllerBase
 {

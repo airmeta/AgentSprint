@@ -64,22 +64,65 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
         await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
         await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
+        await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
         await EnsureTestTablesAsync(dbContext, cancellationToken);
         await SeedAdminAsync(dbContext, cancellationToken);
-        await SeedDashboardMenuAsync(dbContext, cancellationToken);
-        await SeedMvpMenuAsync(dbContext, cancellationToken);
-        await SeedSecurityEvolutionAsync(dbContext, cancellationToken);
+        await SeedSecurityDataAsync(dbContext, cancellationToken);
     }
 
     private static async Task ApplyExistingDatabaseEvolutionAsync(
         DefaultDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        if (dbContext.Database.IsRelational())
+        {
+            await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
+            await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
+            await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
+            await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
+            await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
+            await EnsureTestTablesAsync(dbContext, cancellationToken);
+        }
+
         await SeedDashboardMenuAsync(dbContext, cancellationToken);
         await SeedMvpMenuAsync(dbContext, cancellationToken);
         await SeedSystemMenuAsync(dbContext, cancellationToken);
+
+        await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
+        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
+        await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
+        await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task SeedSecurityDataAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await SeedDashboardMenuAsync(dbContext, cancellationToken);
+        await SeedMvpMenuAsync(dbContext, cancellationToken);
+        await SeedSystemMenuAsync(dbContext, cancellationToken);
+
+        await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
+        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
         await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<bool> MenusExistAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await dbContext.Menus
+                .AsNoTracking()
+                .AnyAsync(cancellationToken);
+        }
+        catch (DbException)
+        {
+            return false;
+        }
     }
 
     private static async Task<bool> AdminUserExistsAsync(
@@ -439,7 +482,6 @@ public sealed class DatabaseInitializer : IHostedService
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
               Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
-              RepositoryUrl varchar(512) CHARACTER SET utf8mb4 NULL,
               TestEnvironmentUrl varchar(512) CHARACTER SET utf8mb4 NULL,
               TestEnvironmentId varchar(64) CHARACTER SET utf8mb4 NULL,
               Description varchar(2048) CHARACTER SET utf8mb4 NULL,
@@ -616,6 +658,7 @@ public sealed class DatabaseInitializer : IHostedService
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               Priority int NOT NULL,
               AssigneeId varchar(64) CHARACTER SET utf8mb4 NULL,
+              AssigneeType int NOT NULL DEFAULT 0,
               AssignedBy varchar(64) CHARACTER SET utf8mb4 NULL,
               CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               Prompt varchar(8192) CHARACTER SET utf8mb4 NULL,
@@ -718,7 +761,347 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsureLeaseColumnsAsync(dbContext, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(feedbackSql, cancellationToken);
         await EnsureFeedbackColumnsAsync(dbContext, cancellationToken);
+        await EnsureGitManagementTablesAsync(dbContext, cancellationToken);
         await BackfillProjectMembersAsync(dbContext, cancellationToken);
+    }
+
+    private static async Task EnsureGitManagementTablesAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        const string gitAccountSql = """
+            CREATE TABLE IF NOT EXISTS git_account (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              Username varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              AccessToken varchar(512) CHARACTER SET utf8mb4 NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_git_account_Code (Code)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string gitRepositorySql = """
+            CREATE TABLE IF NOT EXISTS git_repository (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              RepositoryUrl varchar(512) CHARACTER SET utf8mb4 NOT NULL,
+              DefaultBranch varchar(64) CHARACTER SET utf8mb4 NULL,
+              GitAccountId varchar(64) CHARACTER SET utf8mb4 NULL,
+              LocalPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              Description varchar(512) CHARACTER SET utf8mb4 NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_git_repository_Code (Code)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string gitBranchOperationSql = """
+            CREATE TABLE IF NOT EXISTS git_branch_operation (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              RepositoryId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              AccountId varchar(64) CHARACTER SET utf8mb4 NULL,
+              OperationType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              BranchName varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              SourceBranch varchar(128) CHARACTER SET utf8mb4 NULL,
+              BackupBranch varchar(128) CHARACTER SET utf8mb4 NULL,
+              CommitHash varchar(64) CHARACTER SET utf8mb4 NULL,
+              CommitMessage varchar(512) CHARACTER SET utf8mb4 NULL,
+              PushedAt datetime(6) NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              Message varchar(2048) CHARACTER SET utf8mb4 NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_git_branch_operation_RepositoryId_OperationType (RepositoryId, OperationType),
+              INDEX IX_git_branch_operation_RepositoryId_BranchName (RepositoryId, BranchName)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        await dbContext.Database.ExecuteSqlRawAsync(gitAccountSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(gitRepositorySql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(gitBranchOperationSql, cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_project",
+            "GitRepositoryId",
+            "ALTER TABLE sprint_project ADD COLUMN GitRepositoryId varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_project",
+            "GitAccountId",
+            "ALTER TABLE sprint_project ADD COLUMN GitAccountId varchar(64) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+    }
+
+    private static async Task EnsureDigitalWorkerTablesAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (!dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        const string digitalWorkerSql = """
+            CREATE TABLE IF NOT EXISTS digital_worker (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              AgentUserId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              AgentTokenId varchar(64) CHARACTER SET utf8mb4 NULL,
+              ProjectIds varchar(1024) CHARACTER SET utf8mb4 NULL,
+              EndpointIds varchar(1024) CHARACTER SET utf8mb4 NULL,
+              SkillIds varchar(1024) CHARACTER SET utf8mb4 NULL,
+              EmployeeType varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'development',
+              WorkerType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              MaxConcurrentRuns int NOT NULL,
+              HeartbeatTimeoutSeconds int NOT NULL,
+              PollIntervalSeconds int NOT NULL DEFAULT 15,
+              IdleMaxIntervalSeconds int NOT NULL DEFAULT 180,
+              MaxRunMinutes int NOT NULL DEFAULT 60,
+              WorkspaceRoot varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/workspaces',
+              RunsRoot varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/runs',
+              CodexHome varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/codex-home',
+              SandboxMode varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'workspace-write',
+              RunSmokeOnStartup tinyint(1) NOT NULL DEFAULT 0,
+              SmokePrompt varchar(1024) CHARACTER SET utf8mb4 NULL,
+              CodexProvider varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'openai',
+              CodexModel varchar(128) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'gpt-5.4',
+              OpenAiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL,
+              ConfigVersion int NOT NULL DEFAULT 1,
+              Description varchar(1024) CHARACTER SET utf8mb4 NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              UNIQUE INDEX IX_digital_worker_Code (Code),
+              INDEX IX_digital_worker_AgentUserId_Status (AgentUserId, Status)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string workerSessionSql = """
+            CREATE TABLE IF NOT EXISTS worker_session (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              InstanceId varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              HostName varchar(128) CHARACTER SET utf8mb4 NULL,
+              ContainerId varchar(128) CHARACTER SET utf8mb4 NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              CodexVersion varchar(128) CHARACTER SET utf8mb4 NULL,
+              GitVersion varchar(128) CHARACTER SET utf8mb4 NULL,
+              DotnetVersion varchar(128) CHARACTER SET utf8mb4 NULL,
+              NodeVersion varchar(128) CHARACTER SET utf8mb4 NULL,
+              ConfigTomlExists tinyint(1) NOT NULL,
+              CodexHome varchar(512) CHARACTER SET utf8mb4 NULL,
+              WorkspaceRoot varchar(512) CHARACTER SET utf8mb4 NULL,
+              RunsRoot varchar(512) CHARACTER SET utf8mb4 NULL,
+              CurrentRunId varchar(64) CHARACTER SET utf8mb4 NULL,
+              ErrorSummary varchar(1024) CHARACTER SET utf8mb4 NULL,
+              LastHeartbeatAt datetime(6) NULL,
+              StartedAt datetime(6) NOT NULL,
+              StoppedAt datetime(6) NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_worker_session_WorkerId_Status (WorkerId, Status),
+              INDEX IX_worker_session_WorkerId_InstanceId (WorkerId, InstanceId)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string workerCommandSql = """
+            CREATE TABLE IF NOT EXISTS worker_command (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              SessionId varchar(64) CHARACTER SET utf8mb4 NULL,
+              CommandType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              PayloadJson text CHARACTER SET utf8mb4 NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              AckedAt datetime(6) NULL,
+              StartedAt datetime(6) NULL,
+              CompletedAt datetime(6) NULL,
+              ExpiresAt datetime(6) NULL,
+              ResultJson text CHARACTER SET utf8mb4 NULL,
+              Error varchar(1024) CHARACTER SET utf8mb4 NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_worker_command_WorkerId_Status (WorkerId, Status),
+              INDEX IX_worker_command_SessionId_Status (SessionId, Status)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string workerRunSql = """
+            CREATE TABLE IF NOT EXISTS worker_run (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              SessionId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              CommandId varchar(64) CHARACTER SET utf8mb4 NULL,
+              RunType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              TargetType varchar(32) CHARACTER SET utf8mb4 NULL,
+              TargetId varchar(64) CHARACTER SET utf8mb4 NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              WorkspacePath varchar(512) CHARACTER SET utf8mb4 NULL,
+              PromptPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              StdoutPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              StderrPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              FinalPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              ManifestPath varchar(512) CHARACTER SET utf8mb4 NULL,
+              ExitCode int NULL,
+              TimedOut tinyint(1) NOT NULL,
+              Error varchar(1024) CHARACTER SET utf8mb4 NULL,
+              StartedAt datetime(6) NOT NULL,
+              CompletedAt datetime(6) NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_worker_run_WorkerId_SessionId (WorkerId, SessionId),
+              INDEX IX_worker_run_TargetType_TargetId (TargetType, TargetId)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        const string workerEventSql = """
+            CREATE TABLE IF NOT EXISTS worker_event (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              SessionId varchar(64) CHARACTER SET utf8mb4 NULL,
+              RunId varchar(64) CHARACTER SET utf8mb4 NULL,
+              EventType varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Level varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+              Message varchar(1024) CHARACTER SET utf8mb4 NOT NULL,
+              PayloadJson text CHARACTER SET utf8mb4 NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_worker_event_WorkerId_CreateTime (WorkerId, CreateTime)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        await dbContext.Database.ExecuteSqlRawAsync(digitalWorkerSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(workerSessionSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(workerCommandSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(workerRunSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(workerEventSql, cancellationToken);
+        await EnsureDigitalWorkerColumnsAsync(dbContext, cancellationToken);
+    }
+
+    private static async Task EnsureDigitalWorkerColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "EmployeeType",
+            "ALTER TABLE digital_worker ADD COLUMN EmployeeType varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'development' AFTER SkillIds;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "PollIntervalSeconds",
+            "ALTER TABLE digital_worker ADD COLUMN PollIntervalSeconds int NOT NULL DEFAULT 15 AFTER HeartbeatTimeoutSeconds;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "IdleMaxIntervalSeconds",
+            "ALTER TABLE digital_worker ADD COLUMN IdleMaxIntervalSeconds int NOT NULL DEFAULT 180 AFTER PollIntervalSeconds;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "MaxRunMinutes",
+            "ALTER TABLE digital_worker ADD COLUMN MaxRunMinutes int NOT NULL DEFAULT 60 AFTER IdleMaxIntervalSeconds;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "WorkspaceRoot",
+            "ALTER TABLE digital_worker ADD COLUMN WorkspaceRoot varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/workspaces' AFTER MaxRunMinutes;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "RunsRoot",
+            "ALTER TABLE digital_worker ADD COLUMN RunsRoot varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/runs' AFTER WorkspaceRoot;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "CodexHome",
+            "ALTER TABLE digital_worker ADD COLUMN CodexHome varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT '/codex-home' AFTER RunsRoot;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "SandboxMode",
+            "ALTER TABLE digital_worker ADD COLUMN SandboxMode varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'workspace-write' AFTER CodexHome;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "RunSmokeOnStartup",
+            "ALTER TABLE digital_worker ADD COLUMN RunSmokeOnStartup tinyint(1) NOT NULL DEFAULT 0 AFTER SandboxMode;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "SmokePrompt",
+            "ALTER TABLE digital_worker ADD COLUMN SmokePrompt varchar(1024) CHARACTER SET utf8mb4 NULL AFTER RunSmokeOnStartup;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "CodexProvider",
+            "ALTER TABLE digital_worker ADD COLUMN CodexProvider varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'openai' AFTER SmokePrompt;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "CodexModel",
+            "ALTER TABLE digital_worker ADD COLUMN CodexModel varchar(128) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'gpt-5.4' AFTER CodexProvider;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "OpenAiBaseUrl",
+            "ALTER TABLE digital_worker ADD COLUMN OpenAiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL AFTER CodexModel;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "digital_worker",
+            "ConfigVersion",
+            "ALTER TABLE digital_worker ADD COLUMN ConfigVersion int NOT NULL DEFAULT 1 AFTER OpenAiBaseUrl;",
+            cancellationToken);
+        await EnsurePromptTemplateAsync(
+            dbContext,
+            "digital_worker_task_execution",
+            "数字员工任务执行提示词",
+            BuildDigitalWorkerTaskExecutionPromptTemplate(),
+            "AgentSprint.Worker 通过 API 获取任务上下文后写入 Codex 的数字员工提示词。",
+            30,
+            cancellationToken);
     }
 
     private static async Task BackfillProjectMembersAsync(
@@ -1133,6 +1516,12 @@ public sealed class DatabaseInitializer : IHostedService
             "AssignedBy",
             "ALTER TABLE sprint_development_task ADD COLUMN AssignedBy varchar(64) CHARACTER SET utf8mb4 NULL;",
             cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "sprint_development_task",
+            "AssigneeType",
+            "ALTER TABLE sprint_development_task ADD COLUMN AssigneeType int NOT NULL DEFAULT 0;",
+            cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(
             "ALTER TABLE sprint_development_task MODIFY COLUMN Prompt varchar(8192) CHARACTER SET utf8mb4 NULL;",
             cancellationToken);
@@ -1402,7 +1791,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.Menus.Add(parentMenu);
         }
 
-        parentMenu.Name = "Sprint";
+        PreserveMenuName(parentMenu, "Sprint");
         parentMenu.Icon = "lucide:kanban";
         parentMenu.Sort = 30;
         parentMenu.Type = 2;
@@ -1481,6 +1870,19 @@ public sealed class DatabaseInitializer : IHostedService
             cancellationToken);
         await EnsureAssociationAsync(dbContext, role.Id, testGroup.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
 
+        var gitGroup = await EnsureMenuAsync(
+            dbContext,
+            role.Id,
+            string.Empty,
+            "/sprint/git",
+            "GitManagementGroup",
+            string.Empty,
+            "lucide:git-branch",
+            50,
+            0,
+            cancellationToken);
+        await EnsureAssociationAsync(dbContext, role.Id, gitGroup.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
+
         var projectMenu = await EnsureMenuAsync(
             dbContext,
             role.Id,
@@ -1519,6 +1921,37 @@ public sealed class DatabaseInitializer : IHostedService
             2,
             cancellationToken);
         await EnsureAssociationAsync(dbContext, role.Id, projectDetailRoute.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
+
+        var gitAccountsMenu = await EnsureMenuAsync(
+            dbContext,
+            role.Id,
+            gitGroup.Id,
+            "/sprint/git/accounts",
+            "SprintGitAccounts",
+            "/sprint/git/accounts/index",
+            "lucide:key-round",
+            10,
+            1,
+            cancellationToken);
+        await EnsureAssociationAsync(dbContext, role.Id, gitAccountsMenu.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
+
+        var gitRepositoriesMenu = await EnsureMenuAsync(
+            dbContext,
+            role.Id,
+            gitGroup.Id,
+            "/sprint/git/repositories",
+            "SprintGitRepositories",
+            "/sprint/git/repositories/index",
+            "lucide:git-fork",
+            20,
+            1,
+            cancellationToken);
+        await EnsureAssociationAsync(dbContext, role.Id, gitRepositoriesMenu.Id, SecurityAssociationTypes.RoleMenu, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Sprint:GitAccount:Manage", "Git account management", gitAccountsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Sprint:GitRepository:Manage", "Git repository management", gitRepositoriesMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Sprint:GitRepository:BranchCreate", "Create Git repository branch", gitRepositoriesMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Sprint:GitRepository:BranchDelete", "Backup and delete Git repository branch", gitRepositoriesMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "Sprint:GitRepository:PushRecord:Read", "Read Git repository push records", gitRepositoriesMenu.Id, cancellationToken);
 
         var requirementsMenu = await EnsureMenuAsync(
             dbContext,
@@ -1667,17 +2100,6 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private static async Task SeedSecurityEvolutionAsync(
-        DefaultDbContext dbContext,
-        CancellationToken cancellationToken)
-    {
-        await SeedSystemConfigurationsAsync(dbContext, cancellationToken);
-        await SeedSystemMenuAsync(dbContext, cancellationToken);
-        await SeedRuntimeManagementSamplesAsync(dbContext, cancellationToken);
-        await BackfillEntityAssociationsAsync(dbContext, cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
     private static async Task SeedRuntimeManagementSamplesAsync(
         DefaultDbContext dbContext,
         CancellationToken cancellationToken)
@@ -1735,6 +2157,14 @@ public sealed class DatabaseInitializer : IHostedService
             "Codex 任务推进提示词。",
             20,
             cancellationToken);
+        await EnsurePromptTemplateAsync(
+            dbContext,
+            "digital_worker_task_execution",
+            "数字员工任务执行提示词",
+            BuildDigitalWorkerTaskExecutionPromptTemplate(),
+            "AgentSprint.Worker 通过 API 获取任务上下文后写入 Codex 的数字员工提示词。",
+            30,
+            cancellationToken);
     }
 
     private static async Task EnsurePromptTemplateAsync(
@@ -1746,9 +2176,11 @@ public sealed class DatabaseInitializer : IHostedService
         int sort,
         CancellationToken cancellationToken)
     {
-        var prompt = await dbContext.PromptTemplates.FirstOrDefaultAsync(
-            entity => entity.AgentEnvironment == "codex" && entity.Code == code,
-            cancellationToken);
+        var prompt = dbContext.PromptTemplates.Local.FirstOrDefault(
+                entity => entity.AgentEnvironment == "codex" && entity.Code == code)
+            ?? await dbContext.PromptTemplates.FirstOrDefaultAsync(
+                entity => entity.AgentEnvironment == "codex" && entity.Code == code,
+                cancellationToken);
         if (prompt is null)
         {
             prompt = new PromptTemplateEntity
@@ -1839,6 +2271,62 @@ public sealed class DatabaseInitializer : IHostedService
                """;
     }
 
+    private static string BuildDigitalWorkerTaskExecutionPromptTemplate()
+    {
+        return """
+               You are AgentSprint digital worker {{workerName}} ({{workerCode}}), running under AgentSprint.Worker through the platform API.
+
+               Boundaries:
+               1. Do not connect to or call AgentSprint MCP tools.
+               2. Do not claim new tasks or bugs.
+               3. Do not write Agent Token, database passwords, SSH private keys, or other secrets into code, logs, or the final response.
+               4. Stop after the current target is handled. Worker will call {{completionApiPath}} to update platform state.
+
+               Target:
+               - Type: {{targetType}}
+               - Target ID: {{targetId}}
+               - Project: {{projectName}} ({{projectCode}})
+               - Repository: {{repositoryReference}}
+               - Workspace: {{workspacePath}}
+
+               Requirement:
+               - Requirement ID: {{requirementId}}
+               - Title: {{requirementTitle}}
+               - Status: {{requirementStatus}}
+               - Endpoint: {{endpointId}}
+               - Module: {{moduleId}}
+
+               Requirement description:
+               {{requirementDescription}}
+
+               Development task:
+               - Task ID: {{taskId}}
+               - Title: {{taskTitle}}
+
+               Task description:
+               {{taskDescription}}
+
+               Bug fix:
+               - Bug ID: {{bugId}}
+               - Title: {{bugTitle}}
+               - Environment: {{bugEnvironment}}
+               - Severity: {{bugSeverity}}
+
+               Bug description:
+               {{bugDescription}}
+
+               Skills and project rules:
+               {{skillContext}}
+
+               Execution requirements:
+               1. Inspect the local workspace and project files first.
+               2. Make the smallest necessary change for the task or bug above.
+               3. Run relevant verification commands. If verification cannot run, explain the blocker.
+               4. In the final response, report only changed points, verification commands, and completion status.
+               5. {{completionInstruction}}
+               """;
+    }
+
     private static async Task EnsureRuntimeContainerAsync(
         DefaultDbContext dbContext,
         string runtimeEnvironmentId,
@@ -1888,6 +2376,12 @@ public sealed class DatabaseInitializer : IHostedService
             "false",
             "When true, completing requirement development fills the requirement test URL from the selected project runtime environment.",
             cancellationToken);
+        await EnsureConfigurationAsync(
+            dbContext,
+            "AiPlatform:openai",
+            """{"name":"OpenAI","provider":"openai","model":"gpt-5.4","openAiBaseUrl":"https://api.openai.com/v1","sort":10}""",
+            "Default AI platform used by digital workers.",
+            cancellationToken);
         await EnsureDictionaryTypeAsync(
             dbContext,
             "frontend_tech_stack",
@@ -1934,6 +2428,18 @@ public sealed class DatabaseInitializer : IHostedService
             ("claude_code", "ClaudeCode", 20),
             ("work_buddy", "WorkBuddy", 30),
             ("open_claw", "OpenClaw", 40));
+        await EnsureDictionaryTypeAsync(
+            dbContext,
+            "digital_worker_employee_type",
+            "数字员工类型",
+            "Digital worker employee type options used by worker management.",
+            50,
+            cancellationToken,
+            ("operations", "运维", 10),
+            ("development", "研发", 20),
+            ("audit", "审计", 30),
+            ("test", "测试", 40),
+            ("product", "产品", 50));
     }
 
     private static async Task<DictionaryTypeEntity> EnsureDictionaryTypeAsync(
@@ -2001,7 +2507,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.Menus.Add(system);
         }
 
-        system.Name = "System";
+        PreserveMenuName(system, "System");
         system.Icon = "lucide:settings";
         system.Sort = 90;
         system.Type = 0;
@@ -2019,6 +2525,7 @@ public sealed class DatabaseInitializer : IHostedService
         await DisableMenuAsync(dbContext, "/system/org", cancellationToken);
         var usersMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/users", "SystemUsers", "/system/users/index", "lucide:users", 10, cancellationToken);
         var rolesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/roles", "SystemRoles", "/system/roles/index", "lucide:shield-check", 20, cancellationToken);
+        await EnsureHiddenSystemMenuAsync(dbContext, role.Id, system.Id, "/system/roles/authorize/:id", "SystemRoleAuthorize", "/system/roles/authorize", "lucide:shield-check", 21, cancellationToken);
         var menusMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/menus", "SystemMenus", "/system/menus/index", "lucide:menu", 30, cancellationToken);
         await DisableMenuAsync(dbContext, "/system/permissions", cancellationToken);
         var dictionariesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, system.Id, "/system/dictionaries", "SystemDictionaries", "/system/dictionaries/index", "lucide:book-open-text", 40, cancellationToken);
@@ -2037,7 +2544,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.Menus.Add(operationManagement);
         }
 
-        operationManagement.Name = "OperationManagement";
+        PreserveMenuName(operationManagement, "OperationManagement");
         operationManagement.Icon = "lucide:server-cog";
         operationManagement.Sort = 91;
         operationManagement.Type = 0;
@@ -2063,7 +2570,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.Menus.Add(globalConfig);
         }
 
-        globalConfig.Name = "GlobalConfig";
+        PreserveMenuName(globalConfig, "GlobalConfig");
         globalConfig.Icon = "lucide:sliders-horizontal";
         globalConfig.Sort = 92;
         globalConfig.Type = 0;
@@ -2078,6 +2585,7 @@ public sealed class DatabaseInitializer : IHostedService
             SecurityAssociationTypes.RoleMenu,
             cancellationToken);
 
+        var aiPlatformsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/ai-platforms", "GlobalConfigAiPlatforms", "/system/ai-platforms/index", "lucide:cpu", 10, cancellationToken);
         var promptTemplatesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 20, cancellationToken);
         var skillsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/skills", "GlobalConfigSkills", "/sprint/skills/index", "lucide:brain-circuit", 30, cancellationToken);
 
@@ -2088,7 +2596,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.Menus.Add(security);
         }
 
-        security.Name = "Security";
+        PreserveMenuName(security, "Security");
         security.Icon = "lucide:shield-check";
         security.Sort = 95;
         security.Type = 0;
@@ -2112,6 +2620,7 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsurePermissionAsync(dbContext, role.Id, "System:Permission:Manage", "Button permission management", menusMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Dictionary:Manage", "Dictionary management", dictionariesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:RuntimeEnvironment:Manage", "Runtime environment management", runtimeEnvironmentsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "System:AiPlatform:Manage", "AI platform management", aiPlatformsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:PromptTemplate:Manage", "Prompt template management", promptTemplatesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Configuration:Manage", "System configuration management", configurationsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "Security:AgentToken:Manage", "Agent token management", agentTokensMenu.Id, cancellationToken);
@@ -2294,7 +2803,7 @@ public sealed class DatabaseInitializer : IHostedService
         }
 
         menu.ParentId = parentId;
-        menu.Name = name;
+        PreserveMenuName(menu, name);
         menu.Component = component;
         menu.Icon = icon;
         menu.Sort = sort;
@@ -2303,6 +2812,31 @@ public sealed class DatabaseInitializer : IHostedService
         menu.IsDelete = 0;
 
         await EnsureRoleMenuAsync(dbContext, roleId, menu.Id, cancellationToken);
+        return menu;
+    }
+
+    private static void PreserveMenuName(MenuEntity menu, string defaultName)
+    {
+        if (string.IsNullOrWhiteSpace(menu.Name))
+        {
+            menu.Name = defaultName;
+        }
+    }
+
+    private static async Task<MenuEntity> EnsureHiddenSystemMenuAsync(
+        DefaultDbContext dbContext,
+        string roleId,
+        string parentId,
+        string path,
+        string name,
+        string component,
+        string icon,
+        int sort,
+        CancellationToken cancellationToken)
+    {
+        var menu = await EnsureSystemMenuAsync(dbContext, roleId, parentId, path, name, component, icon, sort, cancellationToken);
+        menu.Type = 2;
+        menu.Status = 1;
         return menu;
     }
 

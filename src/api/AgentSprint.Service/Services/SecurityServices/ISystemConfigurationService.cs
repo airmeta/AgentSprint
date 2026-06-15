@@ -10,5 +10,11 @@ public interface ISystemConfigurationService
 
     Task<bool> DeleteConfigurationAsync(string id);
 
+    Task<IReadOnlyList<AiPlatformResult>> ListAiPlatformsAsync(string? keyword = null, int? status = null);
+
+    Task<AiPlatformResult> UpsertAiPlatformAsync(UpsertAiPlatformRequest request);
+
+    Task<bool> DeleteAiPlatformAsync(string id);
+
     Task<string> GetValueAsync(string key, string defaultValue);
 }

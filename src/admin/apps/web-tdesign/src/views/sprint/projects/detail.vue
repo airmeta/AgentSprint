@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { SprintMvpApi } from '#/api/sprint/mvp';
+import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 
 import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, ref } from 'vue';
@@ -19,9 +19,16 @@ import {
   listDevelopmentTasksApi,
   listProjectsApi,
   listRequirementsApi,
+  listUserOptionsApi,
 } from '#/api/sprint/mvp';
+import {
+  listGitAccountsApi,
+  listGitRepositoriesApi,
+  type SprintGitApi,
+} from '#/api/sprint/git';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
+import { buildUserLookup, resolveUserName } from '../_shared/user-display';
 
 import '../_shared/table-layout.css';
 
@@ -31,6 +38,9 @@ const project = ref<SprintMvpApi.Project>();
 const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const tasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
 const bugs = ref<SprintMvpApi.Bug[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
+const gitAccounts = ref<SprintGitApi.GitAccount[]>([]);
+const gitRepositories = ref<SprintGitApi.GitRepository[]>([]);
 
 const requirementColumns = [
   { colKey: 'title', title: '需求' },
@@ -55,6 +65,19 @@ const summary = computed(() => ({
   requirementCount: requirements.value.length,
   taskCount: tasks.value.length,
 }));
+const userLookup = computed(() => buildUserLookup(users.value));
+
+function resolveGitAccountName(id?: string) {
+  if (!id) return '未配置';
+  const account = gitAccounts.value.find((item) => item.id === id);
+  return account ? `${account.name} (${account.username})` : id;
+}
+
+function resolveGitRepositoryName(id?: string) {
+  if (!id) return '未配置';
+  const repository = gitRepositories.value.find((item) => item.id === id);
+  return repository ? `${repository.name} (${repository.code})` : id;
+}
 
 async function loadDetail() {
   loading.value = true;
@@ -64,10 +87,13 @@ async function loadDetail() {
     project.value = projects.find((item) => item.id === projectId);
     if (!project.value) return;
 
-    [requirements.value, tasks.value, bugs.value] = await Promise.all([
+    [requirements.value, tasks.value, bugs.value, users.value, gitAccounts.value, gitRepositories.value] = await Promise.all([
       listRequirementsApi(projectId),
       listDevelopmentTasksApi({ projectId }),
       listBugsApi(projectId),
+      listUserOptionsApi(),
+      listGitAccountsApi(),
+      listGitRepositoriesApi(),
     ]);
   } finally {
     loading.value = false;
@@ -101,13 +127,12 @@ onMounted(loadDetail);
           <TDescriptionsItem label="状态">
             <TTag theme="success" variant="light">{{ project.status }}</TTag>
           </TDescriptionsItem>
-          <TDescriptionsItem label="仓库地址">
-            <span class="repo-detail">{{ project.repositoryUrl || '未配置' }}</span>
-          </TDescriptionsItem>
+          <TDescriptionsItem label="Git 仓库">{{ resolveGitRepositoryName(project.gitRepositoryId) }}</TDescriptionsItem>
+          <TDescriptionsItem label="Git 账号">{{ resolveGitAccountName(project.gitAccountId) }}</TDescriptionsItem>
           <TDescriptionsItem label="测试环境">
             {{ project.testEnvironmentUrl || '未配置' }}
           </TDescriptionsItem>
-          <TDescriptionsItem label="创建人">{{ project.createdBy }}</TDescriptionsItem>
+          <TDescriptionsItem label="创建人">{{ resolveUserName(project.createdBy, userLookup) }}</TDescriptionsItem>
           <TDescriptionsItem label="创建时间">{{ formatDateTime(project.createTime) }}</TDescriptionsItem>
         </TDescriptions>
       </section>
@@ -133,21 +158,29 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>需求</h3>
-        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(requirementColumns)" :data="requirements" hover stripe />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(requirementColumns)" :data="requirements" hover stripe>
+          <template #createdBy="{ row }">
+            {{ resolveUserName(row.createdBy, userLookup) }}
+          </template>
+        </TTable>
       </section>
 
       <section class="panel">
         <h3>任务</h3>
         <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(taskColumns)" :data="tasks" hover stripe>
           <template #assigneeId="{ row }">
-            {{ row.assigneeId || '未指派' }}
+            {{ resolveUserName(row.assigneeId, userLookup, '未指派') }}
           </template>
         </TTable>
       </section>
 
       <section class="panel">
         <h3>缺陷</h3>
-        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe>
+          <template #createdBy="{ row }">
+            {{ resolveUserName(row.createdBy, userLookup) }}
+          </template>
+        </TTable>
       </section>
     </template>
   </div>

@@ -14,8 +14,11 @@ public sealed class SprintProjectEntity : EntityBase
     [MaxLength(128)]
     public string Name { get; set; } = string.Empty;
 
-    [MaxLength(512)]
-    public string? RepositoryUrl { get; set; }
+    [MaxLength(64)]
+    public string? GitRepositoryId { get; set; }
+
+    [MaxLength(64)]
+    public string? GitAccountId { get; set; }
 
     [MaxLength(512)]
     public string? TestEnvironmentUrl { get; set; }
@@ -49,6 +52,101 @@ public sealed class SprintProjectEntity : EntityBase
 
     [MaxLength(32)]
     public string Status { get; set; } = SprintProjectStatuses.Active;
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+[Table("git_account")]
+public sealed class GitAccountEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Username { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string? AccessToken { get; set; }
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    [MaxLength(32)]
+    public string Status { get; set; } = GitAccountStatuses.Active;
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+[Table("git_repository")]
+public sealed class GitRepositoryEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string Code { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(512)]
+    public string RepositoryUrl { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? DefaultBranch { get; set; }
+
+    [MaxLength(64)]
+    public string? GitAccountId { get; set; }
+
+    [MaxLength(512)]
+    public string? LocalPath { get; set; }
+
+    [MaxLength(512)]
+    public string? Description { get; set; }
+
+    [MaxLength(32)]
+    public string Status { get; set; } = GitRepositoryStatuses.Active;
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+[Table("git_branch_operation")]
+public sealed class GitBranchOperationEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string RepositoryId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? AccountId { get; set; }
+
+    [MaxLength(32)]
+    public string OperationType { get; set; } = GitBranchOperationTypes.PushRecord;
+
+    [MaxLength(128)]
+    public string BranchName { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string? SourceBranch { get; set; }
+
+    [MaxLength(128)]
+    public string? BackupBranch { get; set; }
+
+    [MaxLength(64)]
+    public string? CommitHash { get; set; }
+
+    [MaxLength(512)]
+    public string? CommitMessage { get; set; }
+
+    public DateTime? PushedAt { get; set; }
+
+    [MaxLength(32)]
+    public string Status { get; set; } = GitBranchOperationStatuses.Success;
+
+    [MaxLength(2048)]
+    public string? Message { get; set; }
 
     [MaxLength(64)]
     public string CreatedBy { get; set; } = string.Empty;
@@ -333,6 +431,8 @@ public sealed class SprintDevelopmentTaskEntity : EntityBase
     [MaxLength(64)]
     public string? AssigneeId { get; set; }
 
+    public int AssigneeType { get; set; } = SprintTaskAssigneeTypes.Employee;
+
     [MaxLength(64)]
     public string? AssignedBy { get; set; }
 
@@ -425,6 +525,36 @@ public static class SprintProjectStatuses
     public const string Active = "active";
 
     public const string Archived = "archived";
+}
+
+public static class GitAccountStatuses
+{
+    public const string Active = "active";
+
+    public const string Disabled = "disabled";
+}
+
+public static class GitRepositoryStatuses
+{
+    public const string Active = "active";
+
+    public const string Disabled = "disabled";
+}
+
+public static class GitBranchOperationTypes
+{
+    public const string CreateBranch = "create_branch";
+
+    public const string DeleteBranch = "delete_branch";
+
+    public const string PushRecord = "push_record";
+}
+
+public static class GitBranchOperationStatuses
+{
+    public const string Success = "success";
+
+    public const string Failed = "failed";
 }
 
 public static class SprintProjectMemberRoles
@@ -572,6 +702,13 @@ public static class SprintTaskAssignmentModes
     public const string Auto = "auto";
 
     public const string Manual = "manual";
+}
+
+public static class SprintTaskAssigneeTypes
+{
+    public const int Employee = 0;
+
+    public const int DigitalWorker = 1;
 }
 
 public static class SprintBugStatuses

@@ -4,10 +4,16 @@ using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.SecurityServices;
 
+using System.Text.Json;
+
 namespace AgentSprint.Service.Impls.SecurityServices;
 
 public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystemConfigurationService
 {
+    private const string AiPlatformKeyPrefix = "AiPlatform:";
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly ISystemConfigurationDomain _configurationDomain;
 
     /// <summary>
@@ -69,7 +75,7 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         var entity = string.IsNullOrWhiteSpace(request.Id)
             ? null
             : await _configurationDomain.GetAsync(request.Id);
-        var sameKey = await _configurationDomain.FindByKeyAsync(key);
+        var sameKey = (await _configurationDomain.ListIncludingDeletedAsync(item => item.Key == key)).FirstOrDefault();
         if (entity is not null && sameKey is not null && sameKey.Id != entity.Id)
         {
             throw new InvalidOperationException("Configuration key already exists.");
@@ -111,6 +117,78 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         return _configurationDomain.DeleteAsync(id);
     }
 
+    public async Task<IReadOnlyList<AiPlatformResult>> ListAiPlatformsAsync(string? keyword = null, int? status = null)
+    {
+        var normalizedKeyword = NormalizeOptional(keyword);
+        return (await _configurationDomain.ListAsync(entity => entity.Key.StartsWith(AiPlatformKeyPrefix)))
+            .Select(TryMapAiPlatform)
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .Where(item =>
+                (!status.HasValue || item.Status == status.Value) &&
+                (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                    TextContains(
+                        normalizedKeyword,
+                        item.Code,
+                        item.Name,
+                        item.Provider,
+                        item.Model,
+                        item.OpenAiBaseUrl,
+                        item.Description)))
+            .OrderBy(item => item.Sort)
+            .ThenBy(item => item.Code, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public async Task<AiPlatformResult> UpsertAiPlatformAsync(UpsertAiPlatformRequest request)
+    {
+        ValidateRequired(request.Code, "AI platform code is required.");
+        ValidateRequired(request.Name, "AI platform name is required.");
+        ValidateRequired(request.Provider, "AI provider is required.");
+        ValidateRequired(request.Model, "AI model is required.");
+
+        var code = NormalizeCode(request.Code);
+        var key = ToAiPlatformKey(code);
+        var entity = string.IsNullOrWhiteSpace(request.Id)
+            ? null
+            : await _configurationDomain.GetAsync(request.Id);
+        var sameKey = await _configurationDomain.FindByKeyAsync(key);
+        if (entity is not null && sameKey is not null && sameKey.Id != entity.Id)
+        {
+            throw new InvalidOperationException("AI platform code already exists.");
+        }
+
+        entity ??= sameKey ?? new SystemConfigurationEntity();
+        entity.Key = key;
+        entity.Value = JsonSerializer.Serialize(
+            new AiPlatformConfigurationValue(
+                request.Name.Trim(),
+                request.Provider.Trim(),
+                request.Model.Trim(),
+                NormalizeOptional(request.OpenAiBaseUrl),
+                request.Sort),
+            JsonOptions);
+        entity.Description = NormalizeOptional(request.Description);
+        entity.Status = request.Status;
+        entity.IsDelete = 0;
+
+        if (sameKey is null && string.IsNullOrWhiteSpace(request.Id))
+        {
+            await _configurationDomain.CreateAsync(entity);
+        }
+        else
+        {
+            await _configurationDomain.UpdateAsync(entity);
+        }
+
+        return MapAiPlatform(entity, code, ReadAiPlatformValue(entity.Value));
+    }
+
+    public Task<bool> DeleteAiPlatformAsync(string id)
+    {
+        return _configurationDomain.DeleteAsync(id);
+    }
+
     /// <summary>
     /// zh-cn: 读取启用状态的配置值；配置不存在、已禁用或值为空时返回调用方提供的默认值。
     /// en-us: Reads an enabled configuration value; returns the caller-provided default when the setting is missing, disabled, or empty.
@@ -143,6 +221,63 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         return new SystemConfigurationResult(entity.Id, entity.Key, entity.Value, entity.Description, entity.Status);
     }
 
+    private static AiPlatformResult? TryMapAiPlatform(SystemConfigurationEntity entity)
+    {
+        var code = entity.Key[AiPlatformKeyPrefix.Length..];
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        return MapAiPlatform(entity, code, ReadAiPlatformValue(entity.Value));
+    }
+
+    private static AiPlatformResult MapAiPlatform(
+        SystemConfigurationEntity entity,
+        string code,
+        AiPlatformConfigurationValue value)
+    {
+        return new AiPlatformResult(
+            entity.Id,
+            code,
+            value.Name,
+            value.Provider,
+            value.Model,
+            value.OpenAiBaseUrl,
+            entity.Description,
+            value.Sort,
+            entity.Status);
+    }
+
+    private static AiPlatformConfigurationValue ReadAiPlatformValue(string value)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AiPlatformConfigurationValue>(value, JsonOptions)
+                ?? AiPlatformConfigurationValue.Empty;
+        }
+        catch (JsonException)
+        {
+            return AiPlatformConfigurationValue.Empty;
+        }
+    }
+
+    private static string ToAiPlatformKey(string code)
+    {
+        return $"{AiPlatformKeyPrefix}{code}";
+    }
+
+    private static string NormalizeCode(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        if (normalized.Any(character => !char.IsLetterOrDigit(character) && character is not '_' and not '-' and not '.'))
+        {
+            throw new InvalidOperationException("AI platform code can only contain letters, numbers, underscores, hyphens, or dots.");
+        }
+
+        return normalized;
+    }
+
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -161,5 +296,20 @@ public sealed class SystemConfigurationService : AgentSprintServiceBase, ISystem
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    private sealed record AiPlatformConfigurationValue(
+        string Name,
+        string Provider,
+        string Model,
+        string? OpenAiBaseUrl,
+        int Sort)
+    {
+        public static AiPlatformConfigurationValue Empty { get; } = new(
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            null,
+            0);
     }
 }

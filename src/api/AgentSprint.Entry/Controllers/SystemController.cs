@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AgentSprint.Entry.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = "super")]
 [Route("system")]
 public sealed class SystemController : ControllerBase
 {
@@ -227,6 +227,28 @@ public sealed class SystemController : ControllerBase
     public async Task<ApiResponse<bool>> DeleteConfiguration(string id)
     {
         return ApiResponse<bool>.Ok(await _configurationService.DeleteConfigurationAsync(id));
+    }
+
+    [HttpGet("ai-platforms")]
+    public async Task<ApiResponse<IReadOnlyList<AiPlatformResult>>> ListAiPlatforms(
+        [FromQuery] string? keyword,
+        [FromQuery] int? status)
+    {
+        return ApiResponse<IReadOnlyList<AiPlatformResult>>.Ok(
+            await _configurationService.ListAiPlatformsAsync(keyword, status));
+    }
+
+    [HttpPost("ai-platforms")]
+    public async Task<ActionResult<ApiResponse<AiPlatformResult>>> UpsertAiPlatform(
+        UpsertAiPlatformRequest request)
+    {
+        return await ExecuteAsync(() => _configurationService.UpsertAiPlatformAsync(request));
+    }
+
+    [HttpDelete("ai-platforms/{id}")]
+    public async Task<ApiResponse<bool>> DeleteAiPlatform(string id)
+    {
+        return ApiResponse<bool>.Ok(await _configurationService.DeleteAiPlatformAsync(id));
     }
 
     [HttpGet("user-groups")]

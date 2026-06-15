@@ -1,8 +1,15 @@
 using AgentSprint.Model.Modules.Security.Domains;
+using AgentSprint.Model.Modules.Agile.Workers;
 
 namespace AgentSprint.Model.Modules.Agile.Domains;
 
 public interface ISprintProjectDomain : IEntityDomainBase<SprintProjectEntity>;
+
+public interface IGitAccountDomain : IEntityDomainBase<GitAccountEntity>;
+
+public interface IGitRepositoryDomain : IEntityDomainBase<GitRepositoryEntity>;
+
+public interface IGitBranchOperationDomain : IEntityDomainBase<GitBranchOperationEntity>;
 
 public interface ISprintProjectMemberDomain : IEntityDomainBase<SprintProjectMemberEntity>;
 
@@ -25,3 +32,13 @@ public interface ISprintDevelopmentTaskDomain : IEntityDomainBase<SprintDevelopm
 public interface ISprintBugDomain : IEntityDomainBase<SprintBugEntity>;
 
 public interface ISprintTaskLeaseDomain : IEntityDomainBase<SprintTaskLeaseEntity>;
+
+public interface IDigitalWorkerDomain : IEntityDomainBase<DigitalWorkerEntity>;
+
+public interface IWorkerSessionDomain : IEntityDomainBase<WorkerSessionEntity>;
+
+public interface IWorkerCommandDomain : IEntityDomainBase<WorkerCommandEntity>;
+
+public interface IWorkerRunDomain : IEntityDomainBase<WorkerRunEntity>;
+
+public interface IWorkerEventDomain : IEntityDomainBase<WorkerEventEntity>;

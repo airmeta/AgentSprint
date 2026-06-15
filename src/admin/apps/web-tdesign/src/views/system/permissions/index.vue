@@ -13,9 +13,7 @@ import SystemPage from '#/views/system/_shared/system-page.vue';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
-  Button as TButton,
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -23,8 +21,8 @@ import {
   Select as TSelect,
   Space as TSpace,
 } from 'tdesign-vue-next';
-import { IconifyIcon } from '@vben/icons';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -49,7 +47,6 @@ const filters = reactive({
 });
 const query = reactive({ ...filters });
 
-const menuNameMap = computed(() => new Map(menus.value.map((menu) => [menu.id, `${menu.name} (${menu.path})`])));
 const menuOptions = computed(() =>
   menus.value.map((menu) => ({
     label: `${menu.name} (${menu.path})`,
@@ -64,11 +61,16 @@ const columns = [
     title: '关联菜单',
     cell: (...args: any[]) => {
       const row = getCellRow(args[0], args[1]);
-      return row?.menuId ? menuNameMap.value.get(row.menuId) || row.menuId : '-';
+      return row?.menuId ? resolveMenuLabel(row.menuId) : '-';
     },
   },
   { colKey: 'actions', title: '操作', width: 140, cell: 'actions' },
 ];
+
+function resolveMenuLabel(menuId: string) {
+  const menu = menus.value.find((item) => item.id === menuId);
+  return menu ? `${menu.name} (${menu.path})` : menuId;
+}
 
 async function search() {
   Object.assign(query, filters);
@@ -116,7 +118,7 @@ async function save() {
 }
 
 function remove(row: SystemApi.Permission) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除权限码 ${row.code}？`,
     confirmBtn: '删除',
     header: '删除权限码',
@@ -140,24 +142,12 @@ onMounted(load);
     :loading="loading"
     @add="open()"
     @refresh="load"
+    @reset="reset"
+    @search="search"
   >
     <template #filters>
       <TInput v-model="filters.keyword" clearable placeholder="权限码 / 名称 / 菜单" class="filter-control" />
       <TSelect v-model="filters.menuId" clearable filterable placeholder="关联菜单" :options="menuOptions" class="filter-control" />
-      <TSpace>
-        <TButton theme="primary" :disabled="loading" @click="search">
-          <template #icon>
-            <IconifyIcon icon="lucide:search" />
-          </template>
-          查询
-        </TButton>
-        <TButton :disabled="loading" @click="reset">
-          <template #icon>
-            <IconifyIcon icon="lucide:refresh-cw" />
-          </template>
-          重置
-        </TButton>
-      </TSpace>
     </template>
     <template #action>新增权限码</template>
     <template #actions="{ row }">

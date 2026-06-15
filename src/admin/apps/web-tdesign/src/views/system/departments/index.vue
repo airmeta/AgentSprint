@@ -8,7 +8,6 @@ import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -17,6 +16,7 @@ import {
   Space as TSpace,
 } from 'tdesign-vue-next';
 import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -46,7 +46,7 @@ const query = reactive({
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 const columns = [
   { colKey: 'code', title: '部门编码' },
@@ -59,7 +59,7 @@ const columns = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: departments.value.length,
 }));
 
@@ -115,7 +115,7 @@ async function save() {
 }
 
 function remove(row: SystemApi.Department) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除部门 ${row.code}？`,
     confirmBtn: '删除',
     header: '删除部门',

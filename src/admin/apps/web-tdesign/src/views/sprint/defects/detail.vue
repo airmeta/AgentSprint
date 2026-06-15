@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
+import type { SprintMvpApi, SprintTestApi, SprintUserApi } from '#/api/sprint/mvp';
 
 import { IconifyIcon } from '@vben/icons';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 import {
@@ -20,9 +20,11 @@ import {
   listRequirementsApi,
   listTestExecutionsApi,
   listTestPlansApi,
+  listUserOptionsApi,
 } from '#/api/sprint/mvp';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
+import { buildUserLookup, resolveUserName } from '../_shared/user-display';
 
 import '../_shared/table-layout.css';
 
@@ -33,6 +35,8 @@ const project = ref<SprintMvpApi.Project>();
 const requirement = ref<SprintMvpApi.Requirement>();
 const testPlan = ref<SprintTestApi.TestPlan>();
 const executions = ref<SprintTestApi.TestExecution[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
+const userLookup = computed(() => buildUserLookup(users.value));
 
 const statusText: Record<string, string> = {
   closed: '已关闭',
@@ -68,11 +72,13 @@ async function loadDetail() {
     bug.value = bugs.find((item) => item.id === bugId);
     if (!bug.value) return;
 
-    const [projects, requirements, plans] = await Promise.all([
+    const [projects, requirements, plans, userOptions] = await Promise.all([
       listProjectsApi(),
       listRequirementsApi(bug.value.projectId),
       listTestPlansApi(bug.value.projectId, bug.value.requirementId),
+      listUserOptionsApi(),
     ]);
+    users.value = userOptions;
     project.value = projects.find((item) => item.id === bug.value?.projectId);
     requirement.value = requirements.find((item) => item.id === bug.value?.requirementId);
     testPlan.value = plans.find((item) => item.id === bug.value?.testPlanId);
@@ -118,8 +124,8 @@ onMounted(loadDetail);
           <TDescriptionsItem label="需求">
             {{ requirement?.title || bug.requirementId }}
           </TDescriptionsItem>
-          <TDescriptionsItem label="提交人">{{ bug.createdBy }}</TDescriptionsItem>
-          <TDescriptionsItem label="处理人">{{ bug.developerId || '未指派' }}</TDescriptionsItem>
+          <TDescriptionsItem label="提交人">{{ resolveUserName(bug.createdBy, userLookup) }}</TDescriptionsItem>
+          <TDescriptionsItem label="处理人">{{ resolveUserName(bug.developerId, userLookup, '未指派') }}</TDescriptionsItem>
           <TDescriptionsItem label="测试计划">{{ testPlan?.name || bug.testPlanId || '未绑定' }}</TDescriptionsItem>
           <TDescriptionsItem label="测试执行">{{ bug.testExecutionId || '未绑定' }}</TDescriptionsItem>
           <TDescriptionsItem label="修复时间">{{ formatDateTime(bug.fixedAt) }}</TDescriptionsItem>
@@ -135,6 +141,9 @@ onMounted(loadDetail);
       <section class="panel">
         <h3>测试执行记录</h3>
         <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(executionColumns)" :data="executions" hover stripe>
+          <template #testerId="{ row }">
+            {{ resolveUserName(row.testerId, userLookup) }}
+          </template>
           <template #executedAt="{ row }">
             {{ formatDateTime(row.executedAt) }}
           </template>

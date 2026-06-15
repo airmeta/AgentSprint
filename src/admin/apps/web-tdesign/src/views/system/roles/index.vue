@@ -2,21 +2,20 @@
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   deleteSystemRoleApi,
-  listSystemMenusApi,
-  listSystemPermissionsApi,
   listSystemRolesApi,
   saveSystemRoleApi,
   type SystemApi,
 } from '#/api';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -31,9 +30,8 @@ const loading = ref(false);
 const saving = ref(false);
 const visible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
+const router = useRouter();
 const roles = ref<SystemApi.Role[]>([]);
-const menuOptions = ref<{ label: string; value: string }[]>([]);
-const permissionOptions = ref<{ label: string; value: string }[]>([]);
 const form = reactive<Partial<SystemApi.Role>>({
   code: '',
   description: '',
@@ -55,7 +53,7 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const statusOptions = [
@@ -73,13 +71,13 @@ const columns = [
   { colKey: 'menuIds', title: '菜单数', width: 100 },
   { colKey: 'permissionIds', title: '按钮权限数', width: 120 },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'actions', title: '操作', width: 160 },
+  { colKey: 'actions', title: '操作', width: 220 },
 ];
 
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: roles.value.length,
 }));
 
@@ -111,7 +109,7 @@ async function reset() {
   await search();
 }
 
-function open(row?: SystemApi.Role) {
+function openEdit(row?: SystemApi.Role) {
   Object.assign(form, {
     code: row?.code || '',
     description: row?.description || '',
@@ -124,26 +122,15 @@ function open(row?: SystemApi.Role) {
   visible.value = true;
 }
 
+function openAuthorize(row: SystemApi.Role) {
+  router.push(`/system/roles/authorize/${row.id}`);
+}
+
 async function load() {
   loading.value = true;
   try {
-    const [roleRows, menus, permissions] = await Promise.all([
-      listSystemRolesApi(query),
-      listSystemMenusApi(),
-      listSystemPermissionsApi(),
-    ]);
+    const roleRows = await listSystemRolesApi(query);
     roles.value = roleRows.map(normalizeRole);
-    menuOptions.value = menus.map((menu) => ({
-      label: `${menu.name} (${menu.path})`,
-      value: menu.id,
-    }));
-    const menuNameMap = new Map(menus.map((menu) => [menu.id, `${menu.name} (${menu.path})`]));
-    permissionOptions.value = permissions.map((permission) => ({
-      label: `${permission.name} (${permission.code}) - ${
-        permission.menuId ? menuNameMap.get(permission.menuId) || permission.menuId : '未绑定菜单'
-      }`,
-      value: permission.id,
-    }));
   } finally {
     loading.value = false;
   }
@@ -164,7 +151,7 @@ async function save() {
 }
 
 function remove(row: SystemApi.Role) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除角色 ${row.code}？`,
     confirmBtn: '删除',
     header: '删除角色',
@@ -190,7 +177,7 @@ onMounted(load);
     :loading="loading"
     :pagination="tablePagination"
     :refreshable="false"
-    @add="open()"
+    @add="openEdit()"
     @page-change="handlePageChange"
     @reset="reset"
     @search="search"
@@ -218,7 +205,8 @@ onMounted(load);
     </template>
     <template #actions="{ row }">
       <TSpace>
-        <RowAction v-if="row" label="编辑授权" @click="open(row)" />
+        <RowAction v-if="row" label="编辑" @click="openEdit(row)" />
+        <RowAction v-if="row" icon="lucide:key-round" label="授权" @click="openAuthorize(row)" />
         <RowAction v-if="row" label="删除" theme="danger" @click="remove(row)" />
       </TSpace>
     </template>
@@ -230,8 +218,6 @@ onMounted(load);
       <TFormItem label="角色名称" name="name"><TInput v-model="form.name" /></TFormItem>
       <TFormItem label="说明"><TTextarea v-model="form.description" /></TFormItem>
       <TFormItem label="状态"><TSelect v-model="form.status" :options="statusOptions" /></TFormItem>
-      <TFormItem label="菜单授权"><TSelect v-model="form.menuIds" multiple filterable :options="menuOptions" /></TFormItem>
-      <TFormItem label="按钮权限"><TSelect v-model="form.permissionIds" multiple filterable :options="permissionOptions" /></TFormItem>
     </TForm>
   </TDialog>
 </template>

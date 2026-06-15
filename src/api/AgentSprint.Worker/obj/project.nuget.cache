@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "dgSpecHash": "1CC5oUptPWs=",
+  "success": true,
+  "projectFilePath": "F:\\AI\\AgentSprint\\src\\api\\AgentSprint.Worker\\AgentSprint.Worker.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\23129\\.nuget\\packages\\air.cloud.core\\10.0.0\\air.cloud.core.10.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\air.cloud.hostapp\\10.0.0\\air.cloud.hostapp.10.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\air.cloud.modules.akka\\10.0.0\\air.cloud.modules.akka.10.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\akka\\1.5.68\\akka.1.5.68.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\akka.analyzers\\0.3.3\\akka.analyzers.0.3.3.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\akka.cluster\\1.5.68\\akka.cluster.1.5.68.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\akka.coordination\\1.5.68\\akka.coordination.1.5.68.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\akka.remote\\1.5.68\\akka.remote.1.5.68.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\aspectinjector\\2.8.2\\aspectinjector.2.8.2.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\bouncycastle.cryptography\\2.6.2\\bouncycastle.cryptography.2.6.2.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\dotnetty.buffers\\0.7.6\\dotnetty.buffers.0.7.6.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\dotnetty.codecs\\0.7.6\\dotnetty.codecs.0.7.6.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\dotnetty.common\\0.7.6\\dotnetty.common.0.7.6.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\dotnetty.handlers\\0.7.6\\dotnetty.handlers.0.7.6.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\dotnetty.transport\\0.7.6\\dotnetty.transport.0.7.6.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\google.protobuf\\3.26.1\\google.protobuf.3.26.1.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\mapster\\10.0.7\\mapster.10.0.7.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\mapster.core\\10.0.7\\mapster.core.10.0.7.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\microsoft.aspnetcore.jsonpatch\\10.0.8\\microsoft.aspnetcore.jsonpatch.10.0.8.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\microsoft.aspnetcore.mvc.newtonsoftjson\\10.0.8\\microsoft.aspnetcore.mvc.newtonsoftjson.10.0.8.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\microsoft.extensions.dependencymodel\\10.0.8\\microsoft.extensions.dependencymodel.10.0.8.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\microsoft.win32.systemevents\\6.0.0\\microsoft.win32.systemevents.6.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\newtonsoft.json\\13.0.4\\newtonsoft.json.13.0.4.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\newtonsoft.json.bson\\1.0.2\\newtonsoft.json.bson.1.0.2.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\system.configuration.configurationmanager\\6.0.1\\system.configuration.configurationmanager.6.0.1.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\system.drawing.common\\6.0.0\\system.drawing.common.6.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\system.security.cryptography.protecteddata\\6.0.0\\system.security.cryptography.protecteddata.6.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\system.security.permissions\\6.0.0\\system.security.permissions.6.0.0.nupkg.sha512",
+    "C:\\Users\\23129\\.nuget\\packages\\system.windows.extensions\\6.0.0\\system.windows.extensions.6.0.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1900",
+      "level": "Warning",
+      "message": "获取包漏洞数据时出错: 无法加载源 https://nuget.cdn.azure.cn/v3/index.json 的服务索引。",
+      "projectPath": "F:\\AI\\AgentSprint\\src\\api\\AgentSprint.Worker\\AgentSprint.Worker.csproj",
+      "warningLevel": 1,
+      "filePath": "F:\\AI\\AgentSprint\\src\\api\\AgentSprint.Worker\\AgentSprint.Worker.csproj",
+      "targetGraphs": []
+    }
+  ]
+}

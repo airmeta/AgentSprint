@@ -5,5 +5,7 @@ defineOptions({ name: 'Fallback404Demo' });
 </script>
 
 <template>
-  <Fallback status="404" />
+  <div class="fallback-page">
+    <Fallback status="404" />
+  </div>
 </template>

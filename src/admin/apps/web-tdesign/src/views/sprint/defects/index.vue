@@ -1,7 +1,8 @@
-﻿<script lang="ts" setup>
-import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
+<script lang="ts" setup>
+import type { SprintMvpApi, SprintTestApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
@@ -30,11 +31,13 @@ import {
   listProjectsApi,
   listRequirementsApi,
   listTestExecutionsApi,
+  listUserOptionsApi,
 } from '#/api/sprint/mvp';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import { buildUserLookup, resolveUserName } from '../_shared/user-display';
 
 import '../_shared/table-layout.css';
 
@@ -50,10 +53,11 @@ const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const defects = ref<SprintMvpApi.Bug[]>([]);
 const currentDefect = ref<SprintMvpApi.Bug>();
 const defectExecutions = ref<SprintTestApi.TestExecution[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
 
 const filters = reactive({
   projectId: '',
-  requirementId: '',
+  requirementKeyword: '',
 });
 const form = reactive({
   description: '',
@@ -70,7 +74,7 @@ const defectRules: FormRules<typeof form> = {
 };
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const projectOptions = computed(() =>
@@ -78,11 +82,6 @@ const projectOptions = computed(() =>
 );
 const selectedProject = computed(() =>
   projects.value.find((project) => project.id === filters.projectId),
-);
-const requirementOptions = computed(() =>
-  requirements.value
-    .filter((item) => !filters.projectId || item.projectId === filters.projectId)
-    .map((item) => ({ label: item.title, value: item.id })),
 );
 const formRequirementOptions = computed(() =>
   requirements.value
@@ -93,10 +92,10 @@ const requirementMap = computed(() =>
   Object.fromEntries(requirements.value.map((item) => [item.id, item])),
 );
 const projectMap = computed(() => Object.fromEntries(projects.value.map((item) => [item.id, item])));
+const userLookup = computed(() => buildUserLookup(users.value));
 
 const columns = [
   { colKey: 'title', title: '缺陷标题' },
-  { colKey: 'projectId', title: '项目', width: 160 },
   { colKey: 'requirementId', title: '需求', width: 200 },
   { colKey: 'environment', title: '环境', width: 100 },
   { colKey: 'severity', title: '严重级别', width: 110 },
@@ -134,7 +133,7 @@ const severityText: Record<string, string> = {
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
@@ -144,6 +143,18 @@ const tablePagination = computed(() => ({
 function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   pagination.current = pageInfo.current;
   pagination.pageSize = pageInfo.pageSize;
+}
+
+function filterDefectsByRequirementKeyword(items: SprintMvpApi.Bug[]) {
+  const keyword = filters.requirementKeyword.trim().toLowerCase();
+  if (!keyword) return items;
+
+  return items.filter((defect) => {
+    const requirement = requirementMap.value[defect.requirementId];
+    return [requirement?.title, requirement?.id, defect.requirementId]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
 }
 
 function openCreate() {
@@ -156,13 +167,7 @@ function openCreate() {
     severity: 'major',
     title: '',
   });
-  form.requirementId =
-    filters.requirementId &&
-    requirements.value.some(
-      (item) => item.id === filters.requirementId && item.projectId === form.projectId,
-    )
-      ? filters.requirementId
-      : formRequirementOptions.value[0]?.value || '';
+  form.requirementId = formRequirementOptions.value[0]?.value || '';
   createVisible.value = true;
 }
 
@@ -180,18 +185,19 @@ async function openDetail(defect: SprintMvpApi.Bug) {
 }
 
 async function loadBase() {
-  projects.value = await listProjectsApi();
-  requirements.value = await listRequirementsApi();
+  [projects.value, requirements.value, users.value] = await Promise.all([
+    listProjectsApi(),
+    listRequirementsApi(),
+    listUserOptionsApi(),
+  ]);
   filters.projectId ||= projects.value[0]?.id || '';
 }
 
 async function loadDefects() {
   loading.value = true;
   try {
-    defects.value = await listBugsApi(
-      filters.projectId || undefined,
-      filters.requirementId || undefined,
-    );
+    const defectItems = await listBugsApi(filters.projectId || undefined);
+    defects.value = filterDefectsByRequirementKeyword(defectItems);
     pagination.current = 1;
   } finally {
     loading.value = false;
@@ -199,7 +205,7 @@ async function loadDefects() {
 }
 
 async function handleProjectChange() {
-  filters.requirementId = '';
+  filters.requirementKeyword = '';
   await loadDefects();
 }
 
@@ -210,7 +216,7 @@ async function queryDefects() {
 async function resetFilters() {
   Object.assign(filters, {
     projectId: projects.value[0]?.id || '',
-    requirementId: '',
+    requirementKeyword: '',
   });
   await loadDefects();
 }
@@ -274,28 +280,45 @@ onMounted(async () => {
 </script>
 
 <template>
-  <ProjectSecondaryListShell
-    v-model:selected-project-id="filters.projectId"
-    class="defects-page"
-    :loading="loading"
-    :projects="projects"
-    @project-change="handleProjectChange"
-    @refresh="loadDefects"
-  >
-    <template #header><section class="sprint-page-title">
-      <h2>缺陷管理</h2>
-      <p>缺陷必须绑定项目和具体需求，需求列表健康状态会随缺陷变化。</p>
-    </section></template><template #workspace-header><div class="workspace-head"><div><h3>{{ selectedProject?.name || '请选择项目' }}</h3><p>{{ selectedProject?.code || '-' }}</p></div><TButton theme="primary" :disabled="!filters.projectId" @click="openCreate"><template #icon><IconifyIcon icon="lucide:bug" /></template>提交缺陷</TButton></div></template>
+  <div class="defects-page">
+    <ProjectSecondaryListShell
+      v-model:selected-project-id="filters.projectId"
+      :loading="loading"
+      :projects="projects"
+      @project-change="handleProjectChange"
+      @refresh="loadDefects"
+    >
+      <template #header>
+        <section class="sprint-page-title">
+          <h2>缺陷管理</h2>
+          <p>缺陷必须绑定项目和具体需求，需求列表健康状态会随缺陷变化。</p>
+        </section>
+      </template>
+
+      <template #workspace-header>
+        <div class="workspace-head">
+          <div>
+            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
+            <p>{{ selectedProject?.code || '-' }}</p>
+          </div>
+          <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
+            <template #icon>
+              <IconifyIcon icon="lucide:plus" />
+            </template>
+            提交缺陷
+          </TButton>
+        </div>
+      </template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
         <label class="sprint-filter-field">
           <span>需求</span>
-          <TSelect
-            v-model="filters.requirementId"
+          <TInput
+            v-model="filters.requirementKeyword"
             clearable
-            :options="requirementOptions"
-            placeholder="全部需求"
+            placeholder="输入需求标题或ID"
+            @enter="queryDefects"
           />
         </label>
         <div class="sprint-filter-actions">
@@ -305,9 +328,9 @@ onMounted(async () => {
             </template>
             查询
           </TButton>
-          <TButton :disabled="loading" @click="resetFilters">
+          <TButton theme="default" :disabled="loading" @click="resetFilters">
             <template #icon>
-              <IconifyIcon icon="lucide:refresh-cw" />
+              <IconifyIcon icon="lucide:rotate-ccw" />
             </template>
             重置
           </TButton>
@@ -321,12 +344,6 @@ onMounted(async () => {
         <div class="sprint-table-actions">
           <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadDefects">
             <IconifyIcon icon="lucide:refresh-cw" />
-          </TButton>
-          <TButton theme="primary" @click="openCreate">
-            <template #icon>
-              <IconifyIcon icon="lucide:bug" />
-            </template>
-            提交缺陷
           </TButton>
         </div>
       </div>
@@ -343,9 +360,6 @@ onMounted(async () => {
         stripe
         @page-change="handlePageChange"
       >
-        <template #projectId="{ row }">
-          {{ projectMap[row.projectId]?.name || row.projectId }}
-        </template>
         <template #requirementId="{ row }">
           {{ requirementMap[row.requirementId]?.title || row.requirementId }}
         </template>
@@ -355,8 +369,11 @@ onMounted(async () => {
         <template #severity="{ row }">
           <TTag variant="light">{{ severityText[row.severity] || row.severity }}</TTag>
         </template>
+        <template #createdBy="{ row }">
+          {{ resolveUserName(row.createdBy, userLookup) }}
+        </template>
         <template #developerId="{ row }">
-          {{ row.developerId || '未指派' }}
+          {{ resolveUserName(row.developerId, userLookup, '未指派') }}
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
@@ -439,8 +456,12 @@ onMounted(async () => {
           <TDescriptionsItem label="需求">
             {{ requirementMap[currentDefect.requirementId]?.title || currentDefect.requirementId }}
           </TDescriptionsItem>
-          <TDescriptionsItem label="提交人">{{ currentDefect.createdBy }}</TDescriptionsItem>
-          <TDescriptionsItem label="处理人">{{ currentDefect.developerId || '未指派' }}</TDescriptionsItem>
+          <TDescriptionsItem label="提交人">
+            {{ resolveUserName(currentDefect.createdBy, userLookup) }}
+          </TDescriptionsItem>
+          <TDescriptionsItem label="处理人">
+            {{ resolveUserName(currentDefect.developerId, userLookup, '未指派') }}
+          </TDescriptionsItem>
           <TDescriptionsItem label="测试计划">
             {{ currentDefect.testPlanId || '未绑定' }}
           </TDescriptionsItem>
@@ -464,6 +485,9 @@ onMounted(async () => {
             hover
             stripe
           >
+            <template #testerId="{ row }">
+              {{ resolveUserName(row.testerId, userLookup) }}
+            </template>
             <template #executedAt="{ row }">
               {{ formatDateTime(row.executedAt) }}
             </template>
@@ -471,10 +495,23 @@ onMounted(async () => {
         </section>
       </section>
     </TDrawer>
-  </ProjectSecondaryListShell>
+    </ProjectSecondaryListShell>
+  </div>
 </template>
 
 <style scoped>
+.defects-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.defects-page :deep(.project-secondary-list-shell) {
+  flex: 1;
+  min-height: 0;
+}
+
 .detail-content {
   display: grid;
   gap: 16px;

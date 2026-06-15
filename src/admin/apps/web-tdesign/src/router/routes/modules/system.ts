@@ -32,6 +32,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'SystemRoleAuthorize',
+        path: '/system/roles/authorize/:id',
+        component: () => import('#/views/system/roles/authorize.vue'),
+        meta: {
+          activePath: '/system/roles',
+          hideInMenu: true,
+          title: '角色授权',
+        },
+      },
+      {
         name: 'SystemMenus',
         path: '/system/menus',
         component: () => import('#/views/system/menus/index.vue'),
@@ -123,8 +133,18 @@ const routes: RouteRecordRaw[] = [
     },
     name: 'GlobalConfig',
     path: '/global-config',
-    redirect: '/global-config/prompt-templates',
+    redirect: '/global-config/ai-platforms',
     children: [
+      {
+        name: 'GlobalConfigAiPlatforms',
+        path: '/global-config/ai-platforms',
+        component: () => import('#/views/system/ai-platforms/index.vue'),
+        meta: {
+          icon: 'lucide:cpu',
+          keepAlive: false,
+          title: 'AI平台维护',
+        },
+      },
       {
         name: 'GlobalConfigPromptTemplates',
         path: '/global-config/prompt-templates',
@@ -143,6 +163,36 @@ const routes: RouteRecordRaw[] = [
           icon: 'lucide:brain-circuit',
           keepAlive: false,
           title: 'Skill配置',
+        },
+      },
+    ],
+  },
+  {
+    meta: {
+      icon: 'lucide:bot',
+      order: 93,
+      title: '自动化管理',
+    },
+    name: 'AutomationManagement',
+    path: '/automation',
+    redirect: '/automation/digital-workers',
+    children: [
+      {
+        name: 'AutomationDigitalWorkers',
+        path: '/automation/digital-workers',
+        component: () => import('#/views/automation/digital-workers/index.vue'),
+        meta: {
+          icon: 'lucide:bot',
+          title: '数字员工管理',
+        },
+      },
+      {
+        name: 'AutomationMcpSessions',
+        path: '/automation/mcp-sessions',
+        component: () => import('#/views/automation/mcp-sessions/index.vue'),
+        meta: {
+          icon: 'lucide:monitor-dot',
+          title: 'MCP会话管理',
         },
       },
     ],

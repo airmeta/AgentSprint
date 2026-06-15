@@ -1,4 +1,5 @@
 using AgentSprint.Model.Modules.Agile;
+using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Tests;
 
@@ -61,6 +62,12 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<SprintProjectEntity> SprintProjects => Set<SprintProjectEntity>();
 
+    public DbSet<GitAccountEntity> GitAccounts => Set<GitAccountEntity>();
+
+    public DbSet<GitRepositoryEntity> GitRepositories => Set<GitRepositoryEntity>();
+
+    public DbSet<GitBranchOperationEntity> GitBranchOperations => Set<GitBranchOperationEntity>();
+
     public DbSet<SprintProjectMemberEntity> SprintProjectMembers => Set<SprintProjectMemberEntity>();
 
     public DbSet<SprintProjectEndpointEntity> SprintProjectEndpoints => Set<SprintProjectEndpointEntity>();
@@ -82,6 +89,16 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
     public DbSet<SprintBugEntity> SprintBugs => Set<SprintBugEntity>();
 
     public DbSet<SprintTaskLeaseEntity> SprintTaskLeases => Set<SprintTaskLeaseEntity>();
+
+    public DbSet<DigitalWorkerEntity> DigitalWorkers => Set<DigitalWorkerEntity>();
+
+    public DbSet<WorkerSessionEntity> WorkerSessions => Set<WorkerSessionEntity>();
+
+    public DbSet<WorkerCommandEntity> WorkerCommands => Set<WorkerCommandEntity>();
+
+    public DbSet<WorkerRunEntity> WorkerRuns => Set<WorkerRunEntity>();
+
+    public DbSet<WorkerEventEntity> WorkerEvents => Set<WorkerEventEntity>();
 
     public DbSet<TestPlanEntity> TestPlans => Set<TestPlanEntity>();
 
@@ -130,6 +147,10 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<RoleMenuEntity>().HasIndex(entity => new { entity.RoleId, entity.MenuId }).IsUnique();
         modelBuilder.Entity<RolePermissionEntity>().HasIndex(entity => new { entity.RoleId, entity.PermissionId }).IsUnique();
         modelBuilder.Entity<SprintProjectEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<GitAccountEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<GitRepositoryEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<GitBranchOperationEntity>().HasIndex(entity => new { entity.RepositoryId, entity.OperationType });
+        modelBuilder.Entity<GitBranchOperationEntity>().HasIndex(entity => new { entity.RepositoryId, entity.BranchName });
         modelBuilder.Entity<SprintProjectMemberEntity>().HasIndex(entity => new { entity.ProjectId, entity.UserId, entity.Role }).IsUnique();
         modelBuilder.Entity<SprintProjectEndpointEntity>().HasIndex(entity => new { entity.ProjectId, entity.Code }).IsUnique();
         modelBuilder.Entity<SprintFeatureModuleEntity>().HasIndex(entity => new { entity.ProjectId, entity.EndpointId, entity.Code }).IsUnique();
@@ -143,6 +164,15 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => new { entity.ProjectId, entity.OwnerId, entity.Status });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.LeaseToken).IsUnique();
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.ActiveTargetKey).IsUnique();
+        modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => new { entity.AgentUserId, entity.Status });
+        modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });
+        modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.InstanceId });
+        modelBuilder.Entity<WorkerCommandEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });
+        modelBuilder.Entity<WorkerCommandEntity>().HasIndex(entity => new { entity.SessionId, entity.Status });
+        modelBuilder.Entity<WorkerRunEntity>().HasIndex(entity => new { entity.WorkerId, entity.SessionId });
+        modelBuilder.Entity<WorkerRunEntity>().HasIndex(entity => new { entity.TargetType, entity.TargetId });
+        modelBuilder.Entity<WorkerEventEntity>().HasIndex(entity => new { entity.WorkerId, entity.CreateTime });
         modelBuilder.Entity<TestPlanEntity>().HasIndex(entity => new { entity.ProjectId, entity.RequirementId });
         modelBuilder.Entity<TestExecutionEntity>().HasIndex(entity => entity.TestPlanId);
     }

@@ -11,11 +11,11 @@ import {
   type SystemApi,
 } from '#/api';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
-import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { requiredArrayRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -45,6 +45,7 @@ const form = reactive<Partial<SystemApi.User> & { password?: string }>({
 const rules = computed<FormRules<typeof form>>(() => ({
   displayName: requiredRule('请输入显示名称'),
   password: form.id ? [] : requiredRule('请输入密码'),
+  roleIds: requiredArrayRule('请选择角色'),
   username: requiredRule('请输入用户名'),
 }));
 const filters = reactive({
@@ -55,7 +56,7 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const statusOptions = [
@@ -76,7 +77,7 @@ const columns = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: users.value.length,
 }));
 
@@ -156,7 +157,7 @@ async function save() {
 }
 
 function remove(row: SystemApi.User) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除用户 ${row.username}？`,
     confirmBtn: '删除',
     header: '删除用户',
@@ -228,7 +229,7 @@ onMounted(load);
     <TForm ref="formRef" :data="form" :rules="rules" label-width="96px">
       <TFormItem label="用户名" name="username"><TInput v-model="form.username" /></TFormItem>
       <TFormItem label="显示名称" name="displayName"><TInput v-model="form.displayName" /></TFormItem>
-      <TFormItem label="密码" name="password">
+      <TFormItem v-if="!form.id" label="密码" name="password">
         <TInput v-model="form.password" type="password" placeholder="新增必填，编辑留空则不修改" />
       </TFormItem>
       <TFormItem label="邮箱"><TInput v-model="form.email" /></TFormItem>
@@ -236,8 +237,8 @@ onMounted(load);
       <TFormItem label="状态">
         <TSelect v-model="form.status" :options="statusOptions" />
       </TFormItem>
-      <TFormItem label="角色">
-        <TSelect v-model="form.roleIds" multiple filterable :options="roleOptions" />
+      <TFormItem label="角色" name="roleIds">
+        <TSelect v-model="form.roleIds" multiple filterable clearable placeholder="请选择角色" :options="roleOptions" />
       </TFormItem>
     </TForm>
   </TDialog>

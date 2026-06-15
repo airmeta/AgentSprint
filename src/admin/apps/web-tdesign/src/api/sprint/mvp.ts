@@ -8,10 +8,11 @@ export namespace SprintMvpApi {
     description?: string;
     developerIds: string[];
     frontendTechStack: string;
+    gitAccountId?: string;
+    gitRepositoryId?: string;
     name: string;
     productManagerIds: string[];
     projectManagerId: string;
-    repositoryUrl?: string;
     testerIds: string[];
     testEnvironmentId?: string;
     testEnvironmentUrl?: string;
@@ -23,10 +24,11 @@ export namespace SprintMvpApi {
     description?: string;
     developerIds: string[];
     frontendTechStack: string;
+    gitAccountId?: string;
+    gitRepositoryId?: string;
     name: string;
     productManagerIds: string[];
     projectManagerId: string;
-    repositoryUrl?: string;
     testerIds: string[];
     testEnvironmentId?: string;
     testEnvironmentUrl?: string;
@@ -40,10 +42,11 @@ export namespace SprintMvpApi {
     description?: string;
     developerIds: string[];
     frontendTechStack?: string;
+    gitAccountId?: string;
+    gitRepositoryId?: string;
     name: string;
     productManagerIds: string[];
     projectManagerId?: string;
-    repositoryUrl?: string;
     testerIds: string[];
     testEnvironmentId?: string;
     testEnvironmentUrl?: string;
@@ -111,6 +114,7 @@ export namespace SprintMvpApi {
   export interface DecomposeRequirementRequest {
     assignmentMode?: 'auto' | 'manual';
     assigneeId?: string;
+    assigneeType?: 0 | 1;
     instruction?: string;
     taskCount?: number;
   }
@@ -194,6 +198,7 @@ export namespace SprintMvpApi {
 
   export interface AssignTaskRequest {
     assigneeId: string;
+    assigneeType?: 0 | 1;
   }
 
   export interface Requirement {
@@ -244,6 +249,7 @@ export namespace SprintMvpApi {
     assignedAt?: string;
     assignedBy?: string;
     assigneeId?: string;
+    assigneeType: 0 | 1;
     completedAt?: string;
     createTime: string;
     createdBy: string;

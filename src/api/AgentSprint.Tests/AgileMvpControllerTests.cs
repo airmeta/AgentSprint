@@ -38,7 +38,6 @@ public sealed class AgileMvpControllerTests
             "project-100",
             new UpdateSprintProjectRequest(
                 "AgentSprint Admin",
-                "https://example.com/agentsprint.git",
                 "http://localhost:5999",
                 "Project detail",
                 "Vue 3 / Vite",
@@ -414,7 +413,6 @@ public sealed class AgileMvpControllerTests
         return new CreateSprintProjectRequest(
             code,
             name,
-            "https://example.com/agentsprint.git",
             "http://localhost:5999",
             "Project detail",
             "Vue 3 / Vite",
@@ -464,7 +462,6 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             "project-1",
             request.Code,
             request.Name,
-            request.RepositoryUrl,
             request.TestEnvironmentUrl,
             request.Description,
             request.FrontendTechStack,
@@ -476,7 +473,10 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             SprintProjectStatuses.Active,
             userId,
             DateTime.UtcNow,
-            request.TesterIds ?? []));
+            request.TesterIds ?? [],
+            request.TestEnvironmentId,
+            request.GitRepositoryId,
+            request.GitAccountId));
     }
 
     public Task<IReadOnlyList<SprintProjectResult>> ListProjectsAsync()
@@ -492,7 +492,6 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             id,
             "AGENT",
             request.Name,
-            request.RepositoryUrl,
             request.TestEnvironmentUrl,
             request.Description,
             request.FrontendTechStack,
@@ -504,7 +503,10 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             SprintProjectStatuses.Active,
             "pm-100",
             DateTime.UtcNow,
-            request.TesterIds ?? []));
+            request.TesterIds ?? [],
+            request.TestEnvironmentId,
+            request.GitRepositoryId,
+            request.GitAccountId));
     }
 
     public Task<SprintSkillResult> CreateSkillAsync(CreateSprintSkillRequest request, string userId)
@@ -927,6 +929,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
                 status ?? SprintDevelopmentTaskStatuses.PendingAssign,
                 1,
                 assigneeId,
+                SprintTaskAssigneeTypes.Employee,
                 null,
                 "po-1",
                 null,
@@ -1136,6 +1139,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             taskStatus,
             3,
             assigneeId,
+            SprintTaskAssigneeTypes.Employee,
             assignedBy,
             "po-1",
             null,

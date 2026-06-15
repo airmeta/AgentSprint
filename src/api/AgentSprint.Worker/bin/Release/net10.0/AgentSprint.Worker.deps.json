@@ -1,0 +1,562 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "AgentSprint.Worker/1.0.0": {
+        "dependencies": {
+          "Air.Cloud.HostApp": "10.0.0",
+          "Air.Cloud.Modules.Akka": "10.0.0"
+        },
+        "runtime": {
+          "AgentSprint.Worker.dll": {}
+        }
+      },
+      "Air.Cloud.Core/10.0.0": {
+        "dependencies": {
+          "AspectInjector": "2.8.2",
+          "BouncyCastle.Cryptography": "2.6.2",
+          "Mapster": "10.0.7",
+          "Microsoft.AspNetCore.Mvc.NewtonsoftJson": "10.0.8",
+          "Microsoft.Extensions.DependencyModel": "10.0.8",
+          "Newtonsoft.Json": "13.0.4"
+        },
+        "runtime": {
+          "lib/net10.0/Air.Cloud.Core.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.0.0"
+          }
+        }
+      },
+      "Air.Cloud.HostApp/10.0.0": {
+        "dependencies": {
+          "Air.Cloud.Core": "10.0.0"
+        },
+        "runtime": {
+          "lib/net10.0/Air.Cloud.HostApp.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.0.0"
+          }
+        }
+      },
+      "Air.Cloud.Modules.Akka/10.0.0": {
+        "dependencies": {
+          "Air.Cloud.Core": "10.0.0",
+          "Akka": "1.5.68",
+          "Akka.Cluster": "1.5.68"
+        },
+        "runtime": {
+          "lib/net10.0/Air.Cloud.Modules.Akka.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.0.0"
+          }
+        }
+      },
+      "Akka/1.5.68": {
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.4",
+          "System.Configuration.ConfigurationManager": "6.0.1"
+        },
+        "runtime": {
+          "lib/net6.0/Akka.dll": {
+            "assemblyVersion": "1.5.68.0",
+            "fileVersion": "1.5.68.0"
+          }
+        }
+      },
+      "Akka.Cluster/1.5.68": {
+        "dependencies": {
+          "Akka.Coordination": "1.5.68",
+          "Akka.Remote": "1.5.68"
+        },
+        "runtime": {
+          "lib/net6.0/Akka.Cluster.dll": {
+            "assemblyVersion": "1.5.68.0",
+            "fileVersion": "1.5.68.0"
+          }
+        }
+      },
+      "Akka.Coordination/1.5.68": {
+        "dependencies": {
+          "Akka": "1.5.68"
+        },
+        "runtime": {
+          "lib/net6.0/Akka.Coordination.dll": {
+            "assemblyVersion": "1.5.68.0",
+            "fileVersion": "1.5.68.0"
+          }
+        }
+      },
+      "Akka.Remote/1.5.68": {
+        "dependencies": {
+          "Akka": "1.5.68",
+          "DotNetty.Handlers": "0.7.6",
+          "Google.Protobuf": "3.26.1"
+        },
+        "runtime": {
+          "lib/net6.0/Akka.Remote.dll": {
+            "assemblyVersion": "1.5.68.0",
+            "fileVersion": "1.5.68.0"
+          }
+        }
+      },
+      "AspectInjector/2.8.2": {
+        "runtime": {
+          "lib/netstandard2.0/AspectInjector.Broker.dll": {
+            "assemblyVersion": "2.8.2.0",
+            "fileVersion": "2.8.2.0"
+          }
+        }
+      },
+      "BouncyCastle.Cryptography/2.6.2": {
+        "runtime": {
+          "lib/net6.0/BouncyCastle.Cryptography.dll": {
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "2.6.2.46322"
+          }
+        }
+      },
+      "DotNetty.Buffers/0.7.6": {
+        "dependencies": {
+          "DotNetty.Common": "0.7.6"
+        },
+        "runtime": {
+          "lib/net6.0/DotNetty.Buffers.dll": {
+            "assemblyVersion": "0.7.6.0",
+            "fileVersion": "0.7.6.0"
+          }
+        }
+      },
+      "DotNetty.Codecs/0.7.6": {
+        "dependencies": {
+          "DotNetty.Buffers": "0.7.6",
+          "DotNetty.Common": "0.7.6",
+          "DotNetty.Transport": "0.7.6"
+        },
+        "runtime": {
+          "lib/net6.0/DotNetty.Codecs.dll": {
+            "assemblyVersion": "0.7.6.0",
+            "fileVersion": "0.7.6.0"
+          }
+        }
+      },
+      "DotNetty.Common/0.7.6": {
+        "runtime": {
+          "lib/net6.0/DotNetty.Common.dll": {
+            "assemblyVersion": "0.7.6.0",
+            "fileVersion": "0.7.6.0"
+          }
+        }
+      },
+      "DotNetty.Handlers/0.7.6": {
+        "dependencies": {
+          "DotNetty.Buffers": "0.7.6",
+          "DotNetty.Codecs": "0.7.6",
+          "DotNetty.Common": "0.7.6",
+          "DotNetty.Transport": "0.7.6"
+        },
+        "runtime": {
+          "lib/net6.0/DotNetty.Handlers.dll": {
+            "assemblyVersion": "0.7.6.0",
+            "fileVersion": "0.7.6.0"
+          }
+        }
+      },
+      "DotNetty.Transport/0.7.6": {
+        "dependencies": {
+          "DotNetty.Buffers": "0.7.6",
+          "DotNetty.Common": "0.7.6"
+        },
+        "runtime": {
+          "lib/net6.0/DotNetty.Transport.dll": {
+            "assemblyVersion": "0.7.6.0",
+            "fileVersion": "0.7.6.0"
+          }
+        }
+      },
+      "Google.Protobuf/3.26.1": {
+        "runtime": {
+          "lib/net5.0/Google.Protobuf.dll": {
+            "assemblyVersion": "3.26.1.0",
+            "fileVersion": "3.26.1.0"
+          }
+        }
+      },
+      "Mapster/10.0.7": {
+        "dependencies": {
+          "Mapster.Core": "10.0.7"
+        },
+        "runtime": {
+          "lib/net10.0/Mapster.dll": {
+            "assemblyVersion": "10.0.7.0",
+            "fileVersion": "10.0.7.0"
+          }
+        }
+      },
+      "Mapster.Core/10.0.7": {
+        "runtime": {
+          "lib/netstandard2.0/Mapster.Core.dll": {
+            "assemblyVersion": "10.0.7.0",
+            "fileVersion": "10.0.7.0"
+          }
+        }
+      },
+      "Microsoft.AspNetCore.JsonPatch/10.0.8": {
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.4"
+        },
+        "runtime": {
+          "lib/net10.0/Microsoft.AspNetCore.JsonPatch.dll": {
+            "assemblyVersion": "10.0.8.0",
+            "fileVersion": "10.0.826.23019"
+          }
+        }
+      },
+      "Microsoft.AspNetCore.Mvc.NewtonsoftJson/10.0.8": {
+        "dependencies": {
+          "Microsoft.AspNetCore.JsonPatch": "10.0.8",
+          "Newtonsoft.Json": "13.0.4",
+          "Newtonsoft.Json.Bson": "1.0.2"
+        },
+        "runtime": {
+          "lib/net10.0/Microsoft.AspNetCore.Mvc.NewtonsoftJson.dll": {
+            "assemblyVersion": "10.0.8.0",
+            "fileVersion": "10.0.826.23019"
+          }
+        }
+      },
+      "Microsoft.Extensions.DependencyModel/10.0.8": {
+        "runtime": {
+          "lib/net10.0/Microsoft.Extensions.DependencyModel.dll": {
+            "assemblyVersion": "10.0.0.8",
+            "fileVersion": "10.0.826.23019"
+          }
+        }
+      },
+      "Microsoft.Win32.SystemEvents/6.0.0": {
+        "runtime": {
+          "lib/net6.0/Microsoft.Win32.SystemEvents.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net6.0/Microsoft.Win32.SystemEvents.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        }
+      },
+      "Newtonsoft.Json/13.0.4": {
+        "runtime": {
+          "lib/net6.0/Newtonsoft.Json.dll": {
+            "assemblyVersion": "13.0.0.0",
+            "fileVersion": "13.0.4.30916"
+          }
+        }
+      },
+      "Newtonsoft.Json.Bson/1.0.2": {
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.4"
+        },
+        "runtime": {
+          "lib/netstandard2.0/Newtonsoft.Json.Bson.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.2.22727"
+          }
+        }
+      },
+      "System.Configuration.ConfigurationManager/6.0.1": {
+        "dependencies": {
+          "System.Security.Cryptography.ProtectedData": "6.0.0",
+          "System.Security.Permissions": "6.0.0"
+        },
+        "runtime": {
+          "lib/net6.0/System.Configuration.ConfigurationManager.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.922.41905"
+          }
+        }
+      },
+      "System.Drawing.Common/6.0.0": {
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "6.0.0"
+        },
+        "runtime": {
+          "lib/net6.0/System.Drawing.Common.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/unix/lib/net6.0/System.Drawing.Common.dll": {
+            "rid": "unix",
+            "assetType": "runtime",
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          },
+          "runtimes/win/lib/net6.0/System.Drawing.Common.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        }
+      },
+      "System.Security.Cryptography.ProtectedData/6.0.0": {
+        "runtime": {
+          "lib/net6.0/System.Security.Cryptography.ProtectedData.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net6.0/System.Security.Cryptography.ProtectedData.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        }
+      },
+      "System.Security.Permissions/6.0.0": {
+        "dependencies": {
+          "System.Windows.Extensions": "6.0.0"
+        },
+        "runtime": {
+          "lib/net6.0/System.Security.Permissions.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        }
+      },
+      "System.Windows.Extensions/6.0.0": {
+        "dependencies": {
+          "System.Drawing.Common": "6.0.0"
+        },
+        "runtime": {
+          "lib/net6.0/System.Windows.Extensions.dll": {
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net6.0/System.Windows.Extensions.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "6.0.0.0",
+            "fileVersion": "6.0.21.52210"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "AgentSprint.Worker/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Air.Cloud.Core/10.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-CSpDdBDAIy1IKYu99/QXzsbFXaFff0Legud7txN0Z/wxWPHDfpsf46sylRJQKE8qBTyZk5ndLDNEaatOEn/nyg==",
+      "path": "air.cloud.core/10.0.0",
+      "hashPath": "air.cloud.core.10.0.0.nupkg.sha512"
+    },
+    "Air.Cloud.HostApp/10.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-F0nBxHZD1GASNsUE2KCJ1eSiBSCbhtP4mf+49AuR3r1Ky5tB69lL63KbroWq29h5v8eIQodBlM6JG2s/BCbjUw==",
+      "path": "air.cloud.hostapp/10.0.0",
+      "hashPath": "air.cloud.hostapp.10.0.0.nupkg.sha512"
+    },
+    "Air.Cloud.Modules.Akka/10.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-MKSYc7c5MRX90Zo7u3EOAr2m3VG8C/b8TuJmJd4TWBPVYSroSUYC8Tc6XO472p/V0tqbvKTGVdTTIFyFnjFzEw==",
+      "path": "air.cloud.modules.akka/10.0.0",
+      "hashPath": "air.cloud.modules.akka.10.0.0.nupkg.sha512"
+    },
+    "Akka/1.5.68": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-N/bBk9MnlIPfhqxPQVggoCdW2n0EUZAbvyxDHOk5zg5acTOffFqTSIpCcfH4e257LlyUPrDuE2EaikbUmG/01w==",
+      "path": "akka/1.5.68",
+      "hashPath": "akka.1.5.68.nupkg.sha512"
+    },
+    "Akka.Cluster/1.5.68": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-uDwyi4s7GkDqUWV5CaqXiZX0cUIzB8lYKX78yOEPg5tAQ43o+cbiaj7ngAfS01pfE8AT7ikyw9si1a/oxuO9+A==",
+      "path": "akka.cluster/1.5.68",
+      "hashPath": "akka.cluster.1.5.68.nupkg.sha512"
+    },
+    "Akka.Coordination/1.5.68": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-1EUW33pyr5ItGL6vZmMMuKKJRJEST+QigS7Ku6Mqx2QsCCssQSthqlYEjvjw9Bx/8W+yqoC6UHmVsPyb2fd8YA==",
+      "path": "akka.coordination/1.5.68",
+      "hashPath": "akka.coordination.1.5.68.nupkg.sha512"
+    },
+    "Akka.Remote/1.5.68": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-aKhmWfU/X9cJ/mK/KJW4i1UchBiz4/+fpJp0/AyzsThmQB/VG2t+iVhz/tgwJJmB3nEYOgZZGanHXxe5oVgIXg==",
+      "path": "akka.remote/1.5.68",
+      "hashPath": "akka.remote.1.5.68.nupkg.sha512"
+    },
+    "AspectInjector/2.8.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-BFpfwQdpXKyJIV6in8g2KzQ7zoLy+j/xdTI2pKTYo1LbV9svFdQPDV5LAZ+jhGpHHKLKhFmNQSUBVQS2fNx0dQ==",
+      "path": "aspectinjector/2.8.2",
+      "hashPath": "aspectinjector.2.8.2.nupkg.sha512"
+    },
+    "BouncyCastle.Cryptography/2.6.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w==",
+      "path": "bouncycastle.cryptography/2.6.2",
+      "hashPath": "bouncycastle.cryptography.2.6.2.nupkg.sha512"
+    },
+    "DotNetty.Buffers/0.7.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-JVYypDugRG4m3hbS0drCC79vX93zqjn5w+U4ti/KXjTIzcQ/UVHrCgs7ZgJfWRUQLfgfQB0daYQtE18lKD8pHg==",
+      "path": "dotnetty.buffers/0.7.6",
+      "hashPath": "dotnetty.buffers.0.7.6.nupkg.sha512"
+    },
+    "DotNetty.Codecs/0.7.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-XBZy/m3+V8PBUHHHbFKaRBE0+knTCitcE8oKCQn4jZybH25mCZ1vTwj3BRuPYdNpzh74Op32Hj4ZXF+DMx/oAg==",
+      "path": "dotnetty.codecs/0.7.6",
+      "hashPath": "dotnetty.codecs.0.7.6.nupkg.sha512"
+    },
+    "DotNetty.Common/0.7.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-dmK8Njfh2Y4qnz99lLK0evoc46FPL5WOnHMLlavNZ6zqC5/bKgqGsJFoXbhVPkSYDp58g2euI64dhY0cvOUOZQ==",
+      "path": "dotnetty.common/0.7.6",
+      "hashPath": "dotnetty.common.0.7.6.nupkg.sha512"
+    },
+    "DotNetty.Handlers/0.7.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-6sSMp0Md8DbpyOAV9IjiR30uzaLrxAbJTcwFFpMJM1+EJhvPz6Ywt0RqoV6+lseq6zqBjMq2jbPTKcqPoqNYIA==",
+      "path": "dotnetty.handlers/0.7.6",
+      "hashPath": "dotnetty.handlers.0.7.6.nupkg.sha512"
+    },
+    "DotNetty.Transport/0.7.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-EVQ5FihFPdWmw7v6l/4iyMepj49vZT11kWQNJ0ApC4KzkdJJ6LM/7NDUgghyxbO0e25nfQRtkGLP5EZAEo7QDA==",
+      "path": "dotnetty.transport/0.7.6",
+      "hashPath": "dotnetty.transport.0.7.6.nupkg.sha512"
+    },
+    "Google.Protobuf/3.26.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-CHZX8zXqhF/fdUtd+AYzew8T2HFkAoe5c7lbGxZY/qryAlQXckDvM5BfOJjXlMS7kyICqQTMszj4w1bX5uBJ/w==",
+      "path": "google.protobuf/3.26.1",
+      "hashPath": "google.protobuf.3.26.1.nupkg.sha512"
+    },
+    "Mapster/10.0.7": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-bZgWXyTM21Bc6Xrvk2BzPCFTwnvyTNSO4fUli/DVm02Kya80r5sY9ackpsECVlUqbda7ck9hr/1oKrCyI8yXmw==",
+      "path": "mapster/10.0.7",
+      "hashPath": "mapster.10.0.7.nupkg.sha512"
+    },
+    "Mapster.Core/10.0.7": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-73Bd0aZ+t6DoG3X4FYDfOyVgvLxgUXJKIjrps3W1n7MR03DIWI+sL62VqQSPwuJdn7WJb8HYhkH/BNZ6ZlJydw==",
+      "path": "mapster.core/10.0.7",
+      "hashPath": "mapster.core.10.0.7.nupkg.sha512"
+    },
+    "Microsoft.AspNetCore.JsonPatch/10.0.8": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-xGMQwR06DxQSpSUdYvUPLQkjcQUAXnFIUbNoafAcLvUXDnmKNEuddxKvrGoWDT7svt90wWet2Xve5uacO/pVtw==",
+      "path": "microsoft.aspnetcore.jsonpatch/10.0.8",
+      "hashPath": "microsoft.aspnetcore.jsonpatch.10.0.8.nupkg.sha512"
+    },
+    "Microsoft.AspNetCore.Mvc.NewtonsoftJson/10.0.8": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-LAZmDrEsExc11l7nyQ+efQHTKp4MOskAuPSgkW64LoxrJv2YnElc4IM1VGfIHNRspqVguO5TY5kz2YTRcNSHeQ==",
+      "path": "microsoft.aspnetcore.mvc.newtonsoftjson/10.0.8",
+      "hashPath": "microsoft.aspnetcore.mvc.newtonsoftjson.10.0.8.nupkg.sha512"
+    },
+    "Microsoft.Extensions.DependencyModel/10.0.8": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-vLyZVpxmduO2jx+76ggqnsA3m81kwMY3NkWciNTj5E+Nvqb0VihqCvQP89QsGONWp0AJwMZG+u9GzaCjDdFGNw==",
+      "path": "microsoft.extensions.dependencymodel/10.0.8",
+      "hashPath": "microsoft.extensions.dependencymodel.10.0.8.nupkg.sha512"
+    },
+    "Microsoft.Win32.SystemEvents/6.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-hqTM5628jSsQiv+HGpiq3WKBl2c8v1KZfby2J6Pr7pEPlK9waPdgEO6b8A/+/xn/yZ9ulv8HuqK71ONy2tg67A==",
+      "path": "microsoft.win32.systemevents/6.0.0",
+      "hashPath": "microsoft.win32.systemevents.6.0.0.nupkg.sha512"
+    },
+    "Newtonsoft.Json/13.0.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "path": "newtonsoft.json/13.0.4",
+      "hashPath": "newtonsoft.json.13.0.4.nupkg.sha512"
+    },
+    "Newtonsoft.Json.Bson/1.0.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-QYFyxhaABwmq3p/21VrZNYvCg3DaEoN/wUuw5nmfAf0X3HLjgupwhkEWdgfb9nvGAUIv3osmZoD3kKl4jxEmYQ==",
+      "path": "newtonsoft.json.bson/1.0.2",
+      "hashPath": "newtonsoft.json.bson.1.0.2.nupkg.sha512"
+    },
+    "System.Configuration.ConfigurationManager/6.0.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-jXw9MlUu/kRfEU0WyTptAVueupqIeE3/rl0EZDMlf8pcvJnitQ8HeVEp69rZdaStXwTV72boi/Bhw8lOeO+U2w==",
+      "path": "system.configuration.configurationmanager/6.0.1",
+      "hashPath": "system.configuration.configurationmanager.6.0.1.nupkg.sha512"
+    },
+    "System.Drawing.Common/6.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-NfuoKUiP2nUWwKZN6twGqXioIe1zVD0RIj2t976A+czLHr2nY454RwwXs6JU9Htc6mwqL6Dn/nEL3dpVf2jOhg==",
+      "path": "system.drawing.common/6.0.0",
+      "hashPath": "system.drawing.common.6.0.0.nupkg.sha512"
+    },
+    "System.Security.Cryptography.ProtectedData/6.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-rp1gMNEZpvx9vP0JW0oHLxlf8oSiQgtno77Y4PLUBjSiDYoD77Y8uXHr1Ea5XG4/pIKhqAdxZ8v8OTUtqo9PeQ==",
+      "path": "system.security.cryptography.protecteddata/6.0.0",
+      "hashPath": "system.security.cryptography.protecteddata.6.0.0.nupkg.sha512"
+    },
+    "System.Security.Permissions/6.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-T/uuc7AklkDoxmcJ7LGkyX1CcSviZuLCa4jg3PekfJ7SU0niF0IVTXwUiNVP9DSpzou2PpxJ+eNY2IfDM90ZCg==",
+      "path": "system.security.permissions/6.0.0",
+      "hashPath": "system.security.permissions.6.0.0.nupkg.sha512"
+    },
+    "System.Windows.Extensions/6.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-IXoJOXIqc39AIe+CIR7koBtRGMiCt/LPM3lI+PELtDIy9XdyeSrwXFdWV9dzJ2Awl0paLWUaknLxFQ5HpHZUog==",
+      "path": "system.windows.extensions/6.0.0",
+      "hashPath": "system.windows.extensions.6.0.0.nupkg.sha512"
+    }
+  }
+}

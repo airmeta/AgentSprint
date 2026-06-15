@@ -8,7 +8,7 @@ import { defineOverridesPreferences } from '@vben/preferences';
 export const overridesPreferences = defineOverridesPreferences({
   // overrides
   app: {
-    accessMode: 'mixed',
+    accessMode: 'backend',
     defaultHomePath: '/sprint/projects',
     name: '烛照协同平台',
   },

@@ -79,7 +79,7 @@ const tableSlots = computed(() =>
 );
 const safeData = computed(() => (Array.isArray(props.data) ? props.data.filter(Boolean) : []));
 const total = computed(() => props.pagination.total ?? safeData.value.length);
-const pageSizeOptions = computed(() => props.pagination.pageSizeOptions ?? [10, 20, 50]);
+const pageSizeOptions = computed(() => props.pagination.pageSizeOptions ?? [30, 50, 100, 200]);
 const tableColumns = computed(() => {
   if (!props.serial) {
     return props.columns;
@@ -152,7 +152,7 @@ function normalizeSlotProps(slotProps: any) {
         <slot name="filters"></slot>
       </div>
       <TSpace v-if="queryable">
-        <TButton theme="primary" :disabled="queryDisabled || loading" @click.stop="handleSearch">
+        <TButton theme="primary" :disabled="queryDisabled" :loading="loading" @click.stop="handleSearch">
           <template #icon>
             <IconifyIcon icon="lucide:search" />
           </template>
@@ -160,7 +160,7 @@ function normalizeSlotProps(slotProps: any) {
         </TButton>
         <TButton theme="default" :disabled="resetDisabled || loading" @click.stop="handleReset">
           <template #icon>
-            <IconifyIcon icon="lucide:refresh-cw" />
+            <IconifyIcon icon="lucide:rotate-ccw" />
           </template>
           {{ resetButtonText }}
         </TButton>

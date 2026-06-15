@@ -12,11 +12,11 @@ import { listProjectsApi, type SprintMvpApi } from '#/api/sprint/mvp';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
   DatePicker as TDatePicker,
   Drawer as TDrawer,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -53,7 +53,7 @@ const query = reactive({
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const columns = [
@@ -83,7 +83,7 @@ const projectNameMap = computed(() =>
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: tokens.value.length,
 }));
 
@@ -222,7 +222,7 @@ async function createToken() {
 }
 
 function revoke(row: SystemApi.AgentToken) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认撤销令牌 ${row.name}？撤销后已配置的 MCP 客户端将无法继续使用。`,
     confirmBtn: '撤销',
     header: '撤销令牌',

@@ -124,12 +124,15 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     {
         ValidateRequired(request.Username, "Username is required.");
         ValidateRequired(request.DisplayName, "Display name is required.");
+        var roleIds = NormalizeRequiredIds(request.RoleIds, "At least one role is required.");
 
+        var username = request.Username.Trim();
         var entity = string.IsNullOrWhiteSpace(request.Id)
             ? null
             : await _userDomain.GetAsync(request.Id);
-        entity ??= await _userDomain.FindAnyByUsernameAsync(request.Username.Trim());
+        entity ??= await _userDomain.FindAnyByUsernameAsync(username);
 
+        var isNewUser = entity is null;
         if (entity is null)
         {
             if (string.IsNullOrWhiteSpace(request.Password))
@@ -139,18 +142,17 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
 
             entity = new UserEntity();
             entity.PasswordHash = PasswordHasher.Hash(request.Password);
-            await _userDomain.CreateAsync(entity);
         }
-        else if (!string.Equals(entity.Username, request.Username.Trim(), StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(entity.Username, username, StringComparison.OrdinalIgnoreCase))
         {
-            var sameUsername = await _userDomain.FindAnyByUsernameAsync(request.Username.Trim());
+            var sameUsername = await _userDomain.FindAnyByUsernameAsync(username);
             if (sameUsername is not null && sameUsername.Id != entity.Id)
             {
                 throw new InvalidOperationException("Username already exists.");
             }
         }
 
-        entity.Username = request.Username.Trim();
+        entity.Username = username;
         entity.DisplayName = request.DisplayName.Trim();
         entity.Email = NormalizeOptional(request.Email);
         entity.PhoneNumber = NormalizeOptional(request.PhoneNumber);
@@ -162,9 +164,17 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
             entity.PasswordHash = PasswordHasher.Hash(request.Password);
         }
 
-        await _userDomain.UpdateAsync(entity);
-        await ReplaceAssociationsAsync(entity.Id, SecurityAssociationTypes.UserRole, request.RoleIds ?? []);
-        await ReplaceUserRolesAsync(entity.Id, request.RoleIds ?? []);
+        if (isNewUser)
+        {
+            await _userDomain.CreateAsync(entity);
+        }
+        else
+        {
+            await _userDomain.UpdateAsync(entity);
+        }
+
+        await ReplaceAssociationsAsync(entity.Id, SecurityAssociationTypes.UserRole, roleIds);
+        await ReplaceUserRolesAsync(entity.Id, roleIds);
         return (await ListUsersAsync()).Single(item => item.Id == entity.Id);
     }
 
@@ -1152,6 +1162,21 @@ public sealed class SystemManagementService : AgentSprintServiceBase, ISystemMan
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static IReadOnlyList<string> NormalizeRequiredIds(IReadOnlyList<string>? ids, string message)
+    {
+        var normalizedIds = (ids ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (normalizedIds.Count == 0)
+        {
+            throw new InvalidOperationException(message);
+        }
+
+        return normalizedIds;
     }
 
     private static bool TextContains(string keyword, params string?[] values)

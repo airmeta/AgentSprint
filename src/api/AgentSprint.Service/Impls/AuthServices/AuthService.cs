@@ -19,20 +19,28 @@ public sealed class AuthService : AgentSprintServiceBase, IAuthService
 {
     private readonly IUserDomain _userDomain;
     private readonly ISecurityAuthorizationService _authorizationService;
+    private readonly ICaptchaService _captchaService;
     private readonly JwtOptions _jwtOptions;
 
     public AuthService(
         IUserDomain userDomain,
         ISecurityAuthorizationService authorizationService,
+        ICaptchaService captchaService,
         IOptions<JwtOptions> jwtOptions)
     {
         _userDomain = userDomain;
         _authorizationService = authorizationService;
+        _captchaService = captchaService;
         _jwtOptions = jwtOptions.Value;
     }
 
     public async Task<LoginResult> LoginAsync(LoginRequest request)
     {
+        if (!await _captchaService.VerifyAsync(request.Captcha))
+        {
+            throw new InvalidOperationException("Captcha verification failed.");
+        }
+
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
         {
             throw new InvalidOperationException("Username and password are required.");
@@ -45,6 +53,11 @@ public sealed class AuthService : AgentSprintServiceBase, IAuthService
         }
 
         var roles = await _authorizationService.ResolveRoleCodesAsync(user.Id);
+        if (roles.Count == 0)
+        {
+            throw new UnauthorizedAccessException("No roles are assigned to this user.");
+        }
+
         var token = CreateAccessToken(user, roles);
         return new LoginResult(token, user.Id, user.Username, user.DisplayName, user.Avatar, roles);
     }

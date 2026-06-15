@@ -43,6 +43,36 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    name: 'GitManagementGroup',
+    path: '/sprint/git',
+    redirect: '/sprint/git/accounts',
+    meta: {
+      icon: 'lucide:git-branch',
+      order: 15,
+      title: 'Git管理',
+    },
+    children: [
+      {
+        name: 'SprintGitAccounts',
+        path: '/sprint/git/accounts',
+        component: () => import('#/views/sprint/git/accounts/index.vue'),
+        meta: {
+          icon: 'lucide:key-round',
+          title: 'Git账户管理',
+        },
+      },
+      {
+        name: 'SprintGitRepositories',
+        path: '/sprint/git/repositories',
+        component: () => import('#/views/sprint/git/repositories/index.vue'),
+        meta: {
+          icon: 'lucide:git-fork',
+          title: 'Git仓库管理',
+        },
+      },
+    ],
+  },
+  {
     name: 'ProductGroup',
     path: '/sprint/product',
     redirect: '/sprint/requirements',

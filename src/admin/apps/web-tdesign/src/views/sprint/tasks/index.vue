@@ -13,6 +13,7 @@ import {
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
+  Input as TInput,
   Link as TLink,
   MessagePlugin,
   Select as TSelect,
@@ -28,6 +29,7 @@ import {
   listRequirementsApi,
   listUserOptionsApi,
 } from '#/api/sprint/mvp';
+import { listDigitalWorkersApi, type AutomationApi } from '#/api/automation/workers';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
@@ -44,6 +46,7 @@ const projects = ref<SprintMvpApi.Project[]>([]);
 const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const tasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
+const digitalWorkers = ref<AutomationApi.DigitalWorker[]>([]);
 const currentTask = ref<SprintMvpApi.DevelopmentTask>();
 const initialized = ref(false);
 const userStore = useUserStore();
@@ -52,32 +55,27 @@ const router = useRouter();
 const filters = reactive({
   projectId: '',
   relatedUserId: '',
-  requirementId: '',
+  requirementKeyword: '',
   status: '',
 });
 const assignForm = reactive({
   assigneeId: '',
+  assigneeType: 0 as 0 | 1,
 });
 const assignRules: FormRules<typeof assignForm> = {
   assigneeId: requiredRule('请选择研发人员', 'change'),
 };
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const selectedProject = computed(() =>
   projects.value.find((project) => project.id === filters.projectId),
 );
-const requirementOptions = computed(() =>
-  requirements.value
-    .filter((item) => !filters.projectId || item.projectId === filters.projectId)
-    .map((item) => ({ label: item.title, value: item.id })),
-);
 const requirementMap = computed(() =>
   Object.fromEntries(requirements.value.map((item) => [item.id, item])),
 );
-const projectMap = computed(() => Object.fromEntries(projects.value.map((item) => [item.id, item])));
 const userOptions = computed(() =>
   users.value.map((user) => ({
     label: `${user.displayName} (${user.username})`,
@@ -85,6 +83,17 @@ const userOptions = computed(() =>
   })),
 );
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+const workerOptions = computed(() =>
+  digitalWorkers.value
+    .filter((worker) => worker.status === 'active')
+    .map((worker) => ({
+      label: `${worker.name} (${worker.code})`,
+      value: worker.agentUserId,
+    })),
+);
+const assignAssigneeOptions = computed(() =>
+  assignForm.assigneeType === 1 ? workerOptions.value : userOptions.value,
+);
 const canAssignTask = computed(() =>
   userStore.userRoles.some((role) =>
     ['architect', 'pm', 'project_manager', 'super'].includes(role),
@@ -93,7 +102,6 @@ const canAssignTask = computed(() =>
 
 const columns = [
   { colKey: 'title', title: '任务标题' },
-  { colKey: 'projectId', title: '项目', width: 160 },
   { colKey: 'requirementId', title: '需求', width: 200 },
   { colKey: 'status', title: '状态', width: 130 },
   { colKey: 'relatedUser', title: '关联人员', width: 180 },
@@ -116,7 +124,7 @@ const statusOptions = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
@@ -128,11 +136,24 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }) {
   pagination.pageSize = pageInfo.pageSize;
 }
 
+function filterTasksByRequirementKeyword(items: SprintMvpApi.DevelopmentTask[]) {
+  const keyword = filters.requirementKeyword.trim().toLowerCase();
+  if (!keyword) return items;
+
+  return items.filter((task) => {
+    const requirement = requirementMap.value[task.requirementId];
+    return [requirement?.title, requirement?.id, task.requirementId]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
+}
+
 async function loadBase() {
-  [projects.value, requirements.value, users.value] = await Promise.all([
+  [projects.value, requirements.value, users.value, digitalWorkers.value] = await Promise.all([
     listProjectsApi(),
     listRequirementsApi(),
     listUserOptionsApi(),
+    listDigitalWorkersApi({ status: 'active' }),
   ]);
   filters.projectId ||= projects.value[0]?.id || '';
 }
@@ -140,12 +161,12 @@ async function loadBase() {
 async function loadTasks() {
   loading.value = true;
   try {
-    tasks.value = await listDevelopmentTasksApi({
+    const taskItems = await listDevelopmentTasksApi({
       projectId: filters.projectId || undefined,
       relatedUserId: canAssignTask.value ? filters.relatedUserId || undefined : undefined,
-      requirementId: filters.requirementId || undefined,
       status: filters.status || undefined,
     });
+    tasks.value = filterTasksByRequirementKeyword(taskItems);
     pagination.current = 1;
   } finally {
     loading.value = false;
@@ -160,21 +181,26 @@ async function resetFilters() {
   Object.assign(filters, {
     projectId: projects.value[0]?.id || '',
     relatedUserId: '',
-    requirementId: '',
+    requirementKeyword: '',
     status: '',
   });
   await loadTasks();
 }
 
 async function handleProjectChange() {
-  filters.requirementId = '';
+  filters.requirementKeyword = '';
   await loadTasks();
 }
 
 function openAssign(task: SprintMvpApi.DevelopmentTask) {
   currentTask.value = task;
   assignForm.assigneeId = task.assigneeId || '';
+  assignForm.assigneeType = task.assigneeType === 1 ? 1 : 0;
   assignVisible.value = true;
+}
+
+function handleAssignTypeChange() {
+  assignForm.assigneeId = '';
 }
 
 function openDetail(task: SprintMvpApi.DevelopmentTask) {
@@ -199,6 +225,7 @@ async function assignTask() {
   try {
     await assignDevelopmentTaskApi(currentTask.value.id, {
       assigneeId: assignForm.assigneeId.trim(),
+      assigneeType: assignForm.assigneeType,
     });
     MessagePlugin.success('任务已指派');
     assignVisible.value = false;
@@ -254,11 +281,11 @@ onActivated(async () => {
       <div class="sprint-filter-grid">
         <label class="sprint-filter-field">
           <span>需求</span>
-          <TSelect
-            v-model="filters.requirementId"
+          <TInput
+            v-model="filters.requirementKeyword"
             clearable
-            :options="requirementOptions"
-            placeholder="全部需求"
+            placeholder="输入需求标题或ID"
+            @enter="queryTasks"
           />
         </label>
         <label v-if="canAssignTask" class="sprint-filter-field">
@@ -291,9 +318,9 @@ onActivated(async () => {
             </template>
             查询
           </TButton>
-          <TButton :disabled="loading" @click="resetFilters">
+          <TButton theme="default" :disabled="loading" @click="resetFilters">
             <template #icon>
-              <IconifyIcon icon="lucide:refresh-cw" />
+              <IconifyIcon icon="lucide:rotate-ccw" />
             </template>
             重置
           </TButton>
@@ -323,9 +350,6 @@ onActivated(async () => {
         stripe
         @page-change="handlePageChange"
       >
-        <template #projectId="{ row }">
-          {{ projectMap[row.projectId]?.name || row.projectId }}
-        </template>
         <template #requirementId="{ row }">
           {{ requirementMap[row.requirementId]?.title || row.requirementId }}
         </template>
@@ -361,12 +385,22 @@ onActivated(async () => {
       @confirm="assignTask"
     >
       <TForm ref="assignFormRef" :data="assignForm" :rules="assignRules" label-width="80px">
-        <TFormItem label="研发人员" name="assigneeId">
+        <TFormItem label="指派类型">
+          <TSelect
+            v-model="assignForm.assigneeType"
+            :options="[
+              { label: '员工', value: 0 },
+              { label: '数字员工', value: 1 },
+            ]"
+            @change="handleAssignTypeChange"
+          />
+        </TFormItem>
+        <TFormItem :label="assignForm.assigneeType === 1 ? '数字员工' : '研发人员'" name="assigneeId">
           <TSelect
             v-model="assignForm.assigneeId"
-            :options="userOptions"
+            :options="assignAssigneeOptions"
             filterable
-            placeholder="选择研发人员"
+            :placeholder="assignForm.assigneeType === 1 ? '选择数字员工' : '选择研发人员'"
           />
         </TFormItem>
       </TForm>

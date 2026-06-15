@@ -27,13 +27,13 @@ import {
   validateForm,
 } from '#/views/_shared/form-rules';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
   Button as TButton,
   Dialog as TDialog,
-  DialogPlugin,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -72,8 +72,8 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const environmentPagination = reactive({
   current: 1,
-  pageSize: 10,
-  pageSizeOptions: [10, 20, 50],
+  pageSize: 30,
+  pageSizeOptions: [30, 50, 100, 200],
 });
 const environmentForm = reactive<Partial<SystemApi.RuntimeEnvironment>>({
   apiBaseUrl: '',
@@ -440,7 +440,7 @@ async function saveService() {
 }
 
 function removeEnvironment(row: SystemApi.RuntimeEnvironment) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除运行环境 ${row.code}？该环境下的服务也会被删除。`,
     confirmBtn: '删除',
     header: '删除运行环境',
@@ -453,7 +453,7 @@ function removeEnvironment(row: SystemApi.RuntimeEnvironment) {
 }
 
 function removeService(row: SystemApi.RuntimeEnvironmentContainer) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除服务 ${row.name}？`,
     confirmBtn: '删除',
     header: '删除服务',

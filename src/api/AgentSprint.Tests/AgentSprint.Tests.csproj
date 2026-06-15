@@ -21,6 +21,7 @@
     <ProjectReference Include="..\AgentSprint.Mcp\AgentSprint.Mcp.csproj" />
     <ProjectReference Include="..\AgentSprint.Model\AgentSprint.Model.csproj" />
     <ProjectReference Include="..\AgentSprint.Service\AgentSprint.Service.csproj" />
+    <ProjectReference Include="..\AgentSprint.Worker\AgentSprint.Worker.csproj" />
   </ItemGroup>
 
   <ItemGroup>

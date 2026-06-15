@@ -6,4 +6,5 @@
   <Project Path="AgentSprint.Repository/AgentSprint.Repository.csproj" />
   <Project Path="AgentSprint.Service/AgentSprint.Service.csproj" />
   <Project Path="AgentSprint.Tests/AgentSprint.Tests.csproj" />
+  <Project Path="AgentSprint.Worker/AgentSprint.Worker.csproj" />
 </Solution>

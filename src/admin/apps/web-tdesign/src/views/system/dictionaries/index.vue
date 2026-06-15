@@ -14,12 +14,12 @@ import {
 } from '#/api';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import { optionalNumberRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import { getCellRow } from '#/views/system/_shared/table-cell';
 import {
   Button as TButton,
   Dialog as TDialog,
-  DialogPlugin,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -43,8 +43,8 @@ const dictionaryTypes = ref<SystemApi.DictionaryType[]>([]);
 const selectedTypeId = ref('');
 const itemPagination = reactive({
   current: 1,
-  pageSize: 10,
-  pageSizeOptions: [10, 20, 50],
+  pageSize: 30,
+  pageSizeOptions: [30, 50, 100, 200],
 });
 
 const filters = reactive({
@@ -240,7 +240,7 @@ function handleItemPageChange(pageInfo: { current: number; pageSize: number }) {
 }
 
 function removeItem(row: SystemApi.DictionaryItem) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除字典项 ${row.code}？`,
     confirmBtn: '删除',
     header: '删除字典项',
@@ -253,7 +253,7 @@ function removeItem(row: SystemApi.DictionaryItem) {
 }
 
 function removeType(row: SystemApi.DictionaryType) {
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认删除字典类型 ${row.code}？该类型下的字典项也会被删除。`,
     confirmBtn: '删除',
     header: '删除字典类型',
@@ -347,8 +347,14 @@ onMounted(loadTypes);
         @search="search"
       >
         <template #filters>
-          <TInput v-model="filters.keyword" clearable placeholder="字典项编码 / 名称 / 说明" class="filter-control" />
-          <TSelect v-model="filters.status" clearable placeholder="状态" :options="statusOptions" class="filter-control" />
+          <label class="filter-field">
+            <span>关键字</span>
+            <TInput v-model="filters.keyword" clearable placeholder="字典项编码 / 名称 / 说明" class="filter-control" />
+          </label>
+          <label class="filter-field">
+            <span>状态</span>
+            <TSelect v-model="filters.status" clearable placeholder="状态" :options="statusOptions" class="filter-control" />
+          </label>
         </template>
         <template #status="{ row }">
           <TTag :theme="row.status === 1 ? 'success' : 'default'" variant="light">
@@ -391,6 +397,9 @@ onMounted(loadTypes);
 <style scoped>
 .dictionary-page {
   display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   padding: 12px;
 }
@@ -417,16 +426,19 @@ onMounted(loadTypes);
 
 .dictionary-page-content {
   display: flex;
+  min-height: 0;
   gap: 12px;
 }
 
 .dictionary-type-panel {
   --dictionary-type-card-gap: 10px;
-  --dictionary-type-card-height: 150px;
+  --dictionary-type-card-height: 165px;
+  --dictionary-type-description-height: 33px;
 
   display: flex;
   flex: 0 0 300px;
   width: 300px;
+  min-height: 0;
   flex-direction: column;
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-border);
@@ -477,8 +489,7 @@ onMounted(loadTypes);
 .dictionary-type-list {
   display: flex;
   min-height: 0;
-  height: calc((var(--dictionary-type-card-height) * 4) + (var(--dictionary-type-card-gap) * 3) + 30px + 24px);
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--dictionary-type-card-gap);
   overflow-x: hidden;
@@ -548,13 +559,14 @@ onMounted(loadTypes);
 }
 
 .dictionary-type-card__meta > span:nth-child(2) {
-  display: block;
+  display: -webkit-box;
   width: 100%;
   max-width: 100%;
+  height: var(--dictionary-type-description-height);
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .dictionary-type-card__actions {
@@ -563,6 +575,20 @@ onMounted(loadTypes);
   align-items: center;
   padding-top: 6px;
   border-top: 1px solid var(--td-component-border);
+}
+
+.filter-field {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.filter-field > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .filter-control {

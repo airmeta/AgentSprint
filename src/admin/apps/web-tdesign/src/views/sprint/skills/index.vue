@@ -64,7 +64,7 @@ const importForm = reactive({
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 
 const skillTypeOptions = [
@@ -97,7 +97,7 @@ const columns = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   total: rows.value.length,
 }));
 const statusOptions = [

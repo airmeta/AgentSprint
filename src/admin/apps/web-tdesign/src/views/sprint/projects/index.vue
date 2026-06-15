@@ -26,6 +26,11 @@ import {
   updateProjectApi,
 } from '#/api/sprint/mvp';
 import {
+  listGitAccountsApi,
+  listGitRepositoriesApi,
+  type SprintGitApi,
+} from '#/api/sprint/git';
+import {
   listDictionaryItemsApi,
   listDictionaryTypesApi,
   listRuntimeEnvironmentsApi,
@@ -33,7 +38,6 @@ import {
 } from '#/api/system/management';
 import {
   requiredArrayRule,
-  requiredHttpUrlRule,
   requiredRule,
   validateForm,
 } from '#/views/_shared/form-rules';
@@ -52,6 +56,8 @@ const selectedProject = ref<SprintMvpApi.Project>();
 const projects = ref<SprintMvpApi.Project[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const runtimeEnvironments = ref<SystemApi.RuntimeEnvironment[]>([]);
+const gitAccounts = ref<SprintGitApi.GitAccount[]>([]);
+const gitRepositories = ref<SprintGitApi.GitRepository[]>([]);
 const frontendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
 const backendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
 
@@ -62,10 +68,11 @@ const form = reactive({
   description: '',
   developerIds: [] as string[],
   frontendTechStack: [] as string[],
+  gitAccountId: '',
+  gitRepositoryId: '',
   name: '',
   productManagerIds: [] as string[],
   projectManagerId: '',
-  repositoryUrl: '',
   testerIds: [] as string[],
   testEnvironmentId: '',
 });
@@ -75,10 +82,11 @@ const editForm = reactive({
   description: '',
   developerIds: [] as string[],
   frontendTechStack: [] as string[],
+  gitAccountId: '',
+  gitRepositoryId: '',
   name: '',
   productManagerIds: [] as string[],
   projectManagerId: '',
-  repositoryUrl: '',
   testerIds: [] as string[],
   testEnvironmentId: '',
 });
@@ -90,7 +98,7 @@ const projectRules: FormRules<typeof form> = {
   name: requiredRule('请输入项目名称'),
   productManagerIds: requiredArrayRule('请选择至少一名产品经理'),
   projectManagerId: requiredRule('请选择项目经理', 'change'),
-  repositoryUrl: requiredHttpUrlRule('请输入 http 或 https 仓库地址'),
+  gitRepositoryId: requiredRule('请选择Git仓库', 'change'),
   testerIds: requiredArrayRule('请选择至少一名测试人员'),
   testEnvironmentId: requiredRule('请选择测试环境', 'change'),
 };
@@ -110,6 +118,22 @@ const runtimeEnvironmentOptions = computed(() =>
       value: environment.id,
     })),
 );
+const gitAccountOptions = computed(() =>
+  gitAccounts.value
+    .filter((account) => account.status === 'active')
+    .map((account) => ({
+      label: `${account.name} (${account.username})`,
+      value: account.id,
+    })),
+);
+const gitRepositoryOptions = computed(() =>
+  gitRepositories.value
+    .filter((repository) => repository.status === 'active')
+    .map((repository) => ({
+      label: `${repository.name} (${repository.code})`,
+      value: repository.id,
+    })),
+);
 const frontendTechSelectOptions = computed(() => dictionaryOptions(frontendTechOptions.value));
 const backendTechSelectOptions = computed(() => dictionaryOptions(backendTechOptions.value));
 
@@ -121,10 +145,11 @@ function resetCreateForm() {
     description: '',
     developerIds: [],
     frontendTechStack: [],
+    gitAccountId: '',
+    gitRepositoryId: '',
     name: '',
     productManagerIds: [],
     projectManagerId: '',
-    repositoryUrl: '',
     testerIds: [],
     testEnvironmentId: '',
   });
@@ -146,10 +171,11 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
       description: project.description || '',
       developerIds: [...(project.developerIds || [])],
       frontendTechStack: deserializeValues(project.frontendTechStack),
+      gitAccountId: project.gitAccountId || '',
+      gitRepositoryId: project.gitRepositoryId || '',
       name: project.name,
       productManagerIds: [...(project.productManagerIds || [])],
       projectManagerId: project.projectManagerId || '',
-      repositoryUrl: project.repositoryUrl || '',
       testerIds: [...(project.testerIds || [])],
       testEnvironmentId: project.testEnvironmentId || '',
     });
@@ -160,10 +186,12 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
 async function loadProjects() {
   loading.value = true;
   try {
-    [projects.value, users.value, runtimeEnvironments.value] = await Promise.all([
+    [projects.value, users.value, runtimeEnvironments.value, gitAccounts.value, gitRepositories.value] = await Promise.all([
       listProjectsApi(),
       listUserOptionsApi(),
       listRuntimeEnvironmentsApi(),
+      listGitAccountsApi(),
+      listGitRepositoriesApi(),
     ]);
   } finally {
     loading.value = false;
@@ -194,6 +222,18 @@ function resolveRuntimeEnvironmentName(id?: string) {
   if (!id) return '未配置';
   const environment = runtimeEnvironments.value.find((item) => item.id === id);
   return environment ? `${environment.name} (${environment.code})` : id;
+}
+
+function resolveGitAccountName(id?: string) {
+  if (!id) return '未配置';
+  const account = gitAccounts.value.find((item) => item.id === id);
+  return account ? `${account.name} (${account.username})` : id;
+}
+
+function resolveGitRepositoryName(id?: string) {
+  if (!id) return '未配置';
+  const repository = gitRepositories.value.find((item) => item.id === id);
+  return repository ? `${repository.name} (${repository.code})` : id;
 }
 
 function dictionaryOptions(items: SystemApi.DictionaryItem[]) {
@@ -232,9 +272,9 @@ function generateProjectCode(name: string) {
 }
 
 function normalizeProjectPayload(source: typeof form | typeof editForm) {
-  const repositoryUrl = source.repositoryUrl.trim();
-  if (!repositoryUrl || !/^https?:\/\//i.test(repositoryUrl)) {
-    MessagePlugin.warning('仓库地址必须是 http 或 https 地址');
+  const repository = gitRepositories.value.find((item) => item.id === source.gitRepositoryId);
+  if (!repository) {
+    MessagePlugin.warning('请选择Git仓库');
     return;
   }
 
@@ -258,10 +298,11 @@ function normalizeProjectPayload(source: typeof form | typeof editForm) {
     description: source.description.trim() || undefined,
     developerIds: [...source.developerIds],
     frontendTechStack: serializeValues(source.frontendTechStack),
+    gitAccountId: source.gitAccountId || repository.gitAccountId || undefined,
+    gitRepositoryId: repository.id,
     name: source.name.trim(),
     productManagerIds: [...source.productManagerIds],
     projectManagerId: source.projectManagerId,
-    repositoryUrl,
     testerIds: [...source.testerIds],
     testEnvironmentId: source.testEnvironmentId || undefined,
     testEnvironmentUrl: resolveRuntimeEnvironmentUrl(source.testEnvironmentId),
@@ -361,7 +402,7 @@ onMounted(async () => {
           </div>
           <TTag theme="success" variant="light">{{ project.status }}</TTag>
         </div>
-        <p class="repo">{{ project.repositoryUrl || '未配置仓库' }}</p>
+        <p class="repo">{{ resolveGitRepositoryName(project.gitRepositoryId) }}</p>
         <div class="card-actions">
           <TLink theme="primary" @click="openDrawer(project, 'edit')">
             <IconifyIcon icon="lucide:pencil" />
@@ -415,8 +456,20 @@ onMounted(async () => {
             <TFormItem label="详细信息">
               <TTextarea v-model="editForm.description" :autosize="{ minRows: 3, maxRows: 6 }" />
             </TFormItem>
-            <TFormItem label="仓库地址" name="repositoryUrl">
-              <TInput v-model="editForm.repositoryUrl" placeholder="https://github.com/org/repo.git" />
+            <TFormItem label="Git仓库" name="gitRepositoryId">
+              <TSelect
+                v-model="editForm.gitRepositoryId"
+                filterable
+                :options="gitRepositoryOptions"
+              />
+            </TFormItem>
+            <TFormItem label="Git账户">
+              <TSelect
+                v-model="editForm.gitAccountId"
+                clearable
+                filterable
+                :options="gitAccountOptions"
+              />
             </TFormItem>
             <TFormItem label="测试环境" name="testEnvironmentId">
               <TSelect
@@ -465,8 +518,10 @@ onMounted(async () => {
             <dd>{{ selectedProject.code }}</dd>
             <dt>详细信息</dt>
             <dd>{{ selectedProject.description || '未填写' }}</dd>
-            <dt>仓库地址</dt>
-            <dd class="repo-detail">{{ selectedProject.repositoryUrl || '未配置' }}</dd>
+            <dt>Git仓库</dt>
+            <dd>{{ resolveGitRepositoryName(selectedProject.gitRepositoryId) }}</dd>
+            <dt>Git账户</dt>
+            <dd>{{ resolveGitAccountName(selectedProject.gitAccountId) }}</dd>
             <dt>测试环境</dt>
             <dd>
               {{ resolveRuntimeEnvironmentName(selectedProject.testEnvironmentId) }}
@@ -513,8 +568,20 @@ onMounted(async () => {
             placeholder="项目背景、交付范围和关键约束"
           />
         </TFormItem>
-        <TFormItem label="仓库地址" name="repositoryUrl">
-          <TInput v-model="form.repositoryUrl" placeholder="https://github.com/org/repo.git" />
+        <TFormItem label="Git仓库" name="gitRepositoryId">
+          <TSelect
+            v-model="form.gitRepositoryId"
+            filterable
+            :options="gitRepositoryOptions"
+          />
+        </TFormItem>
+        <TFormItem label="Git账户">
+          <TSelect
+            v-model="form.gitAccountId"
+            clearable
+            filterable
+            :options="gitAccountOptions"
+          />
         </TFormItem>
         <TFormItem label="测试环境" name="testEnvironmentId">
           <TSelect

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
+import type { SprintMvpApi, SprintTestApi, SprintUserApi } from '#/api/sprint/mvp';
 
 import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, ref } from 'vue';
@@ -20,11 +20,13 @@ import {
   listProjectsApi,
   listRequirementsApi,
   listTestPlansApi,
+  listUserOptionsApi,
 } from '#/api/sprint/mvp';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 
 import { renderMarkdown } from '../_shared/markdown';
+import { buildUserLookup, resolveUserName } from '../_shared/user-display';
 import '../_shared/table-layout.css';
 
 const route = useRoute();
@@ -34,6 +36,7 @@ const requirement = ref<SprintMvpApi.Requirement>();
 const tasks = ref<SprintMvpApi.DevelopmentTask[]>([]);
 const bugs = ref<SprintMvpApi.Bug[]>([]);
 const testPlans = ref<SprintTestApi.TestPlan[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
 
 const statusText: Record<string, string> = {
   approved: '待拆解',
@@ -79,12 +82,17 @@ const testColumns = [
 ];
 
 const activeBugCount = computed(() => bugs.value.filter((item) => item.status !== 'closed').length);
+const userLookup = computed(() => buildUserLookup(users.value));
 
 async function loadDetail() {
   loading.value = true;
   try {
     const requirementId = String(route.params.id || '');
-    const requirements = await listRequirementsApi();
+    const [requirements, userOptions] = await Promise.all([
+      listRequirementsApi(),
+      listUserOptionsApi(),
+    ]);
+    users.value = userOptions;
     requirement.value = requirements.find((item) => item.id === requirementId);
     if (!requirement.value) return;
 
@@ -135,7 +143,9 @@ onMounted(loadDetail);
               {{ healthText[requirement.health] || requirement.health }}
             </TTag>
           </TDescriptionsItem>
-          <TDescriptionsItem label="产品经理">{{ requirement.createdBy }}</TDescriptionsItem>
+          <TDescriptionsItem label="产品经理">
+            {{ resolveUserName(requirement.createdBy, userLookup) }}
+          </TDescriptionsItem>
           <TDescriptionsItem label="干系人">{{ requirement.stakeholders || '未填写' }}</TDescriptionsItem>
           <TDescriptionsItem label="优先级">{{ requirement.priority }}</TDescriptionsItem>
           <TDescriptionsItem label="未关闭缺陷">{{ activeBugCount }}</TDescriptionsItem>
@@ -156,7 +166,7 @@ onMounted(loadDetail);
         <h3>任务</h3>
         <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(taskColumns)" :data="tasks" hover stripe>
           <template #assigneeId="{ row }">
-            {{ row.assigneeId || '未指派' }}
+            {{ resolveUserName(row.assigneeId, userLookup, '未指派') }}
           </template>
         </TTable>
       </section>
@@ -168,7 +178,11 @@ onMounted(loadDetail);
 
       <section class="panel">
         <h3>缺陷</h3>
-        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe />
+        <TTable row-key="id" class="sprint-compact-table" :columns="withSerialColumn(bugColumns)" :data="bugs" hover stripe>
+          <template #createdBy="{ row }">
+            {{ resolveUserName(row.createdBy, userLookup) }}
+          </template>
+        </TTable>
       </section>
     </template>
   </div>

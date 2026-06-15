@@ -3,11 +3,13 @@ using System.Security.Claims;
 using AgentSprint.Model.Modules.Tests.Dtos;
 using AgentSprint.Service.Services.TestServices;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgentSprint.Entry.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("test")]
 public sealed class TestController : ControllerBase
 {

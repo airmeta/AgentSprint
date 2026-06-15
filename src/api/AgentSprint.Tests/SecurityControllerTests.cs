@@ -5,6 +5,7 @@ using AgentSprint.Entry.Controllers;
 using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Services.UserServices;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,6 +13,25 @@ namespace AgentSprint.Tests;
 
 public sealed class SecurityControllerTests
 {
+    [Fact]
+    public void SystemController_RequiresSuperRole()
+    {
+        var authorize = Assert.Single(
+            typeof(SystemController)
+                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+                .Cast<AuthorizeAttribute>());
+
+        Assert.Equal("super", authorize.Roles);
+    }
+
+    [Fact]
+    public void ManagementControllers_RequireAuthenticationOrSuperRole()
+    {
+        AssertControllerAuthorize(typeof(AgileMvpController), null);
+        AssertControllerAuthorize(typeof(TestController), null);
+        AssertControllerAuthorize(typeof(DigitalWorkerManagementController), "super");
+    }
+
     [Fact]
     public async Task GetCurrentUser_ReturnsUnauthorizedEnvelopeWhenIdentityIsMissing()
     {
@@ -103,6 +123,16 @@ public sealed class SecurityControllerTests
                 User = new ClaimsPrincipal(new ClaimsIdentity(claims, "unit-test"))
             }
         };
+    }
+
+    private static void AssertControllerAuthorize(Type controllerType, string? roles)
+    {
+        var authorize = Assert.Single(
+            controllerType
+                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+                .Cast<AuthorizeAttribute>());
+
+        Assert.Equal(roles, authorize.Roles);
     }
 }
 

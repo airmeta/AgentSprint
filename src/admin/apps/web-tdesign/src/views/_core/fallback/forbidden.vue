@@ -5,5 +5,7 @@ defineOptions({ name: 'Fallback403Demo' });
 </script>
 
 <template>
-  <Fallback status="403" />
+  <div class="fallback-page">
+    <Fallback status="403" />
+  </div>
 </template>

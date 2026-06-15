@@ -18,6 +18,7 @@ import {
   listProjectsApi,
 } from '#/api/sprint/mvp';
 import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
+import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import {
   optionalNumberRule,
   requiredRule,
@@ -25,7 +26,6 @@ import {
 } from '#/views/_shared/form-rules';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  DialogPlugin,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -84,8 +84,8 @@ const filters = reactive({
 const query = reactive({ ...filters });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
-  pageSizeOptions: [10, 20, 50],
+  pageSize: 30,
+  pageSizeOptions: [30, 50, 100, 200],
 });
 const form = reactive<Partial<SystemApi.RuntimeEnvironmentContainer>>({
   containerPort: 80,
@@ -444,7 +444,7 @@ function clearScript(row: ScriptRow) {
     return;
   }
 
-  DialogPlugin.confirm({
+  confirmAndClose({
     body: `确认清空 ${row.name} 的部署脚本？服务本身会保留。`,
     confirmBtn: '清空',
     header: '清空部署脚本',

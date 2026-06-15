@@ -24,14 +24,27 @@ public sealed class UserServiceMenuTests
         var productGroup = CreateMenu("menu-product-group", string.Empty, "ProductGroup", "/sprint/product", string.Empty, 20, 0);
         var workerGroup = CreateMenu("menu-worker-group", string.Empty, "WorkerGroup", "/sprint/worker", string.Empty, 30, 0);
         var testGroup = CreateMenu("menu-test-group", string.Empty, "TestGroup", "/sprint/test", string.Empty, 40, 0);
+        var gitGroup = CreateMenu("menu-git-group", string.Empty, "GitManagementGroup", "/sprint/git", string.Empty, 50, 0);
         var operationManagement = CreateMenu("menu-operation-management", string.Empty, "OperationManagement", "/operations", string.Empty, 91, 0);
         var globalConfig = CreateMenu("menu-global-config", string.Empty, "GlobalConfig", "/global-config", string.Empty, 92, 0);
         var projects = CreateMenu("menu-projects", projectGroup.Id, "SprintProjects", "/sprint/projects", "/sprint/projects/index", 10, 1);
         var multiEndpoints = CreateMenu("menu-multi-endpoints", projectGroup.Id, "SprintMultiEndpoints", "/sprint/multi-endpoints", "/sprint/multi-endpoints/index", 11, 1);
+        var gitAccounts = CreateMenu("menu-git-accounts", gitGroup.Id, "SprintGitAccounts", "/sprint/git/accounts", "/sprint/git/accounts/index", 10, 1);
+        var gitRepositories = CreateMenu("menu-git-repositories", gitGroup.Id, "SprintGitRepositories", "/sprint/git/repositories", "/sprint/git/repositories/index", 20, 1);
         var operationScripts = CreateMenu("menu-operation-scripts", operationManagement.Id, "OperationScripts", "/operations/scripts", "/operations/scripts/index", 10, 1);
         var operationEnvironments = CreateMenu("menu-operation-environments", operationManagement.Id, "OperationEnvironments", "/operations/environments", "/system/runtime-environments/index", 20, 1);
         var promptTemplates = CreateMenu("menu-prompt-templates", globalConfig.Id, "GlobalConfigPromptTemplates", "/global-config/prompt-templates", "/system/prompt-templates/index", 20, 1);
         var skills = CreateMenu("menu-skills", globalConfig.Id, "GlobalConfigSkills", "/global-config/skills", "/sprint/skills/index", 30, 1);
+        var system = CreateMenu("menu-system", string.Empty, "System", "/system", string.Empty, 90, 0);
+        var systemRoles = CreateMenu("menu-system-roles", system.Id, "SystemRoles", "/system/roles", "/system/roles/index", 20, 1);
+        var systemRoleAuthorize = CreateMenu(
+            "menu-system-role-authorize",
+            system.Id,
+            "SystemRoleAuthorize",
+            "/system/roles/authorize/:id",
+            "/system/roles/authorize",
+            21,
+            2);
         var projectDetail = CreateMenu(
             "menu-project-detail",
             projectGroup.Id,
@@ -105,12 +118,18 @@ public sealed class UserServiceMenuTests
                 tests,
                 defects,
                 defectDetail,
+                gitGroup,
+                gitAccounts,
+                gitRepositories,
                 operationManagement,
                 operationScripts,
                 operationEnvironments,
                 globalConfig,
                 promptTemplates,
-                skills
+                skills,
+                system,
+                systemRoles,
+                systemRoleAuthorize
             ]);
         var roleMenuDomain = new InMemoryRoleMenuDomain(
             [
@@ -134,12 +153,18 @@ public sealed class UserServiceMenuTests
                 new RoleMenuEntity { RoleId = role.Id, MenuId = tests.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = defects.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = defectDetail.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = gitGroup.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = gitAccounts.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = gitRepositories.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationManagement.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationScripts.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = operationEnvironments.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = globalConfig.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = promptTemplates.Id },
-                new RoleMenuEntity { RoleId = role.Id, MenuId = skills.Id }
+                new RoleMenuEntity { RoleId = role.Id, MenuId = skills.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = system.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = systemRoles.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = systemRoleAuthorize.Id }
             ]);
         var service = new UserService(
             userDomain,
@@ -154,101 +179,197 @@ public sealed class UserServiceMenuTests
 
         var menus = await service.GetMenusAsync(user.Id);
 
-        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "OperationManagement", "GlobalConfig"], menus.Select(menu => menu.Name));
-        Assert.DoesNotContain(menus, menu => menu.Name == "Sprint");
-        Assert.DoesNotContain(menus, menu => menu.Name.Contains("Decomposition", StringComparison.Ordinal));
-        Assert.DoesNotContain(menus, menu => menu.Name == "SprintMvp");
+        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "GlobalConfig"], menus.Select(menu => menu.Meta.Title));
+        Assert.DoesNotContain(menus, menu => menu.Path == "/sprint");
+        Assert.DoesNotContain(menus, menu => menu.Path == "/sprint/decomposition");
+        Assert.DoesNotContain(menus, menu => menu.Path == "/sprint/mvp");
 
         var visibleMenus = menus
             .Where(menu => menu.Meta.HideInMenu != true)
             .Select(menu => menu.Meta.Title)
             .ToList();
-        Assert.Equal(["工作台", "项目管理", "产品管理", "研发执行", "测试验证", "运维管理", "全局配置"], visibleMenus);
+        Assert.Equal(["Workspace", "ProjectGroup", "ProductGroup", "WorkerGroup", "TestGroup", "GitManagementGroup", "System", "OperationManagement", "GlobalConfig"], visibleMenus);
 
-        var workspaceMenu = menus.Single(menu => menu.Name == "Workspace");
+        var workspaceMenu = menus.Single(menu => menu.Path == "/dashboard/workspace");
         Assert.Equal("/dashboard/workspace", workspaceMenu.Path);
         Assert.Equal("/dashboard/workspace/index", workspaceMenu.Component);
         Assert.True(workspaceMenu.Meta.AffixTab);
 
-        var projectGroupMenu = menus.Single(menu => menu.Name == "ProjectGroup");
+        var projectGroupMenu = menus.Single(menu => menu.Path == "/sprint/project");
         Assert.Equal("/sprint/projects", projectGroupMenu.Redirect);
-        Assert.Equal(["SprintProjects", "SprintMultiEndpoints", "SprintProjectDetail"], projectGroupMenu.Children.Select(menu => menu.Name));
+        Assert.Equal(["SprintProjects", "SprintMultiEndpoints", "SprintProjectDetail"], projectGroupMenu.Children.Select(menu => menu.Meta.Title));
 
-        var productGroupMenu = menus.Single(menu => menu.Name == "ProductGroup");
-        Assert.Equal(["SprintRequirements", "SprintRequirementDetail", "SprintRequirementReviews"], productGroupMenu.Children.Select(menu => menu.Name));
+        var productGroupMenu = menus.Single(menu => menu.Path == "/sprint/product");
+        Assert.Equal(["SprintRequirements", "SprintRequirementDetail", "SprintRequirementReviews"], productGroupMenu.Children.Select(menu => menu.Meta.Title));
 
-        var workerGroupMenu = menus.Single(menu => menu.Name == "WorkerGroup");
-        Assert.Equal(["SprintMyTasks", "SprintTasks", "SprintTaskDetail"], workerGroupMenu.Children.Select(menu => menu.Name));
+        var workerGroupMenu = menus.Single(menu => menu.Path == "/sprint/worker");
+        Assert.Equal(["SprintMyTasks", "SprintTasks", "SprintTaskDetail"], workerGroupMenu.Children.Select(menu => menu.Meta.Title));
 
-        var testGroupMenu = menus.Single(menu => menu.Name == "TestGroup");
-        Assert.Equal(["SprintTests", "SprintDefects", "SprintDefectDetail"], testGroupMenu.Children.Select(menu => menu.Name));
+        var testGroupMenu = menus.Single(menu => menu.Path == "/sprint/test");
+        Assert.Equal(["SprintTests", "SprintDefects", "SprintDefectDetail"], testGroupMenu.Children.Select(menu => menu.Meta.Title));
 
-        var operationMenu = menus.Single(menu => menu.Name == "OperationManagement");
+        var gitGroupMenu = menus.Single(menu => menu.Path == "/sprint/git");
+        Assert.Equal("/sprint/git/accounts", gitGroupMenu.Redirect);
+        Assert.Equal(["SprintGitAccounts", "SprintGitRepositories"], gitGroupMenu.Children.Select(menu => menu.Meta.Title));
+
+        var operationMenu = menus.Single(menu => menu.Path == "/operations");
         Assert.Equal("/operations/scripts", operationMenu.Redirect);
-        Assert.Equal(["OperationScripts", "OperationEnvironments"], operationMenu.Children.Select(menu => menu.Name));
+        Assert.Equal(["OperationScripts", "OperationEnvironments"], operationMenu.Children.Select(menu => menu.Meta.Title));
 
-        var globalConfigMenu = menus.Single(menu => menu.Name == "GlobalConfig");
+        var globalConfigMenu = menus.Single(menu => menu.Path == "/global-config");
         Assert.Equal("/global-config/prompt-templates", globalConfigMenu.Redirect);
-        Assert.Equal(["GlobalConfigPromptTemplates", "GlobalConfigSkills"], globalConfigMenu.Children.Select(menu => menu.Name));
+        Assert.Equal(["GlobalConfigPromptTemplates", "GlobalConfigSkills"], globalConfigMenu.Children.Select(menu => menu.Meta.Title));
 
-        var projectMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintProjects");
-        Assert.Equal("项目配置", projectMenu.Meta.Title);
+        var projectMenu = projectGroupMenu.Children.Single(menu => menu.Path == "/sprint/projects");
+        Assert.Equal("SprintProjects", projectMenu.Meta.Title);
         Assert.True(projectMenu.Meta.AffixTab);
         Assert.Null(projectMenu.Meta.HideInMenu);
 
-        var multiEndpointMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintMultiEndpoints");
-        Assert.Equal("多端管理", multiEndpointMenu.Meta.Title);
+        var multiEndpointMenu = projectGroupMenu.Children.Single(menu => menu.Path == "/sprint/multi-endpoints");
+        Assert.Equal("SprintMultiEndpoints", multiEndpointMenu.Meta.Title);
         Assert.True(multiEndpointMenu.Meta.AffixTab);
         Assert.Null(multiEndpointMenu.Meta.HideInMenu);
         Assert.Equal("/sprint/multi-endpoints", multiEndpointMenu.Path);
         Assert.Equal("/sprint/multi-endpoints/index", multiEndpointMenu.Component);
 
-        var scriptMenu = operationMenu.Children.Single(menu => menu.Name == "OperationScripts");
-        Assert.Equal("脚本管理", scriptMenu.Meta.Title);
+        var scriptMenu = operationMenu.Children.Single(menu => menu.Path == "/operations/scripts");
+        Assert.Equal("OperationScripts", scriptMenu.Meta.Title);
         Assert.Null(scriptMenu.Meta.AffixTab);
         Assert.Null(scriptMenu.Meta.HideInMenu);
         Assert.Equal("/operations/scripts", scriptMenu.Path);
         Assert.Equal("/operations/scripts/index", scriptMenu.Component);
 
-        var environmentMenu = operationMenu.Children.Single(menu => menu.Name == "OperationEnvironments");
-        Assert.Equal("环境配置", environmentMenu.Meta.Title);
+        var environmentMenu = operationMenu.Children.Single(menu => menu.Path == "/operations/environments");
+        Assert.Equal("OperationEnvironments", environmentMenu.Meta.Title);
         Assert.Null(environmentMenu.Meta.AffixTab);
         Assert.Null(environmentMenu.Meta.HideInMenu);
         Assert.Equal("/operations/environments", environmentMenu.Path);
         Assert.Equal("/system/runtime-environments/index", environmentMenu.Component);
 
-        var promptMenu = globalConfigMenu.Children.Single(menu => menu.Name == "GlobalConfigPromptTemplates");
-        Assert.Equal("提示词设置", promptMenu.Meta.Title);
+        var promptMenu = globalConfigMenu.Children.Single(menu => menu.Path == "/global-config/prompt-templates");
+        Assert.Equal("GlobalConfigPromptTemplates", promptMenu.Meta.Title);
         Assert.Null(promptMenu.Meta.AffixTab);
         Assert.Null(promptMenu.Meta.HideInMenu);
         Assert.Equal("/global-config/prompt-templates", promptMenu.Path);
         Assert.Equal("/system/prompt-templates/index", promptMenu.Component);
 
-        var skillMenu = globalConfigMenu.Children.Single(menu => menu.Name == "GlobalConfigSkills");
-        Assert.Equal("Skill配置", skillMenu.Meta.Title);
+        var skillMenu = globalConfigMenu.Children.Single(menu => menu.Path == "/global-config/skills");
+        Assert.Equal("GlobalConfigSkills", skillMenu.Meta.Title);
         Assert.Null(skillMenu.Meta.AffixTab);
         Assert.Null(skillMenu.Meta.HideInMenu);
         Assert.Equal("/global-config/skills", skillMenu.Path);
         Assert.Equal("/sprint/skills/index", skillMenu.Component);
 
-        var detailMenu = projectGroupMenu.Children.Single(menu => menu.Name == "SprintProjectDetail");
-        Assert.Equal("项目详情", detailMenu.Meta.Title);
+        var detailMenu = projectGroupMenu.Children.Single(menu => menu.Path == "/sprint/projects/detail/:id");
+        Assert.Equal("SprintProjectDetail", detailMenu.Meta.Title);
         Assert.True(detailMenu.Meta.HideInMenu);
         Assert.Equal("/sprint/projects", detailMenu.Meta.ActivePath);
         Assert.Equal("/sprint/projects/detail/:id", detailMenu.Path);
         Assert.Equal("/sprint/projects/detail", detailMenu.Component);
 
-        var requirementDetailMenu = productGroupMenu.Children.Single(menu => menu.Name == "SprintRequirementDetail");
+        var requirementDetailMenu = productGroupMenu.Children.Single(menu => menu.Path == "/sprint/requirements/detail/:id");
         Assert.True(requirementDetailMenu.Meta.HideInMenu);
         Assert.Equal("/sprint/requirements", requirementDetailMenu.Meta.ActivePath);
 
-        var taskDetailMenu = workerGroupMenu.Children.Single(menu => menu.Name == "SprintTaskDetail");
+        var taskDetailMenu = workerGroupMenu.Children.Single(menu => menu.Path == "/sprint/tasks/detail/:id");
         Assert.True(taskDetailMenu.Meta.HideInMenu);
         Assert.Equal("/sprint/tasks", taskDetailMenu.Meta.ActivePath);
 
-        var defectDetailMenu = testGroupMenu.Children.Single(menu => menu.Name == "SprintDefectDetail");
+        var defectDetailMenu = testGroupMenu.Children.Single(menu => menu.Path == "/sprint/defects/detail/:id");
         Assert.True(defectDetailMenu.Meta.HideInMenu);
         Assert.Equal("/sprint/defects", defectDetailMenu.Meta.ActivePath);
+
+        var systemMenu = menus.Single(menu => menu.Path == "/system");
+        var roleAuthorizeMenu = systemMenu.Children.Single(menu => menu.Path == "/system/roles/authorize/:id");
+        Assert.True(roleAuthorizeMenu.Meta.HideInMenu);
+        Assert.Equal("/system/roles", roleAuthorizeMenu.Meta.ActivePath);
+        Assert.Equal("/system/roles/authorize/:id", roleAuthorizeMenu.Path);
+        Assert.Equal("/system/roles/authorize", roleAuthorizeMenu.Component);
+    }
+
+    [Fact]
+    public async Task GetMenusAsync_ReturnsMenuTitleFromDatabaseName()
+    {
+        var user = new UserEntity { Id = "user-1", Username = "admin", DisplayName = "Administrator" };
+        var role = new RoleEntity { Id = "role-1", Code = "super", Name = "Super Administrator" };
+        var system = CreateMenu("menu-system", string.Empty, "System", "/system", string.Empty, 90, 0);
+        var dictionaries = CreateMenu(
+            "menu-dictionaries",
+            system.Id,
+            "SystemDictionaries",
+            "/system/dictionaries",
+            "/system/dictionaries/index",
+            40,
+            1);
+        var service = new UserService(
+            new InMemoryUserDomain([user]),
+            CreateAuthorizationService(
+                new InMemoryRoleDomain([role]),
+                new InMemoryMenuDomain([system, dictionaries]),
+                new InMemoryUserRoleDomain([new UserRoleEntity { UserId = user.Id, RoleId = role.Id }]),
+                new InMemoryRoleMenuDomain(
+                    [
+                        new RoleMenuEntity { RoleId = role.Id, MenuId = system.Id },
+                        new RoleMenuEntity { RoleId = role.Id, MenuId = dictionaries.Id }
+                    ]),
+                new InMemoryRolePermissionDomain([]),
+                new InMemoryPermissionDomain([]),
+                new InMemoryEntityAssociationDomain([])));
+
+        var menus = await service.GetMenusAsync(user.Id);
+
+        var systemMenu = Assert.Single(menus);
+        Assert.Equal("System", systemMenu.Meta.Title);
+        Assert.Equal("/system/users", systemMenu.Redirect);
+
+        var dictionaryMenu = Assert.Single(systemMenu.Children);
+        Assert.Equal("SystemDictionaries", dictionaryMenu.Meta.Title);
+        Assert.Equal("/system/dictionaries", dictionaryMenu.Path);
+    }
+
+    [Fact]
+    public async Task GetMenusAsync_ResolvesRoutingMetadataFromPathWhenMenuNamesAreLocalized()
+    {
+        var user = new UserEntity { Id = "user-1", Username = "admin", DisplayName = "Administrator" };
+        var role = new RoleEntity { Id = "role-1", Code = "super", Name = "Super Administrator" };
+        var projectGroup = CreateMenu("menu-project-group", string.Empty, "项目管理", "/sprint/project", string.Empty, 10, 0);
+        var projects = CreateMenu("menu-projects", projectGroup.Id, "项目配置", "/sprint/projects", "/sprint/projects/index", 10, 1);
+        var projectDetail = CreateMenu(
+            "menu-project-detail",
+            projectGroup.Id,
+            "项目详情",
+            "/sprint/projects/detail/:id",
+            "/sprint/projects/detail",
+            13,
+            2);
+        var service = new UserService(
+            new InMemoryUserDomain([user]),
+            CreateAuthorizationService(
+                new InMemoryRoleDomain([role]),
+                new InMemoryMenuDomain([projectGroup, projects, projectDetail]),
+                new InMemoryUserRoleDomain([new UserRoleEntity { UserId = user.Id, RoleId = role.Id }]),
+                new InMemoryRoleMenuDomain(
+                    [
+                        new RoleMenuEntity { RoleId = role.Id, MenuId = projectGroup.Id },
+                        new RoleMenuEntity { RoleId = role.Id, MenuId = projects.Id },
+                        new RoleMenuEntity { RoleId = role.Id, MenuId = projectDetail.Id }
+                    ]),
+                new InMemoryRolePermissionDomain([]),
+                new InMemoryPermissionDomain([]),
+                new InMemoryEntityAssociationDomain([])));
+
+        var menus = await service.GetMenusAsync(user.Id);
+
+        var root = Assert.Single(menus);
+        Assert.Equal("项目管理", root.Meta.Title);
+        Assert.Equal("/sprint/projects", root.Redirect);
+        Assert.StartsWith("Menu_", root.Name);
+
+        var detail = root.Children.Single(menu => menu.Path == "/sprint/projects/detail/:id");
+        Assert.Equal("项目详情", detail.Meta.Title);
+        Assert.StartsWith("Menu_", detail.Name);
+        Assert.True(detail.Meta.HideInMenu);
+        Assert.Equal("/sprint/projects", detail.Meta.ActivePath);
     }
 
     [Fact]
@@ -313,7 +434,7 @@ public sealed class UserServiceMenuTests
     }
 }
 
-internal sealed class InMemoryUserDomain(IList<UserEntity> entities)
+internal class InMemoryUserDomain(IList<UserEntity> entities)
     : InMemorySecurityDomain<UserEntity>(entities), AgentSprint.Model.Modules.Security.Domains.IUserDomain
 {
     public Task<UserEntity?> FindByUsernameAsync(string username)
@@ -367,7 +488,7 @@ internal class InMemorySecurityDomain<TEntity>(IList<TEntity> entities)
 {
     protected IList<TEntity> Entities { get; } = entities;
 
-    public Task<string> CreateAsync(TEntity entity)
+    public virtual Task<string> CreateAsync(TEntity entity)
     {
         Entities.Add(entity);
         return Task.FromResult(entity.Id);
@@ -400,7 +521,7 @@ internal class InMemorySecurityDomain<TEntity>(IList<TEntity> entities)
         return Task.FromResult<IList<TEntity>>(query.ToList());
     }
 
-    public Task<string> UpdateAsync(TEntity entity)
+    public virtual Task<string> UpdateAsync(TEntity entity)
     {
         entity.UpdateTime = DateTime.UtcNow;
         return Task.FromResult(entity.Id);

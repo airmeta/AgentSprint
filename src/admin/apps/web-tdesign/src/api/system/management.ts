@@ -83,6 +83,18 @@ export namespace SystemApi {
     value: string;
   }
 
+  export interface AiPlatform {
+    code: string;
+    description?: string;
+    id: string;
+    model: string;
+    name: string;
+    openAiBaseUrl?: string;
+    provider: string;
+    sort: number;
+    status: number;
+  }
+
   export interface CodeName {
     code: string;
     description?: string;
@@ -267,6 +279,20 @@ export function saveSystemConfigurationApi(data: Partial<SystemApi.Configuration
 
 export function deleteSystemConfigurationApi(id: string) {
   return requestClient.delete<boolean>(`/system/configurations/${id}`);
+}
+
+export function listAiPlatformsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.AiPlatform[]>('/system/ai-platforms', {
+    params: normalizeQuery(params),
+  });
+}
+
+export function saveAiPlatformApi(data: Partial<SystemApi.AiPlatform>) {
+  return requestClient.post<SystemApi.AiPlatform>('/system/ai-platforms', data);
+}
+
+export function deleteAiPlatformApi(id: string) {
+  return requestClient.delete<boolean>(`/system/ai-platforms/${id}`);
 }
 
 export function listUserGroupsApi() {

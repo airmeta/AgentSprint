@@ -52,7 +52,7 @@ const reviewForm = reactive({
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 const reviewStatusText: Record<string, string> = {
   approved: '已通过',
@@ -85,7 +85,7 @@ const statusOptions = [
 const tablePagination = computed(() => ({
   current: pagination.current,
   pageSize: pagination.pageSize,
-  pageSizeOptions: [10, 20, 50],
+  pageSizeOptions: [30, 50, 100, 200],
   showJumper: true,
   showPageSize: true,
   size: 'small' as const,
@@ -248,15 +248,15 @@ onActivated(loadReviews);
           />
         </div>
         <div class="sprint-filter-actions">
-          <TButton theme="primary" :disabled="loading" @click="queryReviews">
+          <TButton theme="primary" :loading="loading" @click="queryReviews">
             <template #icon>
               <IconifyIcon icon="lucide:search" />
             </template>
             查询
           </TButton>
-          <TButton :disabled="loading" @click="resetFilters">
+          <TButton theme="default" :disabled="loading" @click="resetFilters">
             <template #icon>
-              <IconifyIcon icon="lucide:refresh-cw" />
+              <IconifyIcon icon="lucide:rotate-ccw" />
             </template>
             重置
           </TButton>

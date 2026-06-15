@@ -4,6 +4,7 @@ using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Impls.AuthServices;
 using AgentSprint.Service.Impls.SecurityServices;
 using AgentSprint.Service.Security;
+using AgentSprint.Service.Services.AuthServices;
 
 using Microsoft.Extensions.Options;
 
@@ -132,6 +133,7 @@ public sealed class AgentTokenServiceTests
         var auth = new AuthService(
             userDomain,
             authorization,
+            new AgentTokenCaptchaService(),
             Options.Create(new JwtOptions
             {
                 SigningKey = "AgentSprintTestsSigningKeyMustBeLongEnough",
@@ -145,6 +147,19 @@ public sealed class AgentTokenServiceTests
             userDomain,
             authorization,
             auth);
+    }
+}
+
+internal sealed class AgentTokenCaptchaService : ICaptchaService
+{
+    public Task<CaptchaChallengeResult> CreateChallengeAsync()
+    {
+        return Task.FromResult(new CaptchaChallengeResult("captcha-1", 320, 48, 120));
+    }
+
+    public Task<bool> VerifyAsync(CaptchaVerifyRequest? request)
+    {
+        return Task.FromResult(true);
     }
 }
 

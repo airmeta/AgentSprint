@@ -8,7 +8,11 @@ using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Tests.Domains;
 using AgentSprint.Repository;
 using AgentSprint.Repository.DbContexts;
+using AgentSprint.Service.Impls.AuthServices;
+using AgentSprint.Service.Impls.AgileServices;
 using AgentSprint.Service.Security;
+using AgentSprint.Service.Services.AgileServices;
+using AgentSprint.Service.Services.AuthServices;
 
 using Air.Cloud.Core.App;
 using Air.Cloud.Core.App.Startups;
@@ -54,6 +58,8 @@ public sealed class Startup : AppStartup
             options.Filters.Add<AutoSaveChangesFilter>());
         services.AddWebAppUnifyResult<AgentSprintUnifyResultProvider>();
         services.AddOpenApi();
+        services.AddMemoryCache();
+        services.AddSingleton<ICaptchaService, CaptchaService>();
 
         services.Configure<JwtOptions>(AppCore.Configuration.GetSection("Jwt"));
         var jwtOptions = AppCore.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
@@ -110,6 +116,10 @@ public sealed class Startup : AppStartup
         services.AddTransient<IRolePermissionDomain, RolePermissionDomain>();
 
         services.AddTransient<ISprintProjectDomain, SprintProjectDomain>();
+        services.AddTransient<IGitAccountDomain, GitAccountDomain>();
+        services.AddTransient<IGitRepositoryDomain, GitRepositoryDomain>();
+        services.AddTransient<IGitBranchOperationDomain, GitBranchOperationDomain>();
+        services.AddTransient<IGitCommandRunner, ProcessGitCommandRunner>();
         services.AddTransient<ISprintProjectMemberDomain, SprintProjectMemberDomain>();
         services.AddTransient<ISprintProjectEndpointDomain, SprintProjectEndpointDomain>();
         services.AddTransient<ISprintFeatureModuleDomain, SprintFeatureModuleDomain>();
@@ -121,6 +131,11 @@ public sealed class Startup : AppStartup
         services.AddTransient<ISprintDevelopmentTaskDomain, SprintDevelopmentTaskDomain>();
         services.AddTransient<ISprintBugDomain, SprintBugDomain>();
         services.AddTransient<ISprintTaskLeaseDomain, SprintTaskLeaseDomain>();
+        services.AddTransient<IDigitalWorkerDomain, DigitalWorkerDomain>();
+        services.AddTransient<IWorkerSessionDomain, WorkerSessionDomain>();
+        services.AddTransient<IWorkerCommandDomain, WorkerCommandDomain>();
+        services.AddTransient<IWorkerRunDomain, WorkerRunDomain>();
+        services.AddTransient<IWorkerEventDomain, WorkerEventDomain>();
 
         services.AddTransient<ITestPlanDomain, TestPlanDomain>();
         services.AddTransient<ITestExecutionDomain, TestExecutionDomain>();

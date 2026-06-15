@@ -137,6 +137,28 @@ public sealed record SystemConfigurationResult(
     string? Description,
     int Status);
 
+public sealed record UpsertAiPlatformRequest(
+    string? Id,
+    string Code,
+    string Name,
+    string Provider,
+    string Model,
+    string? OpenAiBaseUrl,
+    string? Description,
+    int Sort,
+    int Status);
+
+public sealed record AiPlatformResult(
+    string Id,
+    string Code,
+    string Name,
+    string Provider,
+    string Model,
+    string? OpenAiBaseUrl,
+    string? Description,
+    int Sort,
+    int Status);
+
 public sealed record UpsertUserGroupRequest(
     string? Id,
     string Code,
