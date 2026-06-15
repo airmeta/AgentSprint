@@ -863,15 +863,17 @@ public sealed class DigitalWorkerRuntimeService :
         var commands = await _commandDomain.ListAsync(entity =>
             entity.WorkerId == worker.Id &&
             entity.Status == WorkerCommandStatuses.Pending &&
-            (entity.SessionId == null || entity.SessionId == session.Id) &&
-            CanDispatchCommand(session.Status, entity.CommandType));
+            (entity.SessionId == null || entity.SessionId == session.Id));
+        var dispatchableCommands = commands
+            .Where(entity => CanDispatchCommand(session.Status, entity.CommandType))
+            .ToList();
 
         return new WorkerHeartbeatResult(
             worker.Id,
             session.Id,
             session.Status,
             ResolveNextIntervalSeconds(session.Status),
-            commands.OrderBy(entity => entity.CreateTime)
+            dispatchableCommands.OrderBy(entity => entity.CreateTime)
                 .Select(DigitalWorkerManagementService.ToResult)
                 .ToList());
     }
