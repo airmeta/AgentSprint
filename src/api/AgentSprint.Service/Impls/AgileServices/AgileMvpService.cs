@@ -878,20 +878,37 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("At least one reviewer is required.");
         }
 
-        var existing = await _reviewDomain.ListAsync(review => review.RequirementId == id);
-        foreach (var review in existing)
+        var reviewerIdSet = reviewerIds.ToHashSet(StringComparer.Ordinal);
+        var existing = await _reviewDomain.ListIncludingDeletedAsync(review => review.RequirementId == id);
+        foreach (var review in existing.Where(review => review.IsDelete == 0 && !reviewerIdSet.Contains(review.ReviewerId)))
         {
             await _reviewDomain.DeleteAsync(review.Id);
         }
 
         foreach (var reviewerId in reviewerIds)
         {
-            await _reviewDomain.CreateAsync(new SprintRequirementReviewEntity
+            var review = existing.FirstOrDefault(review => review.ReviewerId == reviewerId);
+            if (review is null)
             {
-                ProjectId = entity.ProjectId,
-                RequirementId = entity.Id,
-                ReviewerId = reviewerId
-            });
+                await _reviewDomain.CreateAsync(new SprintRequirementReviewEntity
+                {
+                    ProjectId = entity.ProjectId,
+                    RequirementId = entity.Id,
+                    ReviewerId = reviewerId
+                });
+            }
+            else
+            {
+                review.ProjectId = entity.ProjectId;
+                review.RequirementId = entity.Id;
+                review.ReviewerId = reviewerId;
+                review.Status = SprintRequirementReviewStatuses.Pending;
+                review.Comment = null;
+                review.ReviewedAt = null;
+                review.IsDelete = 0;
+                await _reviewDomain.UpdateAsync(review);
+            }
+
             await EnsureProjectMemberAsync(entity.ProjectId, reviewerId, SprintProjectMemberRoles.Reviewer);
         }
 

@@ -1537,6 +1537,41 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task SubmitRequirementReviewAsync_ResetsRejectedReviewerWhenResubmitting()
+    {
+        var reviewDomain = new InMemorySprintRequirementReviewDomain();
+        var service = CreateService(reviewDomain: reviewDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-RESUBMIT-REVIEW", "MVP resubmit review"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Rejected then resubmitted", "Needs another review", 1),
+            "po-1");
+        await service.SubmitRequirementReviewAsync(
+            requirement.Id,
+            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            "po-1");
+        await service.RejectRequirementReviewAsync(
+            requirement.Id,
+            "arch-1",
+            new DecideSprintRequirementReviewRequest("Clarify acceptance criteria."));
+
+        var resubmitted = await service.SubmitRequirementReviewAsync(
+            requirement.Id,
+            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            "po-1");
+
+        Assert.Equal(SprintRequirementStatuses.PendingReview, resubmitted.Status);
+        var reviews = await reviewDomain.ListIncludingDeletedAsync(entity => entity.RequirementId == requirement.Id);
+        var review = Assert.Single(reviews);
+        Assert.Equal("arch-1", review.ReviewerId);
+        Assert.Equal(SprintRequirementReviewStatuses.Pending, review.Status);
+        Assert.Null(review.Comment);
+        Assert.Null(review.ReviewedAt);
+        Assert.Equal(0, review.IsDelete);
+    }
+
+    [Fact]
     public async Task UpdateRequirementAsync_RejectsUserWhoIsNotRequirementCreator()
     {
         var service = CreateService();
@@ -1966,7 +2001,8 @@ public sealed class AgileMvpServiceTests
         InMemoryGitRepositoryDomain? gitRepositoryDomain = null,
         InMemoryGitAccountDomain? gitAccountDomain = null,
         InMemoryAgileDigitalWorkerDomain? digitalWorkerDomain = null,
-        InMemoryAgileWorkerCommandDomain? workerCommandDomain = null)
+        InMemoryAgileWorkerCommandDomain? workerCommandDomain = null,
+        InMemorySprintRequirementReviewDomain? reviewDomain = null)
     {
         return new AgileMvpService(
             new InMemorySprintProjectDomain(),
@@ -1977,7 +2013,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintSkillDomain(),
             new InMemorySprintFeatureSuggestionDomain(),
             new InMemorySprintRequirementFeedbackDomain(),
-            new InMemorySprintRequirementReviewDomain(),
+            reviewDomain ?? new InMemorySprintRequirementReviewDomain(),
             new InMemorySprintDevelopmentTaskDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
