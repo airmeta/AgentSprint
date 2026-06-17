@@ -1242,7 +1242,7 @@ onActivated(async () => {
               >
                 <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
                 <strong>{{ task.title }}</strong>
-                <span>{{ task.assigneeId || '未指派' }}</span>
+                <span>指派人: {{ resolveUserName(task.assigneeId) }}</span>
                 <span>浼樺厛绾?{{ task.priority }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
                   <TLink v-if="task.status !== 'completed'" theme="primary" @click="goTaskAdvance(task)">
