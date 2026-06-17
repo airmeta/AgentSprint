@@ -178,7 +178,8 @@ public sealed class GitWorkspaceManager
         string? gitCommitAuthorEmail,
         string commitMessage,
         Func<GitConflictResolutionRequest, CancellationToken, Task<GitConflictResolutionResult>> conflictResolver,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? baselineCommit = null)
     {
         var authenticatedRepositoryUrl = BuildAuthenticatedUrl(repositoryUrl.Trim(), gitUsername, gitAccessToken);
         var secretValues = new[] { gitAccessToken, authenticatedRepositoryUrl }
@@ -201,11 +202,12 @@ public sealed class GitWorkspaceManager
                 throw new InvalidOperationException("Current Git branch could not be resolved.");
             }
 
+            var baseCommit = NormalizeOptional(baselineCommit) ??
+                await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
             var status = await ReadGitOutputAsync("status --porcelain", workspacePath, secretValues, cancellationToken);
             var changedFilesJson = BuildChangedFilesJson(status);
             if (string.IsNullOrWhiteSpace(status))
             {
-                var unchangedCommit = await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
                 return new WorkspacePublishResult(
                     true,
                     workspacePath,
@@ -213,7 +215,7 @@ public sealed class GitWorkspaceManager
                     Pushed: false,
                     ConflictResolved: false,
                     Branch: currentBranch,
-                    Commit: unchangedCommit,
+                    Commit: baseCommit,
                     ChangedFilesJson: changedFilesJson,
                     Error: null);
             }
@@ -263,6 +265,13 @@ public sealed class GitWorkspaceManager
 
                 await RunGitOrThrowAsync($"push origin {Quote(currentBranch)}", workspacePath, secretValues, cancellationToken);
                 var pushedCommit = await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
+                var finalChangedFilesJson = await BuildChangedFilesJsonAsync(
+                    workspacePath,
+                    baseCommit,
+                    pushedCommit,
+                    changedFilesJson,
+                    secretValues,
+                    cancellationToken);
                 return new WorkspacePublishResult(
                     true,
                     workspacePath,
@@ -271,7 +280,7 @@ public sealed class GitWorkspaceManager
                     ConflictResolved: conflictResolved,
                     Branch: currentBranch,
                     Commit: pushedCommit,
-                    ChangedFilesJson: changedFilesJson,
+                    ChangedFilesJson: finalChangedFilesJson,
                     Error: null);
             }
             finally
@@ -585,6 +594,40 @@ public sealed class GitWorkspaceManager
         return JsonSerializer.Serialize(changes, JsonOptions);
     }
 
+    internal static string BuildChangedFilesJsonFromNameStatus(string? nameStatus)
+    {
+        var changes = ParseNameStatusChangedFiles(nameStatus)
+            .OrderBy(change => change.Path, StringComparer.Ordinal)
+            .ToArray();
+        return JsonSerializer.Serialize(changes, JsonOptions);
+    }
+
+    private static async Task<string> BuildChangedFilesJsonAsync(
+        string workspacePath,
+        string? baseCommit,
+        string? headCommit,
+        string fallbackChangedFilesJson,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(baseCommit) ||
+            string.IsNullOrWhiteSpace(headCommit) ||
+            string.Equals(baseCommit, headCommit, StringComparison.Ordinal))
+        {
+            return fallbackChangedFilesJson;
+        }
+
+        var nameStatus = await ReadGitOutputAsync(
+            $"diff --name-status {Quote(baseCommit)}..{Quote(headCommit)}",
+            workspacePath,
+            secretValues,
+            cancellationToken);
+        var changedFilesJson = BuildChangedFilesJsonFromNameStatus(nameStatus);
+        return string.Equals(changedFilesJson, "[]", StringComparison.Ordinal)
+            ? fallbackChangedFilesJson
+            : changedFilesJson;
+    }
+
     private static IEnumerable<GitChangedFile> ParseChangedFiles(string? porcelainStatus)
     {
         if (string.IsNullOrWhiteSpace(porcelainStatus))
@@ -628,6 +671,37 @@ public sealed class GitWorkspaceManager
             }
 
             yield return new GitChangedFile(path, ResolveGitChangeStatus(code), oldPath);
+        }
+    }
+
+    private static IEnumerable<GitChangedFile> ParseNameStatusChangedFiles(string? nameStatus)
+    {
+        if (string.IsNullOrWhiteSpace(nameStatus))
+        {
+            yield break;
+        }
+
+        foreach (var rawLine in nameStatus.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var columns = rawLine.Split('\t', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (columns.Length < 2)
+            {
+                continue;
+            }
+
+            var code = columns[0];
+            if (code.StartsWith('R') || code.StartsWith('C'))
+            {
+                if (columns.Length < 3)
+                {
+                    continue;
+                }
+
+                yield return new GitChangedFile(columns[2], ResolveGitChangeStatus(code), columns[1]);
+                continue;
+            }
+
+            yield return new GitChangedFile(columns[1], ResolveGitChangeStatus(code), null);
         }
     }
 

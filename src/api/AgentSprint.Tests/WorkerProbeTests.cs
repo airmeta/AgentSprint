@@ -494,6 +494,68 @@ public sealed class WorkerProbeTests
     }
 
     [Fact]
+    public void GitWorkspaceManager_BuildChangedFilesJsonFromNameStatus_ParsesCommittedDiff()
+    {
+        var json = GitWorkspaceManager.BuildChangedFilesJsonFromNameStatus("""
+            M	src/Changed.cs
+            A	src/NewFile.cs
+            R100	old.txt	new.txt
+            D	removed.txt
+            """);
+
+        Assert.Contains("\"path\":\"src/Changed.cs\"", json);
+        Assert.Contains("\"status\":\"modified\"", json);
+        Assert.Contains("\"path\":\"src/NewFile.cs\"", json);
+        Assert.Contains("\"status\":\"added\"", json);
+        Assert.Contains("\"path\":\"new.txt\"", json);
+        Assert.Contains("\"oldPath\":\"old.txt\"", json);
+        Assert.Contains("\"status\":\"deleted\"", json);
+    }
+
+    [Fact]
+    public async Task GitWorkspaceManager_PublishAsync_ReportsFilesFromFullPublishedCommitRange()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
+        var remote = Path.Combine(root, "remote.git");
+        var source = Path.Combine(root, "source");
+        var workspaces = Path.Combine(root, "workspaces");
+        Directory.CreateDirectory(root);
+        await RunGitForTestAsync("init --bare " + Quote(remote), root);
+        await RunGitForTestAsync("init -b main " + Quote(source), root);
+        await ConfigureGitUserAsync(source);
+        await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "first");
+        await RunGitForTestAsync("add README.md", source);
+        await RunGitForTestAsync("commit -m first", source);
+        await RunGitForTestAsync("remote add origin " + Quote(remote), source);
+        await RunGitForTestAsync("push -u origin main", source);
+
+        var manager = new GitWorkspaceManager();
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, "Project Worker", "project-worker@example.com", CancellationToken.None);
+        var baselineCommit = prepared.Commit;
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "already-committed.txt"), "codex committed");
+        await RunGitForTestAsync("add already-committed.txt", prepared.WorkspacePath);
+        await RunGitForTestAsync("commit -m \"codex self commit\"", prepared.WorkspacePath);
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "pending.txt"), "worker pending");
+
+        var published = await manager.PublishAsync(
+            prepared.WorkspacePath,
+            remote,
+            null,
+            null,
+            "Project Worker",
+            "project-worker@example.com",
+            "worker update",
+            (_, _) => Task.FromResult(new GitConflictResolutionResult(false, "unexpected")),
+            CancellationToken.None,
+            baselineCommit);
+
+        Assert.True(published.Succeeded);
+        Assert.True(published.Pushed);
+        Assert.Contains("\"path\":\"already-committed.txt\"", published.ChangedFilesJson);
+        Assert.Contains("\"path\":\"pending.txt\"", published.ChangedFilesJson);
+    }
+
+    [Fact]
     public async Task GitWorkspaceManager_PublishAsync_UsesResolverWhenRemoteMergeConflicts()
     {
         var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));

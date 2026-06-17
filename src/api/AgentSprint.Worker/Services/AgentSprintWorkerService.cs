@@ -688,7 +688,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     GitCommitAuthorEmail,
                     BuildWorkerCommitMessage(Target, PromptContext, result),
                     (conflict, token) => ResolveGitConflictWithCodexAsync(conflict, request, paths, token),
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    WorkspaceResult.Commit);
                 WorkerDiagnostics.Info(
                     "Worker发布Git改动结束",
                     $"platformRunId={platformRun.Id}, succeeded={publishResult.Succeeded}, hasChanges={publishResult.HasChanges}, pushed={publishResult.Pushed}, conflictResolved={publishResult.ConflictResolved}, branch={publishResult.Branch ?? string.Empty}, commit={publishResult.Commit ?? string.Empty}, error={publishResult.Error ?? string.Empty}");
