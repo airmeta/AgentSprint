@@ -214,6 +214,9 @@ const getPriorityButtonClass = (priority: number, value: number) => ({
 });
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const userNameMap = computed(() => Object.fromEntries(users.value.map((item) => [item.username, item])));
+const digitalWorkerMap = computed(() =>
+  Object.fromEntries(digitalWorkers.value.map((item) => [item.agentUserId, item])),
+);
 const endpointMap = computed(() =>
   Object.fromEntries(endpoints.value.map((endpoint) => [endpoint.id, endpoint])),
 );
@@ -462,6 +465,16 @@ function resolveUserName(userId?: string) {
   if (!userId) return '未指定';
   const user = userMap.value[userId] || userNameMap.value[userId];
   return user?.displayName || user?.username || userId;
+}
+
+function resolveTaskAssigneeName(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.assigneeId) return '未指定';
+  if (task.assigneeType === 1) {
+    const worker = digitalWorkerMap.value[task.assigneeId];
+    return worker ? `${worker.name} (${worker.code})` : task.assigneeId;
+  }
+
+  return resolveUserName(task.assigneeId);
 }
 
 function resolveEndpointName(endpointId?: string) {
@@ -1242,7 +1255,7 @@ onActivated(async () => {
               >
                 <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
                 <strong>{{ task.title }}</strong>
-                <span>指派人: {{ resolveUserName(task.assigneeId) }}</span>
+                <span>指派人: {{ resolveTaskAssigneeName(task) }}</span>
                 <span>浼樺厛绾?{{ task.priority }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
                   <TLink v-if="task.status !== 'completed'" theme="primary" @click="goTaskAdvance(task)">
