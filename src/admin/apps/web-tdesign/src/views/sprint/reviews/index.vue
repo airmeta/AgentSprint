@@ -28,7 +28,7 @@ import {
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 import MarkdownEditor from '../_shared/markdown-editor.vue';
 import '../_shared/table-layout.css';
 
@@ -64,10 +64,6 @@ const reviewStatusTheme: Record<string, 'danger' | 'primary' | 'success' | 'warn
   pending: 'warning',
   rejected: 'danger',
 };
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === filters.projectId),
-);
-
 const columns = [
   { colKey: 'requirement.title', title: '需求名' },
   { colKey: 'project.name', title: '项目名', width: 180 },
@@ -202,28 +198,16 @@ onActivated(loadReviews);
 </script>
 
 <template>
-  <ProjectSecondaryListShell
+  <ProjectContextListShell
     v-model:selected-project-id="filters.projectId"
     class="reviews-page"
-    :loading="loading"
-    :projects="projects"
     @project-change="handleProjectChange"
-    @refresh="refreshReviews"
   >
-    <template #header>
-      <section class="sprint-page-title">
-        <h2>需求评审</h2>
-        <p>按项目查看待评审需求，完成评审意见与审批流转。</p>
-      </section>
+    <template #title>
+      需求评审
     </template>
-
-    <template #workspace-header>
-      <div class="workspace-head">
-        <div>
-          <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-          <p>{{ selectedProject?.code || '-' }}</p>
-        </div>
-      </div>
+    <template #description>
+      按项目查看待评审需求，完成评审意见与审批流转。
     </template>
 
     <section class="sprint-filter-panel">
@@ -447,7 +431,7 @@ onActivated(loadReviews);
         </section>
       </section>
     </TDrawer>
-  </ProjectSecondaryListShell>
+  </ProjectContextListShell>
 </template>
 
 <style scoped>

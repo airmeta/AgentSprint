@@ -29,7 +29,7 @@ import {
 import { listAgentTokensApi, type SystemApi } from '#/api';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 import {
   completeDevelopmentTaskApi,
   getDevelopmentTaskPromptApi,
@@ -87,9 +87,6 @@ const agentTokenOptions = computed(() =>
     label: `${token.name} (${token.maskedToken})`,
     value: token.id,
   })),
-);
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === filters.projectId),
 );
 const columns: PrimaryTableCol[] = [
   {
@@ -382,18 +379,17 @@ onMounted(loadTasks);
 </script>
 
 <template>
-  <ProjectSecondaryListShell
+  <ProjectContextListShell
     v-model:selected-project-id="filters.projectId"
     class="my-tasks-page"
-    :loading="loading"
-    :projects="projects"
     @project-change="handleProjectChange"
-    @refresh="loadTasks"
   >
-    <template #header><section class="sprint-page-title">
-      <h2>我的任务</h2>
-      <p>当前账号被指派的需求拆解任务。</p>
-    </section></template><template #workspace-header><div class="workspace-head"><div><h3>{{ selectedProject?.name || '请选择项目' }}</h3><p>{{ selectedProject?.code || '-' }}</p></div></div></template>
+    <template #title>
+      我的任务
+    </template>
+    <template #description>
+      当前账号被指派的需求拆解任务。
+    </template>
 
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
@@ -614,7 +610,7 @@ onMounted(loadTasks);
         <TTextarea :model-value="mcpSetupContent" readonly autosize />
       </section>
     </TDialog>
-  </ProjectSecondaryListShell>
+  </ProjectContextListShell>
 </template>
 
 <style scoped>
@@ -731,5 +727,4 @@ onMounted(loadTasks);
   height: 14px;
 }
 </style>
-
 

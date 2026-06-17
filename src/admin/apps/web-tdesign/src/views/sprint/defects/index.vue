@@ -36,7 +36,7 @@ import {
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 import { buildUserLookup, resolveUserName } from '../_shared/user-display';
 
 import '../_shared/table-layout.css';
@@ -79,9 +79,6 @@ const pagination = reactive({
 
 const projectOptions = computed(() =>
   projects.value.map((item) => ({ label: `${item.code} · ${item.name}`, value: item.id })),
-);
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === filters.projectId),
 );
 const formRequirementOptions = computed(() =>
   requirements.value
@@ -281,33 +278,24 @@ onMounted(async () => {
 
 <template>
   <div class="defects-page">
-    <ProjectSecondaryListShell
+    <ProjectContextListShell
       v-model:selected-project-id="filters.projectId"
-      :loading="loading"
-      :projects="projects"
       @project-change="handleProjectChange"
-      @refresh="loadDefects"
     >
-      <template #header>
-        <section class="sprint-page-title">
-          <h2>缺陷管理</h2>
-          <p>缺陷必须绑定项目和具体需求，需求列表健康状态会随缺陷变化。</p>
-        </section>
+      <template #title>
+        缺陷管理
+      </template>
+      <template #description>
+        缺陷必须绑定项目和具体需求，需求列表健康状态会随缺陷变化。
       </template>
 
-      <template #workspace-header>
-        <div class="workspace-head">
-          <div>
-            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-            <p>{{ selectedProject?.code || '-' }}</p>
-          </div>
-          <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
+      <template #actions>
+        <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
             <template #icon>
               <IconifyIcon icon="lucide:plus" />
             </template>
             提交缺陷
           </TButton>
-        </div>
       </template>
 
     <section class="sprint-filter-panel">
@@ -495,7 +483,7 @@ onMounted(async () => {
         </section>
       </section>
     </TDrawer>
-    </ProjectSecondaryListShell>
+    </ProjectContextListShell>
   </div>
 </template>
 
@@ -507,7 +495,7 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.defects-page :deep(.project-secondary-list-shell) {
+.defects-page :deep(.project-context-list-shell) {
   flex: 1;
   min-height: 0;
 }
@@ -532,4 +520,3 @@ onMounted(async () => {
   white-space: pre-wrap;
 }
 </style>
-

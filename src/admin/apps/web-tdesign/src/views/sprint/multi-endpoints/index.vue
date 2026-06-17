@@ -43,7 +43,7 @@ import {
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 import SkillSelectOption from '../_shared/skill-select-option.vue';
 import '../_shared/table-layout.css';
 
@@ -131,9 +131,6 @@ const moduleColumns = [
   { colKey: 'actions', title: '操作', width: 120 },
 ];
 
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === selectedProjectId.value),
-);
 const selectedEndpoints = computed(() =>
   endpoints.value
     .filter((endpoint) => endpoint.projectId === selectedProjectId.value)
@@ -174,14 +171,6 @@ function resolveSkillNames(skillIds?: string[]) {
   return skillIds && skillIds.length > 0
     ? skillIds.map((id) => skillMap.value[id]?.name || id).join(' / ')
     : '未选择';
-}
-
-function projectEndpointCount(projectId: string) {
-  return endpoints.value.filter((endpoint) => endpoint.projectId === projectId).length;
-}
-
-function projectModuleCount(projectId: string) {
-  return modules.value.filter((module) => module.projectId === projectId).length;
 }
 
 function moduleRequirementCount(moduleId: string) {
@@ -468,40 +457,25 @@ onMounted(loadData);
 </script>
 
 <template>
-  <ProjectSecondaryListShell
+  <ProjectContextListShell
     v-model:selected-project-id="selectedProjectId"
     class="multi-endpoint-page"
-    :loading="loading"
-    :projects="projects"
-    @refresh="loadData"
   >
-    <template #header>
-      <section class="sprint-page-title">
-        <h2>多端管理</h2>
-        <p>按项目维护端和端下功能模块，配置负责人、研发人员和测试人员。</p>
-      </section>
+    <template #title>
+      多端管理
+    </template>
+    <template #description>
+      按项目维护端和端下功能模块，配置负责人、研发人员和测试人员。
     </template>
 
-    <template #project-meta="{ project }">
-      <span>端 {{ projectEndpointCount(project.id) }}</span>
-      <span>模块 {{ projectModuleCount(project.id) }}</span>
-      <span>经理 {{ resolveUserName(project.projectManagerId) }}</span>
-    </template>
-
-    <template #workspace-header>
-        <div class="workspace-head">
-          <div>
-            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-            <p>{{ selectedProject?.code || '-' }}</p>
-          </div>
-          <TButton theme="primary" :disabled="!selectedProjectId" @click="openEndpointCreate">
+    <template #actions>
+        <TButton theme="primary" :disabled="!selectedProjectId" @click="openEndpointCreate">
             <template #icon>
               <IconifyIcon icon="lucide:plus" />
             </template>
             新增端
           </TButton>
-        </div>
-    </template>
+      </template>
 
         <div v-if="!selectedProjectId" class="empty-state large">请选择左侧项目</div>
         <div v-else-if="selectedEndpoints.length === 0 && !loading" class="empty-state large">
@@ -715,7 +689,7 @@ onMounted(loadData);
         </TFormItem>
       </TForm>
     </TDrawer>
-  </ProjectSecondaryListShell>
+  </ProjectContextListShell>
 </template>
 
 <style scoped>

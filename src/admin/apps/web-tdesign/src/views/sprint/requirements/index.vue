@@ -38,7 +38,6 @@ import {
   listFeatureModulesApi,
   listProjectEndpointsApi,
   listRequirementFeedbackApi,
-  listProjectsApi,
   listRequirementReviewsApi,
   listRequirementsApi,
   listSkillsApi,
@@ -57,7 +56,8 @@ import { formatDateTime } from '#/views/_shared/date-format';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import { useProjectContextStore } from '#/store/project-context';
+import HeaderProjectSelect from '#/components/header-project-select/header-project-select.vue';
 import MarkdownEditor from '../_shared/markdown-editor.vue';
 import { renderMarkdown } from '../_shared/markdown';
 import SkillSelectOption from '../_shared/skill-select-option.vue';
@@ -70,7 +70,8 @@ const loading = ref(false);
 const requirementSaving = ref(false);
 const reviewSubmitting = ref(false);
 const router = useRouter();
-const selectedProjectId = ref('');
+const projectContext = useProjectContextStore();
+const selectedProjectId = computed(() => projectContext.selectedProjectId);
 const selectedRequirement = ref<SprintMvpApi.Requirement>();
 const selectedRequirementKeys = ref<Array<number | string>>([]);
 const editorVisible = ref(false);
@@ -83,7 +84,8 @@ const feedbackVisible = ref(false);
 const feedbackFormRef = ref<FormInstanceFunctions>();
 const convertFeedbackVisible = ref(false);
 const convertFeedbackFormRef = ref<FormInstanceFunctions>();
-const projects = ref<SprintMvpApi.Project[]>([]);
+const pageProjectSelectRef = ref<InstanceType<typeof HeaderProjectSelect>>();
+const projects = computed(() => projectContext.projects);
 const endpoints = ref<SprintMvpApi.ProjectEndpoint[]>([]);
 const modules = ref<SprintMvpApi.FeatureModule[]>([]);
 const skills = ref<SprintMvpApi.Skill[]>([]);
@@ -101,6 +103,7 @@ const expandedRequirementIds = ref<Array<number | string>>([]);
 const pendingRequirementActionIds = ref(new Set<string>());
 
 const filters = reactive({
+  endpointId: '',
   health: '',
   requirementInfo: '',
   status: '',
@@ -142,7 +145,6 @@ const requirementRules: FormRules<typeof requirementForm> = {
   endpointId: requiredRule('请选择端', 'change'),
   moduleId: requiredRule('请选择功能模块', 'change'),
   priority: requiredRule('请选择优先级', 'change'),
-  projectId: requiredRule('请选择所属项目', 'change'),
   title: requiredRule('请输入需求标题'),
 };
 const reviewRules: FormRules<typeof reviewForm> = {
@@ -160,12 +162,6 @@ const pagination = reactive({
   pageSize: 30,
 });
 
-const projectOptions = computed(() =>
-  projects.value.map((project) => ({
-    label: `${project.code} - ${project.name}`,
-    value: project.id,
-  })),
-);
 const userOptions = computed(() =>
   users.value.map((user) => ({
     label: `${user.displayName} (${user.username})`,
@@ -201,12 +197,22 @@ const skillOptions = computed(() =>
     value: skill.id,
   })),
 );
-const priorityOptions = [
+const priorityOptions: Array<{
+  label: string;
+  theme: 'danger' | 'default' | 'success';
+  value: number;
+}> = [
   { label: '加急', theme: 'danger', value: 1 },
   { label: '正常', theme: 'default', value: 2 },
   { label: '可延后', theme: 'success', value: 3 },
 ];
-const getPriorityTheme = (priority: number, value: number, theme: string) =>
+type TDesignTheme = 'danger' | 'default' | 'primary' | 'success' | 'warning';
+
+const getPriorityTheme = (
+  priority: number,
+  value: number,
+  theme: TDesignTheme,
+): TDesignTheme =>
   priority === value ? theme : 'default';
 const getPriorityButtonClass = (priority: number, value: number) => ({
   'priority-option-button': true,
@@ -242,6 +248,14 @@ const endpointOptions = computed(() =>
       value: endpoint.id,
     })),
 );
+const currentProjectEndpointOptions = computed(() =>
+  endpoints.value
+    .filter((endpoint) => endpoint.projectId === selectedProjectId.value)
+    .map((endpoint) => ({
+      label: `${endpoint.name} (${endpoint.code})`,
+      value: endpoint.id,
+    })),
+);
 const moduleOptions = computed(() =>
   modules.value
     .filter(
@@ -254,11 +268,13 @@ const moduleOptions = computed(() =>
       value: module.id,
     })),
 );
-const selectedProjectName = computed(
-  () => projects.value.find((item) => item.id === selectedProjectId.value)?.name,
-);
 const selectedProject = computed(() =>
   projects.value.find((item) => item.id === selectedProjectId.value),
+);
+const requirementPageTitle = computed(() =>
+  selectedProject.value
+    ? `${selectedProject.value.name}需求管理(${selectedProject.value.code})`
+    : '需求管理',
 );
 const convertFeedbackOptions = computed(() =>
   (selectedRequirement.value ? getRequirementFeedback(selectedRequirement.value.id) : [])
@@ -552,7 +568,7 @@ async function handleExpandedRowKeysChange(keys: Array<number | string>) {
 }
 
 function resetForm() {
-  const projectId = selectedProjectId.value || projects.value[0]?.id || '';
+  const projectId = selectedProjectId.value || '';
   const endpointId = endpoints.value.find((endpoint) => endpoint.projectId === projectId)?.id || '';
   const endpoint = endpoints.value.find((item) => item.id === endpointId);
   Object.assign(requirementForm, {
@@ -571,7 +587,15 @@ function resetForm() {
   });
 }
 
+function openProjectSelectDrawer() {
+  pageProjectSelectRef.value?.openDrawer();
+}
+
 function openCreate() {
+  if (!selectedProjectId.value) {
+    MessagePlugin.warning('请先在顶部选择项目');
+    return;
+  }
   selectedRequirement.value = undefined;
   resetForm();
   editorVisible.value = true;
@@ -682,13 +706,16 @@ async function openConvertFeedbackFromRequirement(
 }
 
 async function loadProjects() {
-  [projects.value, endpoints.value, modules.value, skills.value] = await Promise.all([
-    listProjectsApi(),
+  const [, nextEndpoints, nextModules, nextSkills] = await Promise.all([
+    projectContext.loadProjects(),
     listProjectEndpointsApi(),
     listFeatureModulesApi(),
     listSkillsApi(true),
   ]);
-  selectedProjectId.value ||= projects.value[0]?.id || '';
+  endpoints.value = nextEndpoints;
+  modules.value = nextModules;
+  skills.value = nextSkills;
+  syncCurrentEndpoint();
 }
 
 async function loadRequirements() {
@@ -702,10 +729,19 @@ async function loadRequirements() {
       }),
       listDevelopmentTasksApi({ projectId: selectedProjectId.value || undefined }),
     ]);
-    requirements.value = nextRequirements;
-    developmentTasks.value = nextTasks;
+    const endpointId = filters.endpointId;
+    const visibleRequirements = endpointId
+      ? nextRequirements.filter((requirement) => requirement.endpointId === endpointId)
+      : nextRequirements;
+    const visibleRequirementIdSet = new Set(
+      visibleRequirements.map((requirement) => requirement.id),
+    );
+    requirements.value = visibleRequirements;
+    developmentTasks.value = endpointId
+      ? nextTasks.filter((task) => visibleRequirementIdSet.has(task.requirementId))
+      : nextTasks;
     selectedRequirementKeys.value = selectedRequirementKeys.value.filter((id) =>
-      nextRequirements.some((requirement) => requirement.id === id),
+      visibleRequirements.some((requirement) => requirement.id === id),
     );
     pagination.current = 1;
     const feedbackEntries = await Promise.all(
@@ -750,19 +786,31 @@ async function queryRequirements() {
 }
 
 async function resetFilters() {
-  selectedProjectId.value = projects.value[0]?.id || '';
   selectedRequirementKeys.value = [];
   Object.assign(filters, {
+    endpointId: '',
     health: '',
     requirementInfo: '',
     status: '',
   });
+  syncCurrentEndpoint();
   await loadRequirements();
+}
+
+function syncCurrentEndpoint() {
+  const currentEndpointIds = currentProjectEndpointOptions.value.map((endpoint) => endpoint.value);
+  if (filters.endpointId && currentEndpointIds.includes(filters.endpointId)) return;
+  filters.endpointId = currentEndpointIds[0] || '';
 }
 
 function handleLocalFilterChange() {
   selectedRequirementKeys.value = [];
   pagination.current = 1;
+}
+
+async function handleEndpointFilterChange() {
+  handleLocalFilterChange();
+  await loadRequirements();
 }
 
 function getSelectedRequirementOrWarn() {
@@ -856,9 +904,6 @@ async function saveRequirement() {
 
     MessagePlugin.success('需求已保存');
     editorVisible.value = false;
-    if (!selectedRequirement.value && selectedProjectId.value !== requirementForm.projectId) {
-      selectedProjectId.value = requirementForm.projectId;
-    }
     await loadRequirements();
   } finally {
     requirementSaving.value = false;
@@ -1097,6 +1142,7 @@ watch(
 );
 
 watch(selectedProjectId, async () => {
+  syncCurrentEndpoint();
   await loadRequirements();
 });
 
@@ -1108,39 +1154,35 @@ onActivated(async () => {
 </script>
 
 <template>
-  <ProjectSecondaryListShell
-    v-model:selected-project-id="selectedProjectId"
-    class="requirements-page"
-    :loading="loading"
-    :projects="projects"
-    @refresh="loadRequirements"
-  >
-    <template #header>
-      <section class="sprint-page-title">
-        <h2>需求管理</h2>
-        <p>维护需求、评审、拆解、测试闭环和验收后的产品反馈。</p>
-      </section>
-    </template>
-
-    <template #project-meta="{ project }">
-      <span>经理 {{ resolveUserName(project.projectManagerId) }}</span>
-    </template>
-
-    <template #workspace-header>
-        <div class="workspace-head">
-          <div>
-            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-            <p>{{ selectedProject?.code || '-' }}</p>
-          </div>
-          <TButton theme="primary" :disabled="!selectedProjectId" @click="openCreate">
-            <template #icon>
-              <IconifyIcon icon="lucide:plus" />
-            </template>
-            新增需求
+  <div class="requirements-page sprint-list-page">
+    <section class="sprint-page-title">
+      <div>
+        <h2 class="requirement-page-heading">
+          <span>{{ requirementPageTitle }}</span>
+          <TButton
+            class="requirement-project-switch"
+            shape="circle"
+            size="small"
+            theme="default"
+            title="切换项目"
+            variant="outline"
+            @click="openProjectSelectDrawer"
+          >
+            <IconifyIcon icon="ant-design:swap-outlined" />
           </TButton>
-        </div>
-    </template>
+        </h2>
+        <p>维护需求、评审、拆解、测试闭环和验收后的产品反馈。</p>
+      </div>
+      <TButton theme="primary" :disabled="!selectedProjectId" @click="openCreate">
+        <template #icon>
+          <IconifyIcon icon="lucide:plus" />
+        </template>
+        新增需求
+      </TButton>
+    </section>
+    <HeaderProjectSelect ref="pageProjectSelectRef" hide-trigger />
 
+    <div class="sprint-project-workspace requirements-workspace">
     <section class="sprint-filter-panel">
       <div class="sprint-filter-grid">
         <div class="sprint-filter-field">
@@ -1191,7 +1233,17 @@ onActivated(async () => {
 
     <section class="sprint-table-panel">
       <div class="sprint-table-header">
-        <h3>{{ selectedProjectName || '需求列表' }}</h3>
+        <div class="endpoint-toolbar-filter">
+          <span>当前端:</span>
+          <TSelect
+            v-model="filters.endpointId"
+            class="endpoint-toolbar-select"
+            :disabled="currentProjectEndpointOptions.length === 0"
+            :options="currentProjectEndpointOptions"
+            placeholder="暂无端"
+            @change="handleEndpointFilterChange"
+          />
+        </div>
         <div class="sprint-table-actions">
           <TButton
             theme="primary"
@@ -1429,13 +1481,6 @@ onActivated(async () => {
     >
       <TForm ref="requirementFormRef" :data="requirementForm" :rules="requirementRules" label-width="90px">
         <div class="requirement-relation-row">
-          <TFormItem label="所属项目" name="projectId">
-            <TSelect
-              v-model="requirementForm.projectId"
-              :disabled="!!selectedRequirement"
-              :options="projectOptions"
-            />
-          </TFormItem>
           <TFormItem label="端" name="endpointId">
             <TSelect
               v-model="requirementForm.endpointId"
@@ -1811,7 +1856,8 @@ onActivated(async () => {
         </TFormItem>
       </TForm>
     </TDrawer>
-  </ProjectSecondaryListShell>
+    </div>
+  </div>
 </template>
 <style scoped>
 .requirements-page {
@@ -1819,9 +1865,68 @@ onActivated(async () => {
   flex-direction: column;
 }
 
+.requirements-page .sprint-page-title {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.requirement-page-heading {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.requirement-page-heading > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.requirement-page-heading .t-button {
+  flex: 0 0 auto;
+}
+
+.requirement-project-switch {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+}
+
+.requirement-project-switch .iconify {
+  width: 11px;
+  height: 11px;
+}
+
+.requirements-workspace {
+  gap: 12px;
+}
+
+.endpoint-toolbar-filter {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--td-text-color-secondary);
+}
+
+.endpoint-toolbar-filter span {
+  flex: 0 0 auto;
+}
+
+.endpoint-toolbar-select {
+  width: 260px;
+  max-width: 34vw;
+}
+
 .requirement-relation-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 

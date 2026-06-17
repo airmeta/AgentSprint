@@ -32,7 +32,7 @@ import {
 import { listDigitalWorkersApi, type AutomationApi } from '#/api/automation/workers';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { withSerialColumn } from '#/views/_shared/table-columns';
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 
 import '../_shared/table-layout.css';
 
@@ -70,9 +70,6 @@ const pagination = reactive({
   pageSize: 30,
 });
 
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === filters.projectId),
-);
 const requirementMap = computed(() =>
   Object.fromEntries(requirements.value.map((item) => [item.id, item])),
 );
@@ -253,28 +250,16 @@ onActivated(async () => {
 </script>
 
 <template>
-  <ProjectSecondaryListShell
+  <ProjectContextListShell
     v-model:selected-project-id="filters.projectId"
     class="tasks-page"
-    :loading="loading"
-    :projects="projects"
     @project-change="handleProjectChange"
-    @refresh="loadTasks"
   >
-    <template #header>
-      <section class="sprint-page-title">
-      <h2>任务大厅</h2>
-      <p>统一管理需求拆解后的任务，并指派给具体研发人员。</p>
-      </section>
+    <template #title>
+      任务大厅
     </template>
-
-    <template #workspace-header>
-      <div class="workspace-head">
-        <div>
-          <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-          <p>{{ selectedProject?.code || '-' }}</p>
-        </div>
-      </div>
+    <template #description>
+      统一管理需求拆解后的任务，并指派给具体研发人员。
     </template>
 
     <section class="sprint-filter-panel">
@@ -405,7 +390,7 @@ onActivated(async () => {
         </TFormItem>
       </TForm>
     </TDrawer>
-  </ProjectSecondaryListShell>
+  </ProjectContextListShell>
 </template>
 
 <style scoped>
@@ -417,4 +402,3 @@ onActivated(async () => {
   line-height: 18px;
 }
 </style>
-

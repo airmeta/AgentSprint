@@ -36,7 +36,7 @@ import {
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { withSerialColumn } from '#/views/_shared/table-columns';
-import ProjectSecondaryListShell from '#/components/project-secondary-list-shell/project-secondary-list-shell.vue';
+import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
 
 import '../_shared/table-layout.css';
 
@@ -97,9 +97,6 @@ const testableRequirementStatuses = new Set(['ready_test', 'testing', 'tested', 
 
 const projectOptions = computed(() =>
   projects.value.map((item) => ({ label: `${item.code} / ${item.name}`, value: item.id })),
-);
-const selectedProject = computed(() =>
-  projects.value.find((project) => project.id === filters.projectId),
 );
 const planRequirementOptions = computed(() =>
   requirements.value
@@ -344,17 +341,6 @@ function planTestabilityText(plan: SprintTestApi.TestPlan) {
   return requirementStatusText[requirement.status] || requirement.status;
 }
 
-function projectRequirementCount(projectId: string) {
-  return requirements.value.filter((requirement) => requirement.projectId === projectId).length;
-}
-
-function projectTestableRequirementCount(projectId: string) {
-  return requirements.value.filter(
-    (requirement) =>
-      requirement.projectId === projectId && testableRequirementStatuses.has(requirement.status),
-  ).length;
-}
-
 function resolveUserName(userId?: string) {
   if (!userId) return '未指定';
   const user = userMap.value[userId] || userNameMap.value[userId];
@@ -446,38 +432,24 @@ onMounted(async () => {
 
 <template>
   <div class="tests-page">
-    <ProjectSecondaryListShell
+    <ProjectContextListShell
       v-model:selected-project-id="filters.projectId"
-      :loading="loading"
-      :projects="projects"
       @project-change="handleProjectChange"
-      @refresh="loadPlans"
     >
-      <template #header>
-        <section class="sprint-page-title">
-          <h2>测试验证</h2>
-          <p>围绕项目和需求管理测试计划、执行结果、失败缺陷和回归验证。</p>
-        </section>
+      <template #title>
+        测试验证
+      </template>
+      <template #description>
+        围绕项目和需求管理测试计划、执行结果、失败缺陷和回归验证。
       </template>
 
-      <template #project-meta="{ project }">
-        <span>需求 {{ projectRequirementCount(project.id) }}</span>
-        <span>可测 {{ projectTestableRequirementCount(project.id) }}</span>
-      </template>
-
-      <template #workspace-header>
-        <div class="workspace-head">
-          <div>
-            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
-            <p>{{ selectedProject?.code || '-' }}</p>
-          </div>
-          <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
+      <template #actions>
+        <TButton theme="primary" :disabled="!filters.projectId" @click="openCreate">
             <template #icon>
               <IconifyIcon icon="lucide:plus" />
             </template>
             新增测试计划
           </TButton>
-        </div>
       </template>
 
       <section class="sprint-filter-panel">
@@ -564,7 +536,7 @@ onMounted(async () => {
           </template>
         </TTable>
       </section>
-    </ProjectSecondaryListShell>
+    </ProjectContextListShell>
 
     <TDrawer
       v-model:visible="createVisible"
@@ -749,7 +721,7 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.tests-page :deep(.project-secondary-list-shell) {
+.tests-page :deep(.project-context-list-shell) {
   flex: 1;
   min-height: 0;
 }
@@ -786,4 +758,3 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 </style>
-
