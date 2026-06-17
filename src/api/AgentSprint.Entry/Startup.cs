@@ -1,5 +1,7 @@
 using System.Text;
 
+using AgentSprint.Entry.Actors;
+using AgentSprint.Entry.Services;
 using AgentSprint.Domain.Impls.Agile;
 using AgentSprint.Domain.Impls.Security;
 using AgentSprint.Domain.Impls.Tests;
@@ -22,6 +24,12 @@ using Air.Cloud.EntityFrameWork.Core.Extensions;
 using Air.Cloud.EntityFrameWork.Core.Extensions.DatabaseProvider;
 using Air.Cloud.EntityFrameWork.Core.Filters;
 using Air.Cloud.EntityFrameWork.MySQL.Configure;
+using Air.Cloud.Core.Standard.DistributedLock;
+using Air.Cloud.Modules.Akka.Extensions;
+using Air.Cloud.Modules.Akka.Options;
+using Air.Cloud.Modules.RedisCache.Extensions;
+using Air.Cloud.Modules.RedisCache.Dependencies;
+using Air.Cloud.Modules.RedisCache.Options;
 using Air.Cloud.WebApp.Extensions;
 using Air.Cloud.WebApp.UnifyResult.Extensions;
 
@@ -59,7 +67,15 @@ public sealed class Startup : AppStartup
         services.AddWebAppUnifyResult<AgentSprintUnifyResultProvider>();
         services.AddOpenApi();
         services.AddMemoryCache();
-        services.AddSingleton<IWorkerCommandLogBuffer, InMemoryWorkerCommandLogBuffer>();
+        services.AddOptions<AkkaSettingsOptions>()
+            .BindConfiguration("AkkaSettings");
+        services.AddHostedService<PlatformActorDependencyInitializer>();
+        services.AddAkkaCluster();
+        services.AddOptions<RedisSettingsOptions>()
+            .BindConfiguration("RedisSettings");
+        services.AddRedisCacheService<RedisCacheDependency>();
+        services.AddSingleton<IDistributedLockStandard, RedisLockDependency>();
+        services.AddSingleton<IWorkerCommandLogBuffer, RedisWorkerCommandLogBuffer>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
 
         services.Configure<JwtOptions>(AppCore.Configuration.GetSection("Jwt"));

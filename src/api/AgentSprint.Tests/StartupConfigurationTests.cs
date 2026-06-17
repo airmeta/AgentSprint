@@ -1,16 +1,20 @@
 using AgentSprint.Entry;
+using AgentSprint.Entry.Services;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Service.Impls.AgileServices;
 using AgentSprint.Service.Impls.TestServices;
+using AgentSprint.Service.Services.AgileServices;
 
 using Air.Cloud.Core.Standard.DataBase.Domains;
 using Air.Cloud.Core.Standard.DynamicServer;
 using Air.Cloud.EntityFrameWork.Core.Filters;
+using Air.Cloud.Modules.Akka.Hosting;
 using Air.Cloud.WebApp.UnifyResult.Providers;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace AgentSprint.Tests;
@@ -92,6 +96,33 @@ public sealed class StartupConfigurationTests
                 services,
                 descriptor => descriptor.ServiceType == typeof(IUnifyResultProvider) &&
                     descriptor.ImplementationType == typeof(AgentSprintUnifyResultProvider));
+        });
+    }
+
+    [Fact]
+    public void ConfigureServices_RegistersPlatformAkkaAndRedisCommandLogBuffer()
+    {
+        var services = new ServiceCollection();
+        var startup = new Startup();
+
+        WithDevelopmentStartupEnvironment(() =>
+        {
+            startup.ConfigureServices(services);
+
+            var hostedServices = services
+                .Where(descriptor => descriptor.ServiceType == typeof(IHostedService))
+                .ToList();
+            var dependencyInitializerIndex = hostedServices.FindIndex(descriptor =>
+                descriptor.ImplementationType?.Name == "PlatformActorDependencyInitializer");
+            var akkaIndex = hostedServices.FindIndex(descriptor => descriptor.ImplementationType == typeof(AkkaClusterHostedService));
+
+            Assert.Contains(
+                services,
+                descriptor => descriptor.ServiceType == typeof(IWorkerCommandLogBuffer) &&
+                    descriptor.ImplementationType == typeof(RedisWorkerCommandLogBuffer));
+            Assert.True(dependencyInitializerIndex >= 0);
+            Assert.True(akkaIndex >= 0);
+            Assert.True(dependencyInitializerIndex < akkaIndex);
         });
     }
 

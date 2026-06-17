@@ -11,6 +11,8 @@
     <PackageReference Include="Air.Cloud.Core.Extensions" Version="10.0.0" />
     <PackageReference Include="Air.Cloud.EntityFrameWork.Core" Version="10.0.0" />
     <PackageReference Include="Air.Cloud.EntityFrameWork.MySQL" Version="10.0.0" />
+    <PackageReference Include="Air.Cloud.Modules.Akka" Version="10.0.0" />
+    <PackageReference Include="Air.Cloud.Modules.RedisCache" Version="10.0.0" />
     <PackageReference Include="Air.Cloud.WebApp" Version="10.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />

@@ -12,6 +12,9 @@ using Air.Cloud.Modules.Akka.Abstractions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
+using WorkerCommandLogChunkMessage = AgentSprint.Model.Modules.Agile.Workers.WorkerCommandLogChunkMessage;
+using WorkerPlatformActorNames = AgentSprint.Model.Modules.Agile.Workers.WorkerPlatformActorNames;
+
 namespace AgentSprint.Worker.Services;
 
 public sealed class AgentSprintWorkerService : BackgroundService
@@ -581,6 +584,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
             $"commandId={command.Id}, runType={RunType}, targetType={TargetType ?? string.Empty}, targetId={TargetId ?? string.Empty}, localRunId={request.RunId}, workingDirectory={request.WorkingDirectory}, promptPath={paths.PromptPath}, stdoutPath={paths.StdoutPath}, stderrPath={paths.StderrPath}, finalPath={paths.FinalPath}");
         await using var logStreamer = new WorkerCommandLogStreamer(
             _apiClient,
+            _akkaClusterService,
+            _options.WorkerId,
             command.Id,
             sessionId,
             _options.WorkerName,
@@ -1526,6 +1531,8 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
     private static readonly TimeSpan FlushInterval = TimeSpan.FromMilliseconds(200);
 
     private readonly AgentSprintApiClient _apiClient;
+    private readonly IAkkaClusterService _akkaClusterService;
+    private readonly string _workerId;
     private readonly string _commandId;
     private readonly string _sessionId;
     private readonly string _instanceId;
@@ -1540,12 +1547,16 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
 
     public WorkerCommandLogStreamer(
         AgentSprintApiClient apiClient,
+        IAkkaClusterService akkaClusterService,
+        string workerId,
         string commandId,
         string sessionId,
         string instanceId,
         DateTime startedAt)
     {
         _apiClient = apiClient;
+        _akkaClusterService = akkaClusterService;
+        _workerId = workerId;
         _commandId = commandId;
         _sessionId = sessionId;
         _instanceId = instanceId;
@@ -1616,22 +1627,54 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
                 sequence = ++_sequence;
             }
 
-            await _apiClient.AppendCommandLogAsync(
-                new AppendWorkerCommandLogRequest(
-                    _commandId,
-                    chunk,
-                    _sessionId,
-                    _runId,
-                    _instanceId,
-                    sequence,
-                    completed,
-                    _startedAt,
-                    completed ? DateTime.UtcNow : null),
-                cancellationToken);
+            var request = new AppendWorkerCommandLogRequest(
+                _commandId,
+                chunk,
+                _sessionId,
+                _runId,
+                _instanceId,
+                sequence,
+                completed,
+                _startedAt,
+                completed ? DateTime.UtcNow : null);
+            if (TryTellAkka(request))
+            {
+                return;
+            }
+
+            await _apiClient.AppendCommandLogAsync(request, cancellationToken);
         }
         finally
         {
             _flushLock.Release();
+        }
+    }
+
+    private bool TryTellAkka(AppendWorkerCommandLogRequest request)
+    {
+        try
+        {
+            _akkaClusterService.Tell(
+                WorkerPlatformActorNames.WorkerCommandLogReceiverRegisteredName,
+                new WorkerCommandLogChunkMessage(
+                    _workerId,
+                    _sessionId,
+                    _instanceId,
+                    _commandId,
+                    _runId,
+                    request.Sequence,
+                    request.Chunk,
+                    request.Completed,
+                    request.StartedAt,
+                    request.CompletedAt));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WorkerDiagnostics.Warn(
+                "Worker命令日志Akka投递失败",
+                $"commandId={_commandId}, runId={_runId ?? string.Empty}, error={ex.Message}");
+            return false;
         }
     }
 

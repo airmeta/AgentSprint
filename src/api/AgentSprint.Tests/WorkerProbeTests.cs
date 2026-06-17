@@ -13,6 +13,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
+using WorkerCommandLogChunkMessage = AgentSprint.Model.Modules.Agile.Workers.WorkerCommandLogChunkMessage;
+using WorkerPlatformActorNames = AgentSprint.Model.Modules.Agile.Workers.WorkerPlatformActorNames;
+
 namespace AgentSprint.Tests;
 
 public sealed class WorkerProbeTests
@@ -72,6 +75,29 @@ public sealed class WorkerProbeTests
         Assert.Equal("event-reporter", WorkerActorNames.EventReporter);
         Assert.Equal("agentsprint-worker-event-reporter", WorkerActorNames.EventReporterRegisteredName);
         Assert.Equal("akka_cluster_started", WorkerEventTypes.AkkaClusterStarted);
+    }
+
+    [Fact]
+    public void WorkerPlatformActorNames_CommandLogReceiverRegisteredName_UsesPlatformDomainPrefix()
+    {
+        var message = new WorkerCommandLogChunkMessage(
+            "worker-id",
+            "session-id",
+            "instance-id",
+            "command-id",
+            "run-id",
+            7,
+            "chunk",
+            false,
+            DateTime.UnixEpoch,
+            null);
+
+        Assert.Equal("AgentSprintPlatform", WorkerPlatformActorNames.Domain);
+        Assert.Equal("agentsprint-platform", WorkerPlatformActorNames.Role);
+        Assert.Equal("worker-command-log-receiver", WorkerPlatformActorNames.WorkerCommandLogReceiver);
+        Assert.Equal("agentsprint-platform-worker-command-log-receiver", WorkerPlatformActorNames.WorkerCommandLogReceiverRegisteredName);
+        Assert.Equal("instance-id", message.InstanceId);
+        Assert.Equal("command-id", message.CommandId);
     }
 
     [Fact]
