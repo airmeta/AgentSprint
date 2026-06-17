@@ -201,10 +201,17 @@ const skillOptions = computed(() =>
   })),
 );
 const priorityOptions = [
-  { label: '加急', value: 1 },
-  { label: '姝ｅ父', value: 2 },
-  { label: '可延后', value: 3 },
+  { label: '加急', theme: 'danger', value: 1 },
+  { label: '正常', theme: 'primary', value: 2 },
+  { label: '可延后', theme: 'success', value: 3 },
 ];
+const getPriorityTheme = (priority: number, value: number, theme: string) =>
+  priority === value ? theme : 'default';
+const getPriorityButtonClass = (priority: number, value: number) => ({
+  'priority-option-button': true,
+  'priority-option-button--danger': priority !== value && value === 1,
+  'priority-option-button--success': priority !== value && value === 3,
+});
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const userNameMap = computed(() => Object.fromEntries(users.value.map((item) => [item.username, item])));
 const endpointMap = computed(() =>
@@ -1397,7 +1404,8 @@ onActivated(async () => {
             <TButton
               v-for="item in priorityOptions"
               :key="item.value"
-              :theme="requirementForm.priority === item.value ? 'primary' : 'default'"
+              :class="getPriorityButtonClass(requirementForm.priority, item.value)"
+              :theme="getPriorityTheme(requirementForm.priority, item.value, item.theme)"
               :variant="requirementForm.priority === item.value ? 'base' : 'outline'"
               @click="requirementForm.priority = item.value"
             >
@@ -1705,7 +1713,8 @@ onActivated(async () => {
             <TButton
               v-for="item in priorityOptions"
               :key="item.value"
-              :theme="convertFeedbackForm.priority === item.value ? 'primary' : 'default'"
+              :class="getPriorityButtonClass(convertFeedbackForm.priority, item.value)"
+              :theme="getPriorityTheme(convertFeedbackForm.priority, item.value, item.theme)"
               :variant="convertFeedbackForm.priority === item.value ? 'base' : 'outline'"
               @click="convertFeedbackForm.priority = item.value"
             >
@@ -1801,6 +1810,20 @@ onActivated(async () => {
 
 .markdown-form-item :deep(.md-editor-content) {
   min-height: 480px;
+}
+
+.priority-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.priority-option-button--danger {
+  color: var(--td-error-color);
+}
+
+.priority-option-button--success {
+  color: var(--td-success-color);
 }
 
 .markdown-preview {
