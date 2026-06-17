@@ -210,6 +210,16 @@ public sealed class AgentSprintApiClient
             cancellationToken);
     }
 
+    public Task<WorkerCommandLogSnapshotResult> AppendCommandLogAsync(
+        AppendWorkerCommandLogRequest request,
+        CancellationToken cancellationToken)
+    {
+        return PostAsync<AppendWorkerCommandLogRequest, WorkerCommandLogSnapshotResult>(
+            "worker-runtime/command-logs/append",
+            request,
+            cancellationToken);
+    }
+
     private async Task<TResponse> PostAsync<TRequest, TResponse>(
         string path,
         TRequest request,

@@ -20,6 +20,8 @@ public sealed class DigitalWorkerManagementService :
     private readonly IDigitalWorkerDomain _workerDomain;
     private readonly IWorkerSessionDomain _sessionDomain;
     private readonly IWorkerCommandDomain _commandDomain;
+    private readonly IWorkerCommandLogDomain _commandLogDomain;
+    private readonly IWorkerCommandLogBuffer _commandLogBuffer;
     private readonly IWorkerRunDomain _runDomain;
     private readonly IWorkerEventDomain _eventDomain;
     private readonly ISprintDevelopmentTaskDomain _taskDomain;
@@ -33,6 +35,8 @@ public sealed class DigitalWorkerManagementService :
         IDigitalWorkerDomain workerDomain,
         IWorkerSessionDomain sessionDomain,
         IWorkerCommandDomain commandDomain,
+        IWorkerCommandLogDomain commandLogDomain,
+        IWorkerCommandLogBuffer commandLogBuffer,
         IWorkerRunDomain runDomain,
         IWorkerEventDomain eventDomain,
         ISprintDevelopmentTaskDomain taskDomain,
@@ -41,6 +45,8 @@ public sealed class DigitalWorkerManagementService :
         _workerDomain = workerDomain;
         _sessionDomain = sessionDomain;
         _commandDomain = commandDomain;
+        _commandLogDomain = commandLogDomain;
+        _commandLogBuffer = commandLogBuffer;
         _runDomain = runDomain;
         _eventDomain = eventDomain;
         _taskDomain = taskDomain;
@@ -233,6 +239,33 @@ public sealed class DigitalWorkerManagementService :
             .OrderByDescending(entity => entity.CreateTime)
             .Select(ToResult)
             .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<WorkerCommandLogSnapshotResult?> GetCommandLogSnapshotAsync(string commandId)
+    {
+        var normalizedCommandId = NormalizeRequired(commandId, "Command id is required.");
+        var buffered = _commandLogBuffer.Get(normalizedCommandId);
+        if (buffered is not null)
+        {
+            return buffered;
+        }
+
+        var logs = await _commandLogDomain.ListAsync(entity => entity.CommandId == normalizedCommandId);
+        var latest = logs
+            .OrderByDescending(entity => entity.CreateTime)
+            .FirstOrDefault();
+        return latest is null
+            ? null
+            : new WorkerCommandLogSnapshotResult(
+                latest.CommandId,
+                latest.RunId,
+                latest.SessionId,
+                latest.InstanceId,
+                latest.LogText,
+                0,
+                true,
+                latest.CompletedAt ?? latest.UpdateTime ?? latest.CreateTime);
     }
 
     /// <inheritdoc />
@@ -485,6 +518,21 @@ public sealed class DigitalWorkerManagementService :
             entity.Level,
             entity.Message,
             entity.PayloadJson,
+            entity.CreateTime);
+    }
+
+    internal static WorkerCommandLogResult ToResult(WorkerCommandLogEntity entity)
+    {
+        return new WorkerCommandLogResult(
+            entity.Id,
+            entity.WorkerId,
+            entity.SessionId,
+            entity.InstanceId,
+            entity.CommandId,
+            entity.RunId,
+            entity.LogText,
+            entity.StartedAt,
+            entity.CompletedAt,
             entity.CreateTime);
     }
 
@@ -775,6 +823,8 @@ public sealed class DigitalWorkerRuntimeService :
     private readonly IPromptTemplateDomain _promptTemplateDomain;
     private readonly IWorkerSessionDomain _sessionDomain;
     private readonly IWorkerCommandDomain _commandDomain;
+    private readonly IWorkerCommandLogDomain _commandLogDomain;
+    private readonly IWorkerCommandLogBuffer _commandLogBuffer;
     private readonly IWorkerRunDomain _runDomain;
     private readonly IWorkerEventDomain _eventDomain;
 
@@ -800,6 +850,8 @@ public sealed class DigitalWorkerRuntimeService :
         IPromptTemplateDomain promptTemplateDomain,
         IWorkerSessionDomain sessionDomain,
         IWorkerCommandDomain commandDomain,
+        IWorkerCommandLogDomain commandLogDomain,
+        IWorkerCommandLogBuffer commandLogBuffer,
         IWorkerRunDomain runDomain,
         IWorkerEventDomain eventDomain)
     {
@@ -816,6 +868,8 @@ public sealed class DigitalWorkerRuntimeService :
         _promptTemplateDomain = promptTemplateDomain;
         _sessionDomain = sessionDomain;
         _commandDomain = commandDomain;
+        _commandLogDomain = commandLogDomain;
+        _commandLogBuffer = commandLogBuffer;
         _runDomain = runDomain;
         _eventDomain = eventDomain;
     }
@@ -1208,6 +1262,104 @@ public sealed class DigitalWorkerRuntimeService :
             DigitalWorkerManagementService.NormalizeRequired(request.Message, "Event message is required."),
             DigitalWorkerManagementService.NormalizeOptional(request.PayloadJson));
         return DigitalWorkerManagementService.ToResult(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<WorkerCommandLogSnapshotResult> AppendCommandLogAsync(
+        string workerId,
+        AppendWorkerCommandLogRequest request)
+    {
+        var worker = await GetWorkerOrThrowAsync(workerId);
+        EnsureWorkerActive(worker);
+        var command = await GetCommandOrThrowAsync(DigitalWorkerManagementService.NormalizeRequired(
+            request.CommandId,
+            "Command id is required."));
+        if (command.WorkerId != worker.Id)
+        {
+            throw new InvalidOperationException("Worker command does not belong to the current worker.");
+        }
+
+        var sessionId = DigitalWorkerManagementService.NormalizeOptional(request.SessionId) ??
+            DigitalWorkerManagementService.NormalizeOptional(command.SessionId);
+        WorkerSessionEntity? session = null;
+        if (sessionId is not null)
+        {
+            session = await GetSessionOrThrowAsync(sessionId);
+            EnsureSessionBelongsToWorker(session, worker.Id);
+        }
+
+        var runId = DigitalWorkerManagementService.NormalizeOptional(request.RunId);
+        if (runId is not null)
+        {
+            var run = await GetRunOrThrowAsync(runId);
+            if (run.WorkerId != worker.Id || (sessionId is not null && run.SessionId != sessionId))
+            {
+                throw new InvalidOperationException("Worker run does not belong to the current worker session.");
+            }
+        }
+
+        var instanceId = DigitalWorkerManagementService.NormalizeOptional(request.InstanceId) ??
+            session?.InstanceId ??
+            "unknown";
+        var snapshot = _commandLogBuffer.Append(
+            worker.Id,
+            command.Id,
+            sessionId,
+            runId,
+            instanceId,
+            request.Chunk,
+            request.Sequence,
+            request.Completed);
+        if (request.Completed)
+        {
+            await PersistCommandLogAsync(worker.Id, command.Id, snapshot, request.StartedAt, request.CompletedAt);
+            _commandLogBuffer.Remove(command.Id);
+        }
+
+        return snapshot;
+    }
+
+    private async Task PersistCommandLogAsync(
+        string workerId,
+        string commandId,
+        WorkerCommandLogSnapshotResult snapshot,
+        DateTime? startedAt,
+        DateTime? completedAt)
+    {
+        var existing = (await _commandLogDomain.ListAsync(entity => entity.CommandId == commandId))
+            .OrderByDescending(entity => entity.CreateTime)
+            .FirstOrDefault();
+        if (existing is null)
+        {
+            existing = new WorkerCommandLogEntity
+            {
+                WorkerId = workerId,
+                CommandId = commandId
+            };
+            await _commandLogDomain.CreateAsync(existing);
+        }
+
+        existing.SessionId = snapshot.SessionId;
+        existing.InstanceId = snapshot.InstanceId;
+        existing.RunId = snapshot.RunId;
+        existing.LogText = snapshot.LogText;
+        existing.StartedAt = startedAt;
+        existing.CompletedAt = completedAt ?? DateTime.UtcNow;
+        await _commandLogDomain.UpdateAsync(existing);
+        await TrimCommandLogsAsync(workerId, snapshot.InstanceId);
+    }
+
+    private async Task TrimCommandLogsAsync(string workerId, string instanceId)
+    {
+        var logs = await _commandLogDomain.ListAsync(entity =>
+            entity.WorkerId == workerId &&
+            entity.InstanceId == instanceId);
+        foreach (var expired in logs
+            .OrderByDescending(entity => entity.CreateTime)
+            .Skip(200))
+        {
+            await _commandLogDomain.DeleteAsync(expired.Id);
+        }
     }
 
     private async Task<DigitalWorkerEntity> GetWorkerOrThrowAsync(string id)

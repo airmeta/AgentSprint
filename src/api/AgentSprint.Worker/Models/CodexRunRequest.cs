@@ -49,4 +49,5 @@ public sealed record CodexRunRequest(
     TimeSpan Timeout,
     TimeSpan? IdleTimeout = null,
     string? CodexExecutable = null,
-    Func<CodexRunProgressEvent, CancellationToken, Task>? ProgressReporter = null);
+    Func<CodexRunProgressEvent, CancellationToken, Task>? ProgressReporter = null,
+    Func<string, string, CancellationToken, Task>? OutputReporter = null);

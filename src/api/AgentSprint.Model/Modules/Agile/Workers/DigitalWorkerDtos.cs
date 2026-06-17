@@ -120,6 +120,17 @@ public sealed record ReportWorkerEventRequest(
     string? Level = null,
     string? PayloadJson = null);
 
+public sealed record AppendWorkerCommandLogRequest(
+    string CommandId,
+    string? Chunk,
+    string? SessionId = null,
+    string? RunId = null,
+    string? InstanceId = null,
+    long Sequence = 0,
+    bool Completed = false,
+    DateTime? StartedAt = null,
+    DateTime? CompletedAt = null);
+
 public sealed record DigitalWorkerResult(
     string Id,
     string Code,
@@ -245,6 +256,28 @@ public sealed record WorkerEventResult(
     string Message,
     string? PayloadJson,
     DateTime CreateTime);
+
+public sealed record WorkerCommandLogResult(
+    string Id,
+    string WorkerId,
+    string? SessionId,
+    string InstanceId,
+    string CommandId,
+    string? RunId,
+    string LogText,
+    DateTime? StartedAt,
+    DateTime? CompletedAt,
+    DateTime CreateTime);
+
+public sealed record WorkerCommandLogSnapshotResult(
+    string CommandId,
+    string? RunId,
+    string? SessionId,
+    string InstanceId,
+    string LogText,
+    long LastSequence,
+    bool Completed,
+    DateTime UpdatedAt);
 
 public sealed record WorkerHeartbeatResult(
     string WorkerId,

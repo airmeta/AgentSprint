@@ -9,6 +9,7 @@ using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Model.Modules.Security.Dtos;
 using AgentSprint.Service.Impls.AgileServices;
+using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.SecurityServices;
 
 namespace AgentSprint.Tests;
@@ -253,6 +254,67 @@ public sealed class DigitalWorkerServiceTests
         Assert.Equal("abc123", completedCommand.GitCommitId);
         Assert.Contains(events, item => item.EventType == "codex_started");
         Assert.Contains(events, item => item.EventType == "codex_finished");
+    }
+
+    [Fact]
+    public async Task Runtime_AppendCommandLog_BuffersChunksPersistsOnCompletedAndKeepsLatestTwoHundred()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+
+        for (var index = 0; index < 201; index++)
+        {
+            var command = await management.CreateCommandAsync(
+                new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke),
+                "admin");
+            await runtime.StartCommandAsync(command.Id, new AckWorkerCommandRequest(session.Id));
+            var run = await runtime.StartRunAsync(
+                new StartWorkerRunRequest(
+                    worker.Id,
+                    session.Id,
+                    WorkerRunTypes.Smoke,
+                    WorkerRunStatuses.Running,
+                    CommandId: command.Id));
+
+            await runtime.AppendCommandLogAsync(
+                worker.Id,
+                new AppendWorkerCommandLogRequest(
+                    command.Id,
+                    $"line-{index}\n",
+                    session.Id,
+                    run.Id,
+                    "instance-1",
+                    Sequence: 1));
+            var completed = await runtime.AppendCommandLogAsync(
+                worker.Id,
+                new AppendWorkerCommandLogRequest(
+                    command.Id,
+                    null,
+                    session.Id,
+                    run.Id,
+                    "instance-1",
+                    Sequence: 2,
+                    Completed: true));
+
+            Assert.True(completed.Completed);
+        }
+
+        var activeLogs = await domains.CommandLogs.ListAsync(entity => entity.WorkerId == worker.Id);
+        var deletedLogs = (await domains.CommandLogs.ListIncludingDeletedAsync(entity => entity.WorkerId == worker.Id))
+            .Where(entity => entity.IsDelete == 1)
+            .ToList();
+        var latestLog = activeLogs.OrderByDescending(entity => entity.CreateTime).First();
+
+        Assert.Equal(200, activeLogs.Count);
+        Assert.Single(deletedLogs);
+        Assert.Contains("line-200", latestLog.LogText);
+        Assert.Null(domains.CommandLogBuffer.Get(latestLog.CommandId));
     }
 
     [Fact]
@@ -767,6 +829,10 @@ internal sealed class DigitalWorkerTestDomains
 
     public InMemoryWorkerCommandDomain Commands { get; } = new();
 
+    public InMemoryWorkerCommandLogDomain CommandLogs { get; } = new();
+
+    public InMemoryWorkerCommandLogBuffer CommandLogBuffer { get; } = new();
+
     public InMemoryWorkerRunDomain Runs { get; } = new();
 
     public InMemoryWorkerEventDomain Events { get; } = new();
@@ -800,7 +866,7 @@ internal sealed class DigitalWorkerTestDomains
 
     public DigitalWorkerManagementService CreateManagementService()
     {
-        return new DigitalWorkerManagementService(Workers, Sessions, Commands, Runs, Events, Tasks, Bugs);
+        return new DigitalWorkerManagementService(Workers, Sessions, Commands, CommandLogs, CommandLogBuffer, Runs, Events, Tasks, Bugs);
     }
 
     public DigitalWorkerRuntimeService CreateRuntimeService()
@@ -819,6 +885,8 @@ internal sealed class DigitalWorkerTestDomains
             PromptTemplates,
             Sessions,
             Commands,
+            CommandLogs,
+            CommandLogBuffer,
             Runs,
             Events);
     }
@@ -835,6 +903,49 @@ internal sealed class InMemoryWorkerSessionDomain :
 internal sealed class InMemoryWorkerCommandDomain :
     InMemoryDigitalWorkerDomainBase<WorkerCommandEntity>,
     IWorkerCommandDomain;
+
+internal sealed class InMemoryWorkerCommandLogDomain :
+    InMemoryDigitalWorkerDomainBase<WorkerCommandLogEntity>,
+    IWorkerCommandLogDomain;
+
+internal sealed class InMemoryWorkerCommandLogBuffer : IWorkerCommandLogBuffer
+{
+    private readonly Dictionary<string, WorkerCommandLogSnapshotResult> _snapshots = new(StringComparer.Ordinal);
+
+    public WorkerCommandLogSnapshotResult Append(
+        string workerId,
+        string commandId,
+        string? sessionId,
+        string? runId,
+        string instanceId,
+        string? chunk,
+        long sequence,
+        bool completed)
+    {
+        _snapshots.TryGetValue(commandId, out var existing);
+        var snapshot = new WorkerCommandLogSnapshotResult(
+            commandId,
+            runId ?? existing?.RunId,
+            sessionId ?? existing?.SessionId,
+            instanceId,
+            (existing?.LogText ?? string.Empty) + (chunk ?? string.Empty),
+            sequence,
+            completed,
+            DateTime.UtcNow);
+        _snapshots[commandId] = snapshot;
+        return snapshot;
+    }
+
+    public WorkerCommandLogSnapshotResult? Get(string commandId)
+    {
+        return _snapshots.TryGetValue(commandId, out var snapshot) ? snapshot : null;
+    }
+
+    public void Remove(string commandId)
+    {
+        _snapshots.Remove(commandId);
+    }
+}
 
 internal sealed class InMemoryWorkerRunDomain :
     InMemoryDigitalWorkerDomainBase<WorkerRunEntity>,

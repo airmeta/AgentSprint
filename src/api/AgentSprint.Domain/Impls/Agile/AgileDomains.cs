@@ -293,6 +293,21 @@ public sealed class WorkerCommandDomain : EntityDomainBase<WorkerCommandEntity>,
     }
 }
 
+public sealed class WorkerCommandLogDomain : EntityDomainBase<WorkerCommandLogEntity>, IWorkerCommandLogDomain
+{
+    /// <summary>
+    /// zh-cn: 鍒涘缓 Worker 鍛戒护鏃ュ織棰嗗煙瀵硅薄锛岀敤浜庝繚瀛樺彈鎺х涓婃姤鐨勫崟娆″懡浠ゅ畬鏁磋緭鍑哄ぇ鏂囨湰銆?
+    /// en-us: Creates the Worker-command-log domain used to persist one complete large text output reported by a controlled Worker for a command.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: Worker 鍛戒护鏃ュ織瀹炰綋浠撳偍銆?
+    /// en-us: Worker-command-log entity repository.
+    /// </param>
+    public WorkerCommandLogDomain(IRepository<WorkerCommandLogEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class WorkerRunDomain : EntityDomainBase<WorkerRunEntity>, IWorkerRunDomain
 {
     /// <summary>

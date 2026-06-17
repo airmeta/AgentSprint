@@ -124,6 +124,20 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
         return Execute(() => _service.ReportEventAsync(request));
     }
 
+    /// <summary>
+    /// zh-cn: 鎺ユ敹 Worker 姣?200ms 宸﹀彸鎺ㄩ€佺殑鍛戒护鏃ュ織澧為噺锛屽苟鍦ㄧ粨鏉熸爣璁板埌杈炬椂瑙﹀彂鏃ュ織钀藉簱銆?
+    /// en-us: Receives command-log chunks pushed by Worker about every 200 ms and persists the aggregated log when the completion marker arrives.
+    /// </summary>
+    [HttpPost("command-logs/append")]
+    public async Task<ActionResult<ApiResponse<WorkerCommandLogSnapshotResult>>> AppendCommandLog(AppendWorkerCommandLogRequest request)
+    {
+        return await Execute(async () =>
+        {
+            var workerId = await ReadWorkerIdFromBearerAsync();
+            return await _service.AppendCommandLogAsync(workerId, request);
+        });
+    }
+
     private async Task<ActionResult<ApiResponse<T>>> Execute<T>(Func<Task<T>> action)
     {
         try

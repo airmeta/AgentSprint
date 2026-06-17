@@ -39,6 +39,8 @@ public interface IWorkerSessionDomain : IEntityDomainBase<WorkerSessionEntity>;
 
 public interface IWorkerCommandDomain : IEntityDomainBase<WorkerCommandEntity>;
 
+public interface IWorkerCommandLogDomain : IEntityDomainBase<WorkerCommandLogEntity>;
+
 public interface IWorkerRunDomain : IEntityDomainBase<WorkerRunEntity>;
 
 public interface IWorkerEventDomain : IEntityDomainBase<WorkerEventEntity>;

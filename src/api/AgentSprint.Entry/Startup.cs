@@ -59,6 +59,7 @@ public sealed class Startup : AppStartup
         services.AddWebAppUnifyResult<AgentSprintUnifyResultProvider>();
         services.AddOpenApi();
         services.AddMemoryCache();
+        services.AddSingleton<IWorkerCommandLogBuffer, InMemoryWorkerCommandLogBuffer>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
 
         services.Configure<JwtOptions>(AppCore.Configuration.GetSection("Jwt"));
@@ -134,6 +135,7 @@ public sealed class Startup : AppStartup
         services.AddTransient<IDigitalWorkerDomain, DigitalWorkerDomain>();
         services.AddTransient<IWorkerSessionDomain, WorkerSessionDomain>();
         services.AddTransient<IWorkerCommandDomain, WorkerCommandDomain>();
+        services.AddTransient<IWorkerCommandLogDomain, WorkerCommandLogDomain>();
         services.AddTransient<IWorkerRunDomain, WorkerRunDomain>();
         services.AddTransient<IWorkerEventDomain, WorkerEventDomain>();
 

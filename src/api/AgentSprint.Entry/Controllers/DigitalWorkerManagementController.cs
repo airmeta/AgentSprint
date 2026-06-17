@@ -97,6 +97,46 @@ public sealed class DigitalWorkerManagementController : ControllerBase
         return Execute(() => _service.ReplayCommandAsync(commandId, GetUserId()));
     }
 
+    /// <summary>
+    /// zh-cn: 鑾峰彇鍛戒护鏃ュ織蹇収锛岀鐞嗙鍙敤浜庤疆璇㈠疄鏃剁洃鎺?Worker 杈撳嚭銆?
+    /// en-us: Gets a command-log snapshot for management polling of live Worker output.
+    /// </summary>
+    [HttpGet("commands/{commandId}/log")]
+    public Task<ActionResult<ApiResponse<WorkerCommandLogSnapshotResult?>>> GetCommandLogSnapshot(string commandId)
+    {
+        return Execute(() => _service.GetCommandLogSnapshotAsync(commandId));
+    }
+
+    /// <summary>
+    /// zh-cn: 閫氳繃 SSE 鎸佺画杈撳嚭鍛戒护鏃ュ織蹇収锛屽墠绔彲鐢ㄤ簬浠诲姟瀹炴椂鐩戞帶椤甸潰銆?
+    /// en-us: Streams command-log snapshots through SSE so the frontend can monitor task output in real time.
+    /// </summary>
+    [HttpGet("commands/{commandId}/log/stream")]
+    public async Task StreamCommandLog(string commandId, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.Connection = "keep-alive";
+        Response.ContentType = "text/event-stream";
+
+        var lastSequence = -1L;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var snapshot = await _service.GetCommandLogSnapshotAsync(commandId);
+            if (snapshot is not null && snapshot.LastSequence != lastSequence)
+            {
+                lastSequence = snapshot.LastSequence;
+                await Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(snapshot)}\n\n", cancellationToken);
+                await Response.Body.FlushAsync(cancellationToken);
+                if (snapshot.Completed)
+                {
+                    break;
+                }
+            }
+
+            await Task.Delay(1000, cancellationToken);
+        }
+    }
+
     [HttpGet("sessions")]
     public async Task<ApiResponse<IReadOnlyList<WorkerSessionResult>>> ListSessions(
         [FromQuery] string? workerId,

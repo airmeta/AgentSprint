@@ -182,6 +182,32 @@ public sealed class WorkerCommandEntity : EntityBase
     public string CreatedBy { get; set; } = string.Empty;
 }
 
+[Table("worker_command_log")]
+public sealed class WorkerCommandLogEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string WorkerId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? SessionId { get; set; }
+
+    [MaxLength(128)]
+    public string InstanceId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string CommandId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? RunId { get; set; }
+
+    [Column(TypeName = "longtext")]
+    public string LogText { get; set; } = string.Empty;
+
+    public DateTime? StartedAt { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+}
+
 [Table("worker_run")]
 public sealed class WorkerRunEntity : EntityBase
 {

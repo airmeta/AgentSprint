@@ -77,4 +77,10 @@ public interface IDigitalWorkerRuntimeService
     /// en-us: Writes a Worker lifecycle or run event for the management audit timeline.
     /// </summary>
     Task<WorkerEventResult> ReportEventAsync(ReportWorkerEventRequest request);
+
+    /// <summary>
+    /// zh-cn: 鎺ユ敹 Worker 鍛戒护鏃ュ織澧為噺锛屽厛鍐欏叆 Redis/鍐呭瓨绫诲瀷鐨勮繍琛岀紦鍐诧紱褰?Completed 涓?true 鏃舵眹鎬绘棩蹇楀苟鍐欏叆 worker_command_log 表。
+    /// en-us: Receives incremental Worker command-log chunks into a Redis/memory-style runtime buffer; when Completed is true, the service aggregates and persists the log into worker_command_log.
+    /// </summary>
+    Task<WorkerCommandLogSnapshotResult> AppendCommandLogAsync(string workerId, AppendWorkerCommandLogRequest request);
 }

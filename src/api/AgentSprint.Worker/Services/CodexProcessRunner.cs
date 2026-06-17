@@ -117,8 +117,8 @@ public sealed class CodexProcessRunner
                 {
                 }
 
-                var stdoutTask = PumpAsync(process.StandardOutput, stdout, pumpCts.Token, OnOutputLine);
-                var stderrTask = PumpAsync(process.StandardError, stderr, pumpCts.Token, OnOutputLine);
+                var stdoutTask = PumpAsync(process.StandardOutput, stdout, "stdout", pumpCts.Token, OnOutputLine);
+                var stderrTask = PumpAsync(process.StandardError, stderr, "stderr", pumpCts.Token, OnOutputLine);
                 var processExitTask = process.WaitForExitAsync(cancellationToken);
                 var runTimeoutTask = Task.Delay(request.Timeout, watcherCts.Token);
                 var idleTimeoutTask = WatchIdleAsync(
@@ -185,11 +185,12 @@ public sealed class CodexProcessRunner
             ProcessCommandRunner.TryKillProcessTree(process);
         }
 
-        void OnOutputLine(string line)
+        void OnOutputLine(string streamName, string line)
         {
             Interlocked.Exchange(ref lastOutputTicks, DateTimeOffset.UtcNow.UtcTicks);
             Volatile.Write(ref hasOutput, true);
-            WorkerDiagnostics.Info("Codex输出", $"runId={request.RunId}, line={WorkerDiagnostics.Trim(line, 2000)}");
+            WorkerDiagnostics.Info("Codex输出", $"runId={request.RunId}, stream={streamName}, line={WorkerDiagnostics.Trim(line, 2000)}");
+            _ = ReportOutputAsync(request, streamName, line, CancellationToken.None);
         }
 
         var completedAt = DateTimeOffset.UtcNow;
@@ -249,8 +250,9 @@ public sealed class CodexProcessRunner
     private static async Task PumpAsync(
         StreamReader reader,
         StreamWriter writer,
+        string streamName,
         CancellationToken cancellationToken,
-        Action<string> onLine)
+        Action<string, string> onLine)
     {
         while (true)
         {
@@ -260,7 +262,7 @@ public sealed class CodexProcessRunner
                 break;
             }
 
-            onLine(line);
+            onLine(streamName, line);
             await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
             await writer.FlushAsync(cancellationToken);
         }
@@ -462,6 +464,29 @@ public sealed class CodexProcessRunner
             WorkerDiagnostics.Warn(
                 "Codex运行进度上报失败",
                 $"runId={request.RunId}, eventType={progress.EventType}, error={ex.Message}");
+        }
+    }
+
+    private static async Task ReportOutputAsync(
+        CodexRunRequest request,
+        string streamName,
+        string line,
+        CancellationToken cancellationToken)
+    {
+        if (request.OutputReporter is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await request.OutputReporter(streamName, line, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Warn(
+                "Codex杩愯杈撳嚭涓婃姤澶辫触",
+                $"runId={request.RunId}, stream={streamName}, error={ex.Message}");
         }
     }
 

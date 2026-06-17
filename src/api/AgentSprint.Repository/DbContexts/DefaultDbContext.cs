@@ -96,6 +96,8 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<WorkerCommandEntity> WorkerCommands => Set<WorkerCommandEntity>();
 
+    public DbSet<WorkerCommandLogEntity> WorkerCommandLogs => Set<WorkerCommandLogEntity>();
+
     public DbSet<WorkerRunEntity> WorkerRuns => Set<WorkerRunEntity>();
 
     public DbSet<WorkerEventEntity> WorkerEvents => Set<WorkerEventEntity>();
@@ -170,6 +172,8 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.InstanceId });
         modelBuilder.Entity<WorkerCommandEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });
         modelBuilder.Entity<WorkerCommandEntity>().HasIndex(entity => new { entity.SessionId, entity.Status });
+        modelBuilder.Entity<WorkerCommandLogEntity>().HasIndex(entity => new { entity.WorkerId, entity.InstanceId, entity.CreateTime });
+        modelBuilder.Entity<WorkerCommandLogEntity>().HasIndex(entity => new { entity.CommandId, entity.CreateTime });
         modelBuilder.Entity<WorkerRunEntity>().HasIndex(entity => new { entity.WorkerId, entity.SessionId });
         modelBuilder.Entity<WorkerRunEntity>().HasIndex(entity => new { entity.TargetType, entity.TargetId });
         modelBuilder.Entity<WorkerEventEntity>().HasIndex(entity => new { entity.WorkerId, entity.CreateTime });

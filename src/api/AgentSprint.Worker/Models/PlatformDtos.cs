@@ -65,6 +65,17 @@ public sealed record ReportWorkerEventRequest(
     [property: JsonPropertyName("level")] string? Level,
     [property: JsonPropertyName("payloadJson")] string? PayloadJson);
 
+public sealed record AppendWorkerCommandLogRequest(
+    [property: JsonPropertyName("commandId")] string CommandId,
+    [property: JsonPropertyName("chunk")] string? Chunk,
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("runId")] string? RunId,
+    [property: JsonPropertyName("instanceId")] string? InstanceId,
+    [property: JsonPropertyName("sequence")] long Sequence,
+    [property: JsonPropertyName("completed")] bool Completed,
+    [property: JsonPropertyName("startedAt")] DateTime? StartedAt,
+    [property: JsonPropertyName("completedAt")] DateTime? CompletedAt);
+
 public sealed record WorkerSessionResult(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("workerId")] string WorkerId,
@@ -117,6 +128,16 @@ public sealed record WorkerEventResult(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("workerId")] string WorkerId,
     [property: JsonPropertyName("eventType")] string EventType);
+
+public sealed record WorkerCommandLogSnapshotResult(
+    [property: JsonPropertyName("commandId")] string CommandId,
+    [property: JsonPropertyName("runId")] string? RunId,
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("instanceId")] string InstanceId,
+    [property: JsonPropertyName("logText")] string LogText,
+    [property: JsonPropertyName("lastSequence")] long LastSequence,
+    [property: JsonPropertyName("completed")] bool Completed,
+    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt);
 
 public sealed record WorkerPromptResult(
     [property: JsonPropertyName("targetType")] string TargetType,

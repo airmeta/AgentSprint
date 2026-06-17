@@ -579,7 +579,15 @@ public sealed class AgentSprintWorkerService : BackgroundService
         WorkerDiagnostics.Info(
             "Worker启动平台Codex运行",
             $"commandId={command.Id}, runType={RunType}, targetType={TargetType ?? string.Empty}, targetId={TargetId ?? string.Empty}, localRunId={request.RunId}, workingDirectory={request.WorkingDirectory}, promptPath={paths.PromptPath}, stdoutPath={paths.StdoutPath}, stderrPath={paths.StderrPath}, finalPath={paths.FinalPath}");
+        await using var logStreamer = new WorkerCommandLogStreamer(
+            _apiClient,
+            command.Id,
+            sessionId,
+            _options.WorkerName,
+            DateTime.UtcNow);
+        logStreamer.Append("worker", $"Command {command.Id} accepted. RunType={RunType}, TargetType={TargetType ?? string.Empty}, TargetId={TargetId ?? string.Empty}");
         await _apiClient.StartCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
+        logStreamer.Append("worker", "Platform command marked as running.");
         WorkerDiagnostics.Info("Worker命令START完成", $"commandId={command.Id}, commandType={command.CommandType}, sessionId={sessionId}");
         if (!snapshot.CanEnterWorkLoop)
         {
@@ -596,6 +604,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 request.WorkingDirectory,
                 "Codex CLI is unavailable.",
                 stoppingToken);
+            await logStreamer.CompleteAsync(null, CancellationToken.None);
             return;
         }
 
@@ -624,9 +633,13 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 "平台Run已创建",
                 $"platformRunId={platformRun.Id}, localRunId={request.RunId}, status={platformRun.Status}, workerId={platformRun.WorkerId}, sessionId={platformRun.SessionId}");
 
+            logStreamer.SetRun(platformRun.Id);
+            logStreamer.Append("worker", $"Platform run {platformRun.Id} created.");
+
             if (WorkspaceResult is not null)
             {
                 await ReportWorkspacePreparedAsync(sessionId, platformRun.Id, WorkspaceResult, stoppingToken);
+                logStreamer.Append("worker", $"Workspace prepared. Path={WorkspaceResult.WorkspacePath}, Branch={WorkspaceResult.Branch ?? string.Empty}");
             }
 
             await ReportEventAsync(sessionId, platformRun.Id, "codex_started", "info", StartedMessage, stoppingToken);
@@ -642,7 +655,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     platformRun.Id,
                     localRunId,
                     progress,
-                    token)
+                    token),
+                OutputReporter = (streamName, line, token) =>
+                {
+                    logStreamer.Append(streamName, line);
+                    return Task.CompletedTask;
+                }
             };
             var result = await _codexProcessRunner.RunAsync(request, runCancellation.Token);
             WorkspacePublishResult? publishResult = null;
@@ -669,6 +687,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 WorkerDiagnostics.Info(
                     "Worker发布Git改动结束",
                     $"platformRunId={platformRun.Id}, succeeded={publishResult.Succeeded}, hasChanges={publishResult.HasChanges}, pushed={publishResult.Pushed}, conflictResolved={publishResult.ConflictResolved}, branch={publishResult.Branch ?? string.Empty}, commit={publishResult.Commit ?? string.Empty}, error={publishResult.Error ?? string.Empty}");
+                logStreamer.Append("worker", $"Git publish finished. Succeeded={publishResult.Succeeded}, Commit={publishResult.Commit ?? string.Empty}, Error={publishResult.Error ?? string.Empty}");
                 await ReportWorkspacePublishedAsync(sessionId, platformRun.Id, publishResult, CancellationToken.None);
                 if (!publishResult.Succeeded)
                 {
@@ -686,6 +705,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     "Worker完成业务目标开始",
                     $"platformRunId={platformRun.Id}, targetType={Target.TargetType}, targetId={Target.TargetId}");
                 await _apiClient.CompleteWorkAsync(Target.TargetType!, Target.TargetId, CancellationToken.None);
+                logStreamer.Append("worker", $"Business target completed. TargetType={Target.TargetType}, TargetId={Target.TargetId}");
                 WorkerDiagnostics.Info(
                     "Worker完成业务目标结束",
                     $"platformRunId={platformRun.Id}, targetType={Target.TargetType}, targetId={Target.TargetId}");
@@ -1499,4 +1519,133 @@ public sealed class AgentSprintWorkerService : BackgroundService
         string? RepositoryUrl,
         string? Branch,
         string DisplayName);
+}
+
+internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
+{
+    private static readonly TimeSpan FlushInterval = TimeSpan.FromMilliseconds(200);
+
+    private readonly AgentSprintApiClient _apiClient;
+    private readonly string _commandId;
+    private readonly string _sessionId;
+    private readonly string _instanceId;
+    private readonly DateTime _startedAt;
+    private readonly object _syncRoot = new();
+    private readonly StringBuilder _pending = new();
+    private readonly Timer _timer;
+    private readonly SemaphoreSlim _flushLock = new(1, 1);
+    private long _sequence;
+    private string? _runId;
+    private bool _completed;
+
+    public WorkerCommandLogStreamer(
+        AgentSprintApiClient apiClient,
+        string commandId,
+        string sessionId,
+        string instanceId,
+        DateTime startedAt)
+    {
+        _apiClient = apiClient;
+        _commandId = commandId;
+        _sessionId = sessionId;
+        _instanceId = instanceId;
+        _startedAt = startedAt;
+        _timer = new Timer(_ => _ = FlushTimerAsync(), null, FlushInterval, FlushInterval);
+    }
+
+    public void SetRun(string runId)
+    {
+        _runId = runId;
+    }
+
+    public void Append(string source, string text)
+    {
+        lock (_syncRoot)
+        {
+            _pending.Append('[')
+                .Append(DateTime.UtcNow.ToString("O"))
+                .Append("] [")
+                .Append(source)
+                .Append("] ")
+                .AppendLine(text);
+        }
+    }
+
+    public async Task CompleteAsync(string? runId, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(runId))
+        {
+            _runId = runId;
+        }
+
+        _completed = true;
+        await _timer.DisposeAsync();
+        await FlushAsync(true, cancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _timer.DisposeAsync();
+        if (!_completed)
+        {
+            await CompleteAsync(_runId, CancellationToken.None);
+        }
+    }
+
+    private async Task FlushAsync(bool completed, CancellationToken cancellationToken)
+    {
+        if (_completed && !completed)
+        {
+            return;
+        }
+
+        await _flushLock.WaitAsync(cancellationToken);
+        try
+        {
+            string? chunk;
+            long sequence;
+            lock (_syncRoot)
+            {
+                if (_pending.Length == 0 && !completed)
+                {
+                    return;
+                }
+
+                chunk = _pending.Length == 0 ? null : _pending.ToString();
+                _pending.Clear();
+                sequence = ++_sequence;
+            }
+
+            await _apiClient.AppendCommandLogAsync(
+                new AppendWorkerCommandLogRequest(
+                    _commandId,
+                    chunk,
+                    _sessionId,
+                    _runId,
+                    _instanceId,
+                    sequence,
+                    completed,
+                    _startedAt,
+                    completed ? DateTime.UtcNow : null),
+                cancellationToken);
+        }
+        finally
+        {
+            _flushLock.Release();
+        }
+    }
+
+    private async Task FlushTimerAsync()
+    {
+        try
+        {
+            await FlushAsync(false, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Warn(
+                "Worker命令日志增量推送失败",
+                $"commandId={_commandId}, runId={_runId ?? string.Empty}, error={ex.Message}");
+        }
+    }
 }

@@ -63,6 +63,12 @@ public interface IDigitalWorkerManagementService
         string? status = null);
 
     /// <summary>
+    /// zh-cn: 鑾峰彇 Worker 鍛戒护鏃ュ織蹇収锛屼紭鍏堣鍙栨鍦ㄨ繍琛岀殑 Redis/鍐呭瓨缂撳啿锛岀紦鍐蹭笉瀛樺湪鏃惰繑鍥炴渶杩戜竴鏉″凡钀藉簱鏃ュ織銆?
+    /// en-us: Gets a Worker command-log snapshot, preferring the live Redis/memory buffer and falling back to the latest persisted log when the buffer is unavailable.
+    /// </summary>
+    Task<WorkerCommandLogSnapshotResult?> GetCommandLogSnapshotAsync(string commandId);
+
+    /// <summary>
     /// zh-cn: 复制历史 Worker 命令并创建新的待领取命令，用于按原命令类型和载荷进行回放，不复用旧会话和执行状态。
     /// en-us: Replays a historical Worker command by copying its type and payload into a new pending command without reusing the old session or execution state.
     /// </summary>

@@ -108,6 +108,28 @@ public sealed class DigitalWorkerControllerTests
         Assert.Equal("worker-id-from-token", response.Data?.WorkerId);
     }
 
+    [Fact]
+    public async Task Runtime_AppendCommandLog_UsesBearerWorkerAndForwardsChunk()
+    {
+        var service = new CapturingDigitalWorkerRuntimeService();
+        var controller = new DigitalWorkerRuntimeController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+        controller.Request.Headers.Authorization = "Bearer agent-token-value";
+
+        var result = await controller.AppendCommandLog(
+            new AppendWorkerCommandLogRequest("command-id", "chunk", SessionId: "session-id", Sequence: 1));
+
+        var response = Assert.IsType<ApiResponse<WorkerCommandLogSnapshotResult>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.Equal("worker-id-from-token", service.LastAppendWorkerId);
+        Assert.Equal("chunk", service.LastAppendRequest?.Chunk);
+    }
+
     private static DigitalWorkerManagementController CreateManagementController(
         IDigitalWorkerManagementService service,
         string userId)
@@ -262,6 +284,19 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
         return Task.FromResult(commands);
     }
 
+    public Task<WorkerCommandLogSnapshotResult?> GetCommandLogSnapshotAsync(string commandId)
+    {
+        return Task.FromResult<WorkerCommandLogSnapshotResult?>(new WorkerCommandLogSnapshotResult(
+            commandId,
+            "run-id",
+            "session-id",
+            "instance-1",
+            "log text",
+            1,
+            false,
+            DateTime.UtcNow));
+    }
+
     public Task<WorkerCommandResult> ReplayCommandAsync(string commandId, string userId)
     {
         LastReplayCommandId = commandId;
@@ -372,6 +407,10 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
     public RegisterWorkerSessionRequest? LastRegisterRequest { get; private set; }
 
     public WorkerHeartbeatRequest? LastHeartbeatRequest { get; private set; }
+
+    public string? LastAppendWorkerId { get; private set; }
+
+    public AppendWorkerCommandLogRequest? LastAppendRequest { get; private set; }
 
     public Task<WorkerRuntimeConfigResult> GetRuntimeConfigAsync(string workerId)
     {
@@ -595,6 +634,23 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             request.Level ?? WorkerEventLevels.Info,
             request.Message,
             request.PayloadJson,
+            DateTime.UtcNow));
+    }
+
+    public Task<WorkerCommandLogSnapshotResult> AppendCommandLogAsync(
+        string workerId,
+        AppendWorkerCommandLogRequest request)
+    {
+        LastAppendWorkerId = workerId;
+        LastAppendRequest = request;
+        return Task.FromResult(new WorkerCommandLogSnapshotResult(
+            request.CommandId,
+            request.RunId,
+            request.SessionId,
+            request.InstanceId ?? "instance-1",
+            request.Chunk ?? string.Empty,
+            request.Sequence,
+            request.Completed,
             DateTime.UtcNow));
     }
 

@@ -1056,6 +1056,26 @@ public sealed class DatabaseInitializer : IHostedService
             ) CHARACTER SET=utf8mb4;
             """;
 
+        const string workerCommandLogSql = """
+            CREATE TABLE IF NOT EXISTS worker_command_log (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              SessionId varchar(64) CHARACTER SET utf8mb4 NULL,
+              InstanceId varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              CommandId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              RunId varchar(64) CHARACTER SET utf8mb4 NULL,
+              LogText longtext CHARACTER SET utf8mb4 NOT NULL,
+              StartedAt datetime(6) NULL,
+              CompletedAt datetime(6) NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_worker_command_log_WorkerId_InstanceId_CreateTime (WorkerId, InstanceId, CreateTime),
+              INDEX IX_worker_command_log_CommandId_CreateTime (CommandId, CreateTime)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
         const string workerEventSql = """
             CREATE TABLE IF NOT EXISTS worker_event (
               Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
@@ -1077,6 +1097,7 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(digitalWorkerSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(workerSessionSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(workerCommandSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(workerCommandLogSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(workerRunSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(workerEventSql, cancellationToken);
         await EnsureDigitalWorkerColumnsAsync(dbContext, cancellationToken);
