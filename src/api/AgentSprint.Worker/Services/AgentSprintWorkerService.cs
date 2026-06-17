@@ -1591,7 +1591,16 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
 
         _completed = true;
         await _timer.DisposeAsync();
-        await FlushAsync(true, cancellationToken);
+        try
+        {
+            await FlushAsync(true, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Warn(
+                "Worker命令日志完成推送失败",
+                $"commandId={_commandId}, runId={_runId ?? string.Empty}, error={ex.Message}");
+        }
     }
 
     public async ValueTask DisposeAsync()

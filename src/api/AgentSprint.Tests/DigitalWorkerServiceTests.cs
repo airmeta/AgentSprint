@@ -318,6 +318,97 @@ public sealed class DigitalWorkerServiceTests
     }
 
     [Fact]
+    public async Task Runtime_AppendCommandLog_CreatesCompletedLogWithoutUpdatingNewEntity()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        var command = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke),
+            "admin");
+        await runtime.StartCommandAsync(command.Id, new AckWorkerCommandRequest(session.Id));
+        var run = await runtime.StartRunAsync(
+            new StartWorkerRunRequest(
+                worker.Id,
+                session.Id,
+                WorkerRunTypes.Smoke,
+                WorkerRunStatuses.Running,
+                CommandId: command.Id));
+
+        await runtime.AppendCommandLogAsync(
+            worker.Id,
+            new AppendWorkerCommandLogRequest(
+                command.Id,
+                "done\n",
+                session.Id,
+                run.Id,
+                "instance-1",
+                Sequence: 1,
+                Completed: true));
+
+        Assert.Equal(1, domains.CommandLogs.CreateCount);
+        Assert.Equal(0, domains.CommandLogs.UpdateCount);
+        var log = Assert.Single(await domains.CommandLogs.ListAsync(entity => entity.CommandId == command.Id));
+        Assert.Equal("done\n", log.LogText);
+        Assert.Equal(run.Id, log.RunId);
+        Assert.Null(domains.CommandLogBuffer.Get(command.Id));
+    }
+
+    [Fact]
+    public async Task Runtime_AppendCommandLog_UpdatesExistingCompletedLog()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
+            "admin");
+        var session = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        var command = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke),
+            "admin");
+        await runtime.StartCommandAsync(command.Id, new AckWorkerCommandRequest(session.Id));
+        await domains.CommandLogs.CreateAsync(new WorkerCommandLogEntity
+        {
+            WorkerId = worker.Id,
+            CommandId = command.Id,
+            InstanceId = "instance-1",
+            LogText = "old"
+        });
+        var run = await runtime.StartRunAsync(
+            new StartWorkerRunRequest(
+                worker.Id,
+                session.Id,
+                WorkerRunTypes.Smoke,
+                WorkerRunStatuses.Running,
+                CommandId: command.Id));
+
+        await runtime.AppendCommandLogAsync(
+            worker.Id,
+            new AppendWorkerCommandLogRequest(
+                command.Id,
+                "new\n",
+                session.Id,
+                run.Id,
+                "instance-1",
+                Sequence: 1,
+                Completed: true));
+
+        Assert.Equal(1, domains.CommandLogs.CreateCount);
+        Assert.Equal(1, domains.CommandLogs.UpdateCount);
+        var log = Assert.Single(await domains.CommandLogs.ListAsync(entity => entity.CommandId == command.Id));
+        Assert.Equal("new\n", log.LogText);
+        Assert.Equal(run.Id, log.RunId);
+        Assert.NotNull(log.UpdateTime);
+    }
+
+    [Fact]
     public async Task Runtime_WorkPrompt_RendersDigitalWorkerTemplateAndCompletesTask()
     {
         var domains = new DigitalWorkerTestDomains();
@@ -992,8 +1083,13 @@ internal abstract class InMemoryDigitalWorkerDomainBase<TEntity>
 {
     private readonly List<TEntity> _entities = [];
 
+    public int CreateCount { get; private set; }
+
+    public int UpdateCount { get; private set; }
+
     public Task<string> CreateAsync(TEntity entity)
     {
+        CreateCount++;
         _entities.Add(entity);
         return Task.FromResult(entity.Id);
     }
@@ -1027,6 +1123,7 @@ internal abstract class InMemoryDigitalWorkerDomainBase<TEntity>
 
     public Task<string> UpdateAsync(TEntity entity)
     {
+        UpdateCount++;
         entity.UpdateTime = DateTime.UtcNow;
         return Task.FromResult(entity.Id);
     }

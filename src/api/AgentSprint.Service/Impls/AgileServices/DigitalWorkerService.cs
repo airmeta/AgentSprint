@@ -1331,21 +1331,29 @@ public sealed class DigitalWorkerRuntimeService :
             .FirstOrDefault();
         if (existing is null)
         {
-            existing = new WorkerCommandLogEntity
+            await _commandLogDomain.CreateAsync(new WorkerCommandLogEntity
             {
                 WorkerId = workerId,
-                CommandId = commandId
-            };
-            await _commandLogDomain.CreateAsync(existing);
+                CommandId = commandId,
+                SessionId = snapshot.SessionId,
+                InstanceId = snapshot.InstanceId,
+                RunId = snapshot.RunId,
+                LogText = snapshot.LogText,
+                StartedAt = startedAt,
+                CompletedAt = completedAt ?? DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.SessionId = snapshot.SessionId;
+            existing.InstanceId = snapshot.InstanceId;
+            existing.RunId = snapshot.RunId;
+            existing.LogText = snapshot.LogText;
+            existing.StartedAt = startedAt;
+            existing.CompletedAt = completedAt ?? DateTime.UtcNow;
+            await _commandLogDomain.UpdateAsync(existing);
         }
 
-        existing.SessionId = snapshot.SessionId;
-        existing.InstanceId = snapshot.InstanceId;
-        existing.RunId = snapshot.RunId;
-        existing.LogText = snapshot.LogText;
-        existing.StartedAt = startedAt;
-        existing.CompletedAt = completedAt ?? DateTime.UtcNow;
-        await _commandLogDomain.UpdateAsync(existing);
         await TrimCommandLogsAsync(workerId, snapshot.InstanceId);
     }
 

@@ -101,6 +101,21 @@ public sealed class WorkerProbeTests
     }
 
     [Fact]
+    public void WorkerDocs_DescribeSharedAkkaClusterConfiguration()
+    {
+        var docsPath = Path.Combine(FindRepositoryRoot(), "docs", "数字员工受控端探针服务说明.md");
+        var docs = File.ReadAllText(docsPath);
+
+        Assert.Contains("\"SystemName\": \"agentsprint-cluster\"", docs);
+        Assert.Contains("\"Host\": \"api\"", docs);
+        Assert.Contains("\"SeedNodes\": [ \"akka.tcp://agentsprint-cluster@api:25520\" ]", docs);
+        Assert.Contains("AkkaSettings__SystemName: \"agentsprint-cluster\"", docs);
+        Assert.Contains("AkkaSettings__SeedNodes__0: \"akka.tcp://agentsprint-cluster@api:25520\"", docs);
+        Assert.Contains("math-codex-worker-1", docs);
+        Assert.Contains("`AkkaSettings:Host` is left as `0.0.0.0`", docs);
+    }
+
+    [Fact]
     public void WorkerStartup_RegistersAkkaClusterBeforeWorkerMainLoop()
     {
         var services = new ServiceCollection();
@@ -672,6 +687,22 @@ public sealed class WorkerProbeTests
     private static string Quote(string value)
     {
         return "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "deploy", "docker", "docker-compose.yml")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the AgentSprint repository root.");
     }
 }
 

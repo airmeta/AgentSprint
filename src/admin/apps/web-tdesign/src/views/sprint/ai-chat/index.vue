@@ -5,13 +5,13 @@ import type { SprintMvpApi, SprintTestApi } from '#/api/sprint/mvp';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 
 import {
-  listAiPlatformsApi,
   listBugsApi,
   listDevelopmentTasksApi,
   listProjectsApi,
   listRequirementsApi,
   listTestPlansApi,
 } from '#/api/sprint/mvp';
+import { listAiPlatformsApi } from '#/api/system/management';
 import {
   startAiConversationApi,
 } from '#/api';
