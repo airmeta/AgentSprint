@@ -835,6 +835,8 @@ public sealed class DatabaseInitializer : IHostedService
               Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
               Username varchar(128) CHARACTER SET utf8mb4 NOT NULL,
               AccessToken varchar(512) CHARACTER SET utf8mb4 NULL,
+              CommitAuthorName varchar(128) CHARACTER SET utf8mb4 NULL,
+              CommitAuthorEmail varchar(256) CHARACTER SET utf8mb4 NULL,
               Description varchar(512) CHARACTER SET utf8mb4 NULL,
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
@@ -893,6 +895,18 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(gitAccountSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(gitRepositorySql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(gitBranchOperationSql, cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "git_account",
+            "CommitAuthorName",
+            "ALTER TABLE git_account ADD COLUMN CommitAuthorName varchar(128) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "git_account",
+            "CommitAuthorEmail",
+            "ALTER TABLE git_account ADD COLUMN CommitAuthorEmail varchar(256) CHARACTER SET utf8mb4 NULL;",
+            cancellationToken);
         await EnsureColumnAsync(
             dbContext,
             "sprint_project",
@@ -999,6 +1013,8 @@ public sealed class DatabaseInitializer : IHostedService
               CompletedAt datetime(6) NULL,
               ExpiresAt datetime(6) NULL,
               ResultJson text CHARACTER SET utf8mb4 NULL,
+              ChangedFilesJson text CHARACTER SET utf8mb4 NULL,
+              GitCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
               Error varchar(1024) CHARACTER SET utf8mb4 NULL,
               CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               CreateTime datetime(6) NOT NULL,
@@ -1064,6 +1080,25 @@ public sealed class DatabaseInitializer : IHostedService
         await dbContext.Database.ExecuteSqlRawAsync(workerRunSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(workerEventSql, cancellationToken);
         await EnsureDigitalWorkerColumnsAsync(dbContext, cancellationToken);
+        await EnsureWorkerCommandColumnsAsync(dbContext, cancellationToken);
+    }
+
+    private static async Task EnsureWorkerCommandColumnsAsync(
+        DefaultDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            dbContext,
+            "worker_command",
+            "ChangedFilesJson",
+            "ALTER TABLE worker_command ADD COLUMN ChangedFilesJson text CHARACTER SET utf8mb4 NULL AFTER ResultJson;",
+            cancellationToken);
+        await EnsureColumnAsync(
+            dbContext,
+            "worker_command",
+            "GitCommitId",
+            "ALTER TABLE worker_command ADD COLUMN GitCommitId varchar(64) CHARACTER SET utf8mb4 NULL AFTER ChangedFilesJson;",
+            cancellationToken);
     }
 
     private static async Task EnsureDigitalWorkerColumnsAsync(
@@ -2193,7 +2228,7 @@ public sealed class DatabaseInitializer : IHostedService
             dbContext.RuntimeEnvironments.Add(environment);
         }
 
-        environment.Name = "娴嬭瘯鐜";
+        environment.Name = "测试环境";
         environment.EnvironmentType = "test";
         environment.Description = "AgentSprint 默认测试环境，按前端、API、MCP 与部署路径拆分维护。";
         environment.FrontendUrl = "http://192.168.80.101:5999";
@@ -2456,12 +2491,6 @@ public sealed class DatabaseInitializer : IHostedService
             "Sprint:Requirement:SyncTestEnvironmentOnCompletion",
             "false",
             "When true, completing requirement development fills the requirement test URL from the selected project runtime environment.",
-            cancellationToken);
-        await EnsureConfigurationAsync(
-            dbContext,
-            "AiPlatform:openai",
-            """{"name":"OpenAI","provider":"openai","model":"gpt-5.4","apiKey":null,"openAiBaseUrl":"https://api.openai.com/v1","sort":10}""",
-            "Default AI platform used by digital workers.",
             cancellationToken);
     }
 

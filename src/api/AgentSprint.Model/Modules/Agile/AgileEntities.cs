@@ -72,6 +72,12 @@ public sealed class GitAccountEntity : EntityBase
     [MaxLength(512)]
     public string? AccessToken { get; set; }
 
+    [MaxLength(128)]
+    public string? CommitAuthorName { get; set; }
+
+    [MaxLength(256)]
+    public string? CommitAuthorEmail { get; set; }
+
     [MaxLength(512)]
     public string? Description { get; set; }
 

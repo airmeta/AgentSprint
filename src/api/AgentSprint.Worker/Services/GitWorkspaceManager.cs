@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using AgentSprint.Worker.Models;
 
 namespace AgentSprint.Worker.Services;
@@ -5,6 +7,8 @@ namespace AgentSprint.Worker.Services;
 public sealed class GitWorkspaceManager
 {
     private static readonly TimeSpan GitCommandTimeout = TimeSpan.FromMinutes(5);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const int CloneMaxAttempts = 3;
 
     /// <summary>
     /// <para>zh-cn:创建 Worker 侧 Git 工作区管理器。该管理器在 Codex 启动前以确定性命令准备项目仓库，负责 clone、fetch、checkout、pull 以及状态采集，避免把拉取最新代码这类基础动作交给模型自行决定。</para>
@@ -45,6 +49,8 @@ public sealed class GitWorkspaceManager
         string? branch,
         string? gitUsername,
         string? gitAccessToken,
+        string? gitCommitAuthorName,
+        string? gitCommitAuthorEmail,
         CancellationToken cancellationToken)
     {
         var workspacePath = ResolveWorkspacePath(workspaceRoot, projectCode);
@@ -76,13 +82,16 @@ public sealed class GitWorkspaceManager
             if (!Directory.Exists(Path.Combine(workspacePath, ".git")))
             {
                 await CloneAsync(authenticatedRepositoryUrl, repositoryUrl.Trim(), normalizedBranch, workspacePath, secretValues, cancellationToken);
+                await EnsureCommitAuthorAsync(workspacePath, gitCommitAuthorName, gitCommitAuthorEmail, secretValues, cancellationToken);
             }
             else
             {
                 await EnsureRemoteUrlAsync(workspacePath, repositoryUrl.Trim(), cancellationToken);
+                await EnsureCommitAuthorAsync(workspacePath, gitCommitAuthorName, gitCommitAuthorEmail, secretValues, cancellationToken);
                 await EnsureRemoteUrlAsync(workspacePath, authenticatedRepositoryUrl, secretValues, cancellationToken);
                 try
                 {
+                    await CleanWorkspaceAsync(workspacePath, secretValues, cancellationToken);
                     await RunGitOrThrowAsync("fetch --prune origin", workspacePath, secretValues, cancellationToken);
                     if (!string.IsNullOrWhiteSpace(normalizedBranch))
                     {
@@ -165,6 +174,8 @@ public sealed class GitWorkspaceManager
         string repositoryUrl,
         string? gitUsername,
         string? gitAccessToken,
+        string? gitCommitAuthorName,
+        string? gitCommitAuthorEmail,
         string commitMessage,
         Func<GitConflictResolutionRequest, CancellationToken, Task<GitConflictResolutionResult>> conflictResolver,
         CancellationToken cancellationToken)
@@ -191,6 +202,7 @@ public sealed class GitWorkspaceManager
             }
 
             var status = await ReadGitOutputAsync("status --porcelain", workspacePath, secretValues, cancellationToken);
+            var changedFilesJson = BuildChangedFilesJson(status);
             if (string.IsNullOrWhiteSpace(status))
             {
                 var unchangedCommit = await ReadGitOutputAsync("rev-parse HEAD", workspacePath, secretValues, cancellationToken);
@@ -202,14 +214,16 @@ public sealed class GitWorkspaceManager
                     ConflictResolved: false,
                     Branch: currentBranch,
                     Commit: unchangedCommit,
+                    ChangedFilesJson: changedFilesJson,
                     Error: null);
             }
 
             await EnsureRemoteUrlAsync(workspacePath, authenticatedRepositoryUrl, secretValues, cancellationToken);
+            await EnsureCommitAuthorAsync(workspacePath, gitCommitAuthorName, gitCommitAuthorEmail, secretValues, cancellationToken);
             try
             {
                 await RunGitOrThrowAsync("add -A", workspacePath, secretValues, cancellationToken);
-                await RunGitOrThrowAsync($"commit -m {Quote(NormalizeCommitMessage(commitMessage))}", workspacePath, secretValues, cancellationToken);
+                await CommitStagedChangesAsync(workspacePath, commitMessage, secretValues, cancellationToken);
                 await RunGitOrThrowAsync("fetch --prune origin", workspacePath, secretValues, cancellationToken);
 
                 var conflictResolved = false;
@@ -257,6 +271,7 @@ public sealed class GitWorkspaceManager
                     ConflictResolved: conflictResolved,
                     Branch: currentBranch,
                     Commit: pushedCommit,
+                    ChangedFilesJson: changedFilesJson,
                     Error: null);
             }
             finally
@@ -274,6 +289,7 @@ public sealed class GitWorkspaceManager
                 ConflictResolved: false,
                 Branch: NormalizeOptional(currentBranch),
                 Commit: null,
+                ChangedFilesJson: null,
                 Error: SanitizeGitMessage(ex.Message, secretValues));
         }
     }
@@ -307,10 +323,65 @@ public sealed class GitWorkspaceManager
 
         Directory.CreateDirectory(Path.GetDirectoryName(workspacePath)!);
         var arguments = string.IsNullOrWhiteSpace(branch)
-            ? $"clone {Quote(authenticatedRepositoryUrl)} {Quote(workspacePath)}"
-            : $"clone --branch {Quote(branch)} {Quote(authenticatedRepositoryUrl)} {Quote(workspacePath)}";
-        await RunGitOrThrowAsync(arguments, null, secretValues, cancellationToken);
+            ? $"clone --depth 1 {Quote(authenticatedRepositoryUrl)} {Quote(workspacePath)}"
+            : $"clone --depth 1 --single-branch --branch {Quote(branch)} {Quote(authenticatedRepositoryUrl)} {Quote(workspacePath)}";
+
+        for (var attempt = 1; attempt <= CloneMaxAttempts; attempt++)
+        {
+            var result = await ProcessCommandRunner.RunAsync(
+                "git",
+                arguments,
+                null,
+                GitCommandTimeout,
+                secretValues,
+                cancellationToken);
+            if (result.Succeeded)
+            {
+                await TryEnsureRemoteUrlAsync(workspacePath, repositoryUrl, cancellationToken);
+                return;
+            }
+
+            var error = SanitizeGitFailure(result, secretValues);
+            if (attempt >= CloneMaxAttempts || !IsRetryableCloneFailure(result, error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            WorkerDiagnostics.Warn(
+                "Git clone失败，准备重试",
+                $"attempt={attempt}, maxAttempts={CloneMaxAttempts}, workspacePath={workspacePath}, error={WorkerDiagnostics.Trim(error, 1000)}");
+            DeleteDirectoryIfExists(workspacePath);
+            await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
+        }
+
         await TryEnsureRemoteUrlAsync(workspacePath, repositoryUrl, cancellationToken);
+    }
+
+    private static bool IsRetryableCloneFailure(CommandProbeResult result, string error)
+    {
+        if (result.TimedOut)
+        {
+            return true;
+        }
+
+        return error.Contains("early EOF", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("the remote end hung up unexpectedly", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("connection timed out", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("connection reset", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("failed to connect", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("unable to access", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("TLS connection", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("RPC failed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        Directory.Delete(path, recursive: true);
     }
 
     private static async Task EnsureRemoteUrlAsync(
@@ -332,6 +403,38 @@ public sealed class GitWorkspaceManager
         {
             await RunGitOrThrowAsync($"remote set-url origin {Quote(repositoryUrl)}", workspacePath, secretValues, cancellationToken);
         }
+    }
+
+    private static async Task EnsureCommitAuthorAsync(
+        string workspacePath,
+        string? commitAuthorName,
+        string? commitAuthorEmail,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        commitAuthorName = NormalizeOptional(commitAuthorName);
+        commitAuthorEmail = NormalizeOptional(commitAuthorEmail);
+        if (commitAuthorName is null && commitAuthorEmail is null)
+        {
+            return;
+        }
+
+        if (commitAuthorName is null || commitAuthorEmail is null)
+        {
+            throw new InvalidOperationException("Git commit author name and email must be configured together.");
+        }
+
+        await RunGitOrThrowAsync($"config user.name {Quote(commitAuthorName)}", workspacePath, secretValues, cancellationToken);
+        await RunGitOrThrowAsync($"config user.email {Quote(commitAuthorEmail)}", workspacePath, secretValues, cancellationToken);
+    }
+
+    private static async Task CleanWorkspaceAsync(
+        string workspacePath,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        await RunGitOrThrowAsync("reset --hard", workspacePath, secretValues, cancellationToken);
+        await RunGitOrThrowAsync("clean -fd", workspacePath, secretValues, cancellationToken);
     }
 
     private static async Task TryEnsureRemoteUrlAsync(
@@ -474,6 +577,115 @@ public sealed class GitWorkspaceManager
         throw new InvalidOperationException(error);
     }
 
+    internal static string BuildChangedFilesJson(string? porcelainStatus)
+    {
+        var changes = ParseChangedFiles(porcelainStatus)
+            .OrderBy(change => change.Path, StringComparer.Ordinal)
+            .ToArray();
+        return JsonSerializer.Serialize(changes, JsonOptions);
+    }
+
+    private static IEnumerable<GitChangedFile> ParseChangedFiles(string? porcelainStatus)
+    {
+        if (string.IsNullOrWhiteSpace(porcelainStatus))
+        {
+            yield break;
+        }
+
+        foreach (var rawLine in porcelainStatus.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.TrimEnd();
+            if (line.Length < 3)
+            {
+                continue;
+            }
+
+            string code;
+            string pathText;
+            if (line.Length >= 4 && line[2] == ' ')
+            {
+                code = line[..2].Trim();
+                pathText = line[3..].Trim();
+            }
+            else
+            {
+                code = line[..1].Trim();
+                pathText = line[2..].Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(pathText))
+            {
+                continue;
+            }
+
+            var path = pathText;
+            string? oldPath = null;
+            var renameSeparator = pathText.IndexOf(" -> ", StringComparison.Ordinal);
+            if (renameSeparator >= 0)
+            {
+                oldPath = pathText[..renameSeparator].Trim();
+                path = pathText[(renameSeparator + 4)..].Trim();
+            }
+
+            yield return new GitChangedFile(path, ResolveGitChangeStatus(code), oldPath);
+        }
+    }
+
+    private static string ResolveGitChangeStatus(string code)
+    {
+        if (code.Contains('R', StringComparison.Ordinal))
+        {
+            return "renamed";
+        }
+
+        if (code.Contains('C', StringComparison.Ordinal))
+        {
+            return "copied";
+        }
+
+        if (code.Contains('D', StringComparison.Ordinal))
+        {
+            return "deleted";
+        }
+
+        if (code.Contains('A', StringComparison.Ordinal) || code == "??")
+        {
+            return "added";
+        }
+
+        if (code.Contains('M', StringComparison.Ordinal))
+        {
+            return "modified";
+        }
+
+        return "changed";
+    }
+
+    private static async Task CommitStagedChangesAsync(
+        string workspacePath,
+        string message,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        var messagePath = Path.Combine(Path.GetTempPath(), $"agentsprint-commit-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(messagePath, NormalizeCommitMessage(message), cancellationToken);
+            await RunGitOrThrowAsync($"commit -F {Quote(messagePath)}", workspacePath, secretValues, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(messagePath);
+            }
+            catch
+            {
+                // Best-effort cleanup for a temporary commit message file.
+            }
+        }
+    }
+
     internal static string BuildAuthenticatedUrl(
         string repositoryUrl,
         string? gitUsername,
@@ -513,8 +725,21 @@ public sealed class GitWorkspaceManager
 
     private static string NormalizeCommitMessage(string message)
     {
-        message = string.Join(" ", message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        return string.IsNullOrWhiteSpace(message) ? "AgentSprint worker task update" : message;
+        var lines = message
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+        if (lines.Length == 0)
+        {
+            return "AgentSprint worker task update";
+        }
+
+        if (lines.Length == 1)
+        {
+            return lines[0];
+        }
+
+        return lines[0] + Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, lines.Skip(1));
     }
 
     private static string? NormalizeOptional(string? value)
@@ -527,4 +752,6 @@ public sealed class GitWorkspaceManager
     {
         return "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
+
+    private sealed record GitChangedFile(string Path, string Status, string? OldPath);
 }

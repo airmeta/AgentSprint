@@ -107,7 +107,9 @@ public sealed record FinishWorkerRunRequest(
     int? ExitCode = null,
     bool TimedOut = false,
     string? Error = null,
-    string? ResultJson = null);
+    string? ResultJson = null,
+    string? ChangedFilesJson = null,
+    string? GitCommitId = null);
 
 public sealed record ReportWorkerEventRequest(
     string WorkerId,
@@ -206,6 +208,8 @@ public sealed record WorkerCommandResult(
     DateTime? CompletedAt,
     DateTime? ExpiresAt,
     string? ResultJson,
+    string? ChangedFilesJson,
+    string? GitCommitId,
     string? Error,
     string CreatedBy,
     DateTime CreateTime);
@@ -268,6 +272,8 @@ public sealed record WorkerPromptContextResult(
     string? RepositoryDefaultBranch,
     string? GitUsername,
     string? GitAccessToken,
+    string? GitCommitAuthorName,
+    string? GitCommitAuthorEmail,
     string? WorkspacePath,
     string RequirementId,
     string RequirementTitle,

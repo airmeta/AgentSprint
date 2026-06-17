@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
@@ -1623,10 +1623,14 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var normalizedAssignmentMode = NormalizeAssignmentMode(assignmentMode);
         var normalizedAssigneeId = NormalizeOptional(assigneeId);
         var normalizedAssigneeType = NormalizeAssigneeType(assigneeType);
+        var manualDigitalWorker = normalizedAssignmentMode == SprintTaskAssignmentModes.Manual && normalizedAssigneeId is not null
+            ? await ResolveDigitalWorkerForAssignmentAsync(normalizedAssigneeType, normalizedAssigneeId)
+            : null;
         var developers = await ResolveRequirementDevelopersAsync(requirement);
         var developerIndex = 0;
         foreach (var task in tasks)
         {
+            DigitalWorkerEntity? assignedDigitalWorker = null;
             if (normalizedAssignmentMode == SprintTaskAssignmentModes.Auto && developers.Count > 0)
             {
                 var autoAssigneeId = developers[developerIndex % developers.Count];
@@ -1647,6 +1651,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 task.AssignedAt = DateTime.UtcNow;
                 task.Status = SprintDevelopmentTaskStatuses.Assigned;
                 task.Prompt = (await BuildTaskPromptAsync(task)).Prompt;
+                assignedDigitalWorker = manualDigitalWorker;
                 await EnsureProjectMemberAsync(task.ProjectId, normalizedAssigneeId, SprintProjectMemberRoles.Developer);
             }
             else
@@ -1659,6 +1664,10 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             }
 
             await _taskDomain.CreateAsync(task);
+            if (assignedDigitalWorker is not null)
+            {
+                await DispatchDigitalWorkerTaskCommandAsync(task, assignedDigitalWorker, userId);
+            }
         }
 
         if (normalizedAssignmentMode == SprintTaskAssignmentModes.Auto && developers.Count > 0)
@@ -2116,7 +2125,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 ProjectId = requirement.ProjectId,
                 RequirementId = requirement.Id,
                 TesterId = testerId,
-                Name = $"{requirement.Title} 娴嬭瘯璁″垝",
+                Name = $"{requirement.Title} 测试计划",
                 Environment = "test",
                 CreatedBy = testerId
             };

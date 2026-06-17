@@ -237,15 +237,20 @@ public sealed class DigitalWorkerServiceTests
             new FinishWorkerRunRequest(
                 WorkerRunStatuses.Success,
                 ExitCode: 0,
-                ResultJson: "{\"ok\":true}"));
+                ResultJson: "{\"ok\":true}",
+                ChangedFilesJson: "[{\"path\":\"README.md\",\"status\":\"modified\"}]",
+                GitCommitId: "abc123"));
         var detail = await management.GetWorkerDetailAsync(worker.Id);
         var commands = await domains.Commands.ListAsync(entity => entity.Id == command.Id);
         var events = await management.ListEventsAsync(worker.Id);
+        var completedCommand = Assert.Single(commands);
 
         Assert.Equal(WorkerRunStatuses.Success, finished.Status);
         Assert.Null(detail.LatestSession?.CurrentRunId);
         Assert.Equal(WorkerSessionStatuses.Idle, detail.LatestSession?.Status);
-        Assert.Equal(WorkerCommandStatuses.Succeeded, Assert.Single(commands).Status);
+        Assert.Equal(WorkerCommandStatuses.Succeeded, completedCommand.Status);
+        Assert.Equal("[{\"path\":\"README.md\",\"status\":\"modified\"}]", completedCommand.ChangedFilesJson);
+        Assert.Equal("abc123", completedCommand.GitCommitId);
         Assert.Contains(events, item => item.EventType == "codex_started");
         Assert.Contains(events, item => item.EventType == "codex_finished");
     }
@@ -262,6 +267,8 @@ public sealed class DigitalWorkerServiceTests
             Name = "Main Git",
             Username = "codex",
             AccessToken = "secret",
+            CommitAuthorName = "AgentSprint Bot",
+            CommitAuthorEmail = "agentsprint-bot@example.com",
             Status = GitAccountStatuses.Active,
             CreatedBy = "admin"
         };
@@ -349,6 +356,8 @@ public sealed class DigitalWorkerServiceTests
         Assert.Equal("main", prompt.Context.RepositoryDefaultBranch);
         Assert.Equal("codex", prompt.Context.GitUsername);
         Assert.Equal("secret", prompt.Context.GitAccessToken);
+        Assert.Equal("AgentSprint Bot", prompt.Context.GitCommitAuthorName);
+        Assert.Equal("agentsprint-bot@example.com", prompt.Context.GitCommitAuthorEmail);
         Assert.Equal($"/worker-runtime/work/task/{task.Id}/complete", prompt.Context.CompletionApiPath);
         Assert.Equal(SprintDevelopmentTaskStatuses.Completed, completed.Status);
         Assert.Equal(SprintDevelopmentTaskStatuses.Completed, (await domains.Tasks.GetAsync(task.Id))?.Status);
@@ -558,6 +567,15 @@ public sealed class DigitalWorkerServiceTests
                 "Worker test event.",
                 session.Id,
                 run.Id));
+        await runtime.ReportEventAsync(
+            new ReportWorkerEventRequest(
+                worker.Code,
+                "codex_idle_timeout",
+                "Codex process reached stdout/stderr idle timeout.",
+                session.Id,
+                run.Id,
+                Level: "error",
+                PayloadJson: "{\"localRunId\":\"smoke-1\",\"hasOutput\":false}"));
 
         var detail = await management.GetWorkerDetailAsync(worker.Code);
         var sessions = await management.ListSessionsAsync(worker.Code);
@@ -569,6 +587,10 @@ public sealed class DigitalWorkerServiceTests
         Assert.Equal(worker.Id, Assert.Single(sessions).WorkerId);
         Assert.Equal(run.Id, Assert.Single(runs).Id);
         Assert.Contains(events, item => item.EventType == "worker_test_event");
+        Assert.Contains(events, item =>
+            item.EventType == "codex_idle_timeout" &&
+            item.Level == "error" &&
+            item.PayloadJson?.Contains("\"hasOutput\":false", StringComparison.Ordinal) == true);
     }
 
     [Fact]

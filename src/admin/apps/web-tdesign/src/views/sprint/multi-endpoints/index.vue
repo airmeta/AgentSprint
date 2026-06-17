@@ -1,4 +1,4 @@
-﻿<script lang="ts" setup>
+<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
@@ -104,7 +104,7 @@ const endpointRules = computed<FormRules<typeof endpointForm>>(() => ({
 }));
 const moduleRules = computed<FormRules<typeof moduleForm>>(() => ({
   code: moduleMode.value === 'create' ? requiredRule('请输入模块编码') : [],
-  endpointId: requiredRule('璇烽€夋嫨鎵€灞炵', 'change'),
+  endpointId: requiredRule('请选择所属端', 'change'),
   name: requiredRule('请输入模块名称'),
   sort: optionalNumberRule('排序必须是数字'),
 }));
@@ -118,8 +118,8 @@ const endpointTypeOptions = [
   { label: '其他端', value: 'other' },
 ];
 const statusOptions = [
-  { label: '鍚敤', value: 'active' },
-  { label: '鍋滅敤', value: 'disabled' },
+  { label: '启用', value: 'active' },
+  { label: '停用', value: 'disabled' },
 ];
 const moduleColumns = [
   { colKey: 'name', title: '模块名称', width: 180 },
@@ -173,7 +173,7 @@ function endpointTypeLabel(type: string) {
 function resolveSkillNames(skillIds?: string[]) {
   return skillIds && skillIds.length > 0
     ? skillIds.map((id) => skillMap.value[id]?.name || id).join(' / ')
-    : '鏈€夋嫨';
+    : '未选择';
 }
 
 function projectEndpointCount(projectId: string) {
@@ -248,12 +248,12 @@ function resetEndpointForm(projectId = selectedProjectId.value) {
 
 function openEndpointCreate() {
   if (!selectedProjectId.value) {
-    MessagePlugin.warning('璇峰厛閫夋嫨椤圭洰');
+    MessagePlugin.warning('请先选择项目');
     return;
   }
 
   resetEndpointForm();
-  endpointForm.name = '绠＄悊鍚庡彴';
+  endpointForm.name = '管理后台';
   endpointForm.code = generateEndpointCode(endpointForm.type, endpointForm.name);
   endpointMode.value = 'create';
   endpointVisible.value = true;
@@ -307,7 +307,7 @@ async function saveEndpoint() {
       await updateProjectEndpointApi(endpointForm.id, payload);
     }
 
-    MessagePlugin.success('绔厤缃凡淇濆瓨');
+    MessagePlugin.success('端配置已保存');
     endpointVisible.value = false;
     await loadData();
   } finally {
@@ -366,7 +366,7 @@ async function saveModule() {
   if (moduleSaving.value) return;
   if (!(await validateForm(moduleFormRef.value))) return;
   if (!moduleForm.projectId || !moduleForm.endpointId || !moduleForm.name.trim()) {
-    MessagePlugin.warning('妯″潡鍚嶇О鍜屾墍灞炵蹇呭～');
+    MessagePlugin.warning('模块名称和所属端必填');
     return;
   }
 
@@ -383,7 +383,7 @@ async function saveModule() {
   try {
     if (moduleMode.value === 'create') {
       if (!moduleForm.code.trim()) {
-        MessagePlugin.warning('妯″潡缂栫爜蹇呭～');
+        MessagePlugin.warning('模块编码必填');
         return;
       }
 
@@ -410,7 +410,7 @@ function deleteModule(module: SprintMvpApi.FeatureModule) {
   if (isDeletingModule(module.id)) return;
   const requirementCount = moduleRequirementCount(module.id);
   if (requirementCount > 0) {
-    MessagePlugin.warning(`妯″潡宸叉湁 ${requirementCount} 涓渶姹傚紩鐢紝涓嶈兘鍒犻櫎`);
+    MessagePlugin.warning(`模块已有 ${requirementCount} 个需求引用，不能删除`);
     return;
   }
 
@@ -477,21 +477,21 @@ onMounted(loadData);
   >
     <template #header>
       <section class="sprint-page-title">
-        <h2>澶氱绠＄悊</h2>
+        <h2>多端管理</h2>
         <p>按项目维护端和端下功能模块，配置负责人、研发人员和测试人员。</p>
       </section>
     </template>
 
     <template #project-meta="{ project }">
-      <span>绔?{{ projectEndpointCount(project.id) }}</span>
-      <span>妯″潡 {{ projectModuleCount(project.id) }}</span>
-      <span>缁忕悊 {{ resolveUserName(project.projectManagerId) }}</span>
+      <span>端 {{ projectEndpointCount(project.id) }}</span>
+      <span>模块 {{ projectModuleCount(project.id) }}</span>
+      <span>经理 {{ resolveUserName(project.projectManagerId) }}</span>
     </template>
 
     <template #workspace-header>
         <div class="workspace-head">
           <div>
-            <h3>{{ selectedProject?.name || '璇烽€夋嫨椤圭洰' }}</h3>
+            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
             <p>{{ selectedProject?.code || '-' }}</p>
           </div>
           <TButton theme="primary" :disabled="!selectedProjectId" @click="openEndpointCreate">
@@ -503,9 +503,10 @@ onMounted(loadData);
         </div>
     </template>
 
-        <div v-if="!selectedProjectId" class="empty-state large">璇烽€夋嫨宸︿晶椤圭洰</div>
+        <div v-if="!selectedProjectId" class="empty-state large">请选择左侧项目</div>
         <div v-else-if="selectedEndpoints.length === 0 && !loading" class="empty-state large">
-          褰撳墠椤圭洰鏆傛棤绔厤缃?        </div>
+          当前项目暂无端配置
+        </div>
 
         <TCard
           v-for="endpoint in selectedEndpoints"
@@ -529,7 +530,7 @@ onMounted(loadData);
           <template #actions>
             <TLink theme="primary" @click="openModuleCreate(endpoint.id)">
               <IconifyIcon icon="lucide:plus" />
-              鏂板妯″潡
+              新增模块
             </TLink>
           </template>
 
@@ -553,7 +554,7 @@ onMounted(loadData);
                   <dd>{{ resolveUserNames(endpoint.developerIds) }}</dd>
                 </div>
                 <div>
-                  <dt>娴嬭瘯</dt>
+                  <dt>测试</dt>
                   <dd>{{ resolveUserNames(endpoint.testerIds) }}</dd>
                 </div>
                 <div>
@@ -565,7 +566,7 @@ onMounted(loadData);
 
             <div class="endpoint-module-list">
               <div class="module-table-head">
-                <h4>妯″潡绠＄悊</h4>
+                <h4>模块管理</h4>
               </div>
               <TTable
                 row-key="id"
@@ -593,7 +594,7 @@ onMounted(loadData);
                   <TSpace class="sprint-row-actions">
                     <TLink theme="primary" @click="openModuleEdit(row)">
                       <IconifyIcon icon="lucide:pencil" />
-                      缂栬緫
+                      编辑
                     </TLink>
                     <TButton
                       v-if="canDeleteModule(row)"
@@ -607,12 +608,11 @@ onMounted(loadData);
                       <template #icon>
                         <IconifyIcon icon="lucide:trash-2" />
                       </template>
-                      鍒犻櫎
+                      删除
                     </TButton>
-                    <TLink v-else theme="default" disabled>
-                      <IconifyIcon icon="lucide:trash-2" />
+                    <TTag v-else size="small" variant="light">
                       已关联 {{ moduleRequirementCount(row.id) }} 个需求
-                    </TLink>
+                    </TTag>
                   </TSpace>
                 </template>
               </TTable>
@@ -636,7 +636,7 @@ onMounted(loadData);
       v-model:visible="endpointVisible"
       :size="'520px'"
       :header="endpointMode === 'create' ? '新增端' : '编辑端'"
-      :confirm-btn="{ content: '淇濆瓨', loading: endpointSaving }"
+      :confirm-btn="{ content: '保存', loading: endpointSaving }"
       @confirm="saveEndpoint"
     >
       <TForm ref="endpointFormRef" :data="endpointForm" :rules="endpointRules" label-width="90px">
@@ -644,7 +644,7 @@ onMounted(loadData);
           <TInput v-model="endpointForm.code" disabled />
         </TFormItem>
         <TFormItem label="端名称" name="name">
-          <TInput v-model="endpointForm.name" placeholder="Web缃戠珯" />
+          <TInput v-model="endpointForm.name" placeholder="Web网站" />
         </TFormItem>
         <TFormItem label="端类型" name="type">
           <TSelect v-model="endpointForm.type" :options="endpointTypeOptions" />
@@ -652,10 +652,10 @@ onMounted(loadData);
         <TFormItem label="负责人">
           <TSelect v-model="endpointForm.ownerId" clearable filterable :options="userOptions" />
         </TFormItem>
-        <TFormItem label="鐮斿彂浜哄憳">
+        <TFormItem label="研发人员">
           <TSelect v-model="endpointForm.developerIds" multiple filterable :options="userOptions" />
         </TFormItem>
-        <TFormItem label="娴嬭瘯浜哄憳">
+        <TFormItem label="测试人员">
           <TSelect v-model="endpointForm.testerIds" multiple filterable :options="userOptions" />
         </TFormItem>
         <TFormItem label="Skill">
@@ -668,7 +668,7 @@ onMounted(loadData);
         <TFormItem label="状态">
           <TSelect v-model="endpointForm.status" :options="statusOptions" />
         </TFormItem>
-        <TFormItem label="鎺掑簭" name="sort">
+        <TFormItem label="排序" name="sort">
           <TInput v-model="endpointForm.sort" placeholder="100" />
         </TFormItem>
       </TForm>
@@ -677,40 +677,40 @@ onMounted(loadData);
     <TDrawer
       v-model:visible="moduleVisible"
       :size="'520px'"
-      :header="moduleMode === 'create' ? '鏂板妯″潡' : '缂栬緫妯″潡'"
-      :confirm-btn="{ content: '淇濆瓨', loading: moduleSaving }"
+      :header="moduleMode === 'create' ? '新增模块' : '编辑模块'"
+      :confirm-btn="{ content: '保存', loading: moduleSaving }"
       @confirm="saveModule"
     >
       <TForm ref="moduleFormRef" :data="moduleForm" :rules="moduleRules" label-width="90px">
-        <TFormItem label="鎵€灞炵" name="endpointId">
+        <TFormItem label="所属端" name="endpointId">
           <TSelect
             v-model="moduleForm.endpointId"
             :disabled="moduleMode === 'edit'"
             :options="selectedEndpoints.map((item) => ({ label: item.name, value: item.id }))"
           />
         </TFormItem>
-        <TFormItem label="妯″潡缂栫爜" name="code">
+        <TFormItem label="模块编码" name="code">
           <TInput v-model="moduleForm.code" :disabled="moduleMode === 'edit'" placeholder="ORDER" />
         </TFormItem>
-        <TFormItem label="妯″潡鍚嶇О" name="name">
-          <TInput v-model="moduleForm.name" placeholder="璁㈠崟绠＄悊" />
+        <TFormItem label="模块名称" name="name">
+          <TInput v-model="moduleForm.name" placeholder="订单管理" />
         </TFormItem>
-        <TFormItem label="妯″潡璇存槑">
+        <TFormItem label="模块说明">
           <TTextarea v-model="moduleForm.description" :autosize="{ minRows: 3, maxRows: 5 }" />
         </TFormItem>
         <TFormItem label="负责人">
           <TSelect v-model="moduleForm.ownerId" clearable filterable :options="userOptions" />
         </TFormItem>
-        <TFormItem label="鐮斿彂浜哄憳">
+        <TFormItem label="研发人员">
           <TSelect v-model="moduleForm.developerIds" multiple filterable :options="userOptions" />
         </TFormItem>
-        <TFormItem label="娴嬭瘯浜哄憳">
+        <TFormItem label="测试人员">
           <TSelect v-model="moduleForm.testerIds" multiple filterable :options="userOptions" />
         </TFormItem>
         <TFormItem label="状态">
           <TSelect v-model="moduleForm.status" :options="statusOptions" />
         </TFormItem>
-        <TFormItem label="鎺掑簭" name="sort">
+        <TFormItem label="排序" name="sort">
           <TInput v-model="moduleForm.sort" placeholder="100" />
         </TFormItem>
       </TForm>

@@ -91,10 +91,12 @@ public sealed class SprintProjectEndpointDomain :
     ISprintProjectEndpointDomain
 {
     /// <summary>
-    /// zh-cn: 鍒涘缓椤圭洰绔鍩熷璞★紝澶嶇敤 Air.Cloud 浠撳偍缁存姢椤圭洰涓嬬殑 IOS銆佸畨鍗撱€乄eb 绛夌淇℃伅銆?    /// en-us: Creates the project-endpoint domain and reuses the Air.Cloud repository to maintain iOS, Android, web, and other endpoint records under a project.
+    /// zh-cn: 创建项目端领域对象，复用 Air.Cloud 仓储维护项目下的 iOS、安卓、Web 等端信息。
+    /// en-us: Creates the project-endpoint domain and reuses the Air.Cloud repository to maintain iOS, Android, web, and other endpoint records under a project.
     /// </summary>
     /// <param name="repository">
-    /// zh-cn: 椤圭洰绔疄浣撲粨鍌ㄣ€?    /// en-us: Project-endpoint entity repository.
+    /// zh-cn: 项目端实体仓储。
+    /// en-us: Project-endpoint entity repository.
     /// </param>
     public SprintProjectEndpointDomain(IRepository<SprintProjectEndpointEntity> repository) : base(repository)
     {
@@ -106,10 +108,12 @@ public sealed class SprintFeatureModuleDomain :
     ISprintFeatureModuleDomain
 {
     /// <summary>
-    /// zh-cn: 鍒涘缓鍔熻兘妯″潡棰嗗煙瀵硅薄锛屽鐢?Air.Cloud 浠撳偍缁存姢绔笅鐨勫姛鑳芥ā鍧楋紝渚涢渶姹傚拰寤鸿缁戝畾銆?    /// en-us: Creates the feature-module domain and reuses the Air.Cloud repository to maintain endpoint modules used by requirements and suggestions.
+    /// zh-cn: 创建功能模块领域对象，复用 Air.Cloud 仓储维护端下的功能模块，供需求和建议绑定。
+    /// en-us: Creates the feature-module domain and reuses the Air.Cloud repository to maintain endpoint modules used by requirements and suggestions.
     /// </summary>
     /// <param name="repository">
-    /// zh-cn: 鍔熻兘妯″潡瀹炰綋浠撳偍銆?    /// en-us: Feature-module entity repository.
+    /// zh-cn: 功能模块实体仓储。
+    /// en-us: Feature-module entity repository.
     /// </param>
     public SprintFeatureModuleDomain(IRepository<SprintFeatureModuleEntity> repository) : base(repository)
     {
@@ -151,10 +155,12 @@ public sealed class SprintFeatureSuggestionDomain :
     ISprintFeatureSuggestionDomain
 {
     /// <summary>
-    /// zh-cn: 鍒涘缓鍔熻兘寤鸿棰嗗煙瀵硅薄锛屽鐢?Air.Cloud 浠撳偍淇濆瓨椤圭洰鎴愬憳鎻愪氦鐨勬ā鍧楀寲浜у搧寤鸿銆?    /// en-us: Creates the feature-suggestion domain and reuses the Air.Cloud repository to save module-scoped product suggestions submitted by project participants.
+    /// zh-cn: 创建功能建议领域对象，复用 Air.Cloud 仓储保存项目成员提交的模块化产品建议。
+    /// en-us: Creates the feature-suggestion domain and reuses the Air.Cloud repository to save module-scoped product suggestions submitted by project participants.
     /// </summary>
     /// <param name="repository">
-    /// zh-cn: 鍔熻兘寤鸿瀹炰綋浠撳偍銆?    /// en-us: Feature-suggestion entity repository.
+    /// zh-cn: 功能建议实体仓储。
+    /// en-us: Feature-suggestion entity repository.
     /// </param>
     public SprintFeatureSuggestionDomain(IRepository<SprintFeatureSuggestionEntity> repository) : base(repository)
     {

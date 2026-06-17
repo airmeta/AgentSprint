@@ -3,7 +3,7 @@ import type { SprintGitApi } from '#/api/sprint/git';
 import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-vue-next';
 
 import { IconifyIcon } from '@vben/icons';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, h, onMounted, reactive, ref } from 'vue';
 
 import {
   Button as TButton,
@@ -18,6 +18,7 @@ import {
   Table as TTable,
   Tag as TTag,
   Textarea as TTextarea,
+  Tooltip as TTooltip,
 } from 'tdesign-vue-next';
 
 import {
@@ -47,6 +48,8 @@ const pagination = reactive({
 const form = reactive<SprintGitApi.SaveGitAccountRequest>({
   accessToken: '',
   code: '',
+  commitAuthorEmail: '',
+  commitAuthorName: '',
   description: '',
   name: '',
   status: 'active',
@@ -61,11 +64,46 @@ const statusOptions = [
   { label: '启用', value: 'active' },
   { label: '停用', value: 'disabled' },
 ];
+const accessTokenTips = [
+  '访问令牌是 HTTPS Git 认证中的 password/secret 字段，具体填什么取决于 Git 平台。',
+  'GitHub 填 Personal Access Token，不是账号密码。',
+  'GitLab 建议填 Personal Access Token、Project Access Token 或 Deploy Token 的 token 值，不建议填账号密码。',
+  '自建 GitLab、Gitea、Gogs、Coding、Azure DevOps 等平台如果仍允许 HTTPS basic password，理论上可以填账号密码；现代平台通常推荐或强制用 token。',
+  'Deploy Token 需要用户名填平台生成的 deploy token username，访问令牌填 deploy token password/token。',
+  '用于推送时，令牌必须具备写仓库权限，例如 GitLab 的 read_repository 和 write_repository。',
+];
+
+function renderAccessTokenTitle() {
+  return h('span', { class: 'field-label-with-tip' }, [
+    '访问令牌',
+    h(
+      TTooltip,
+      { placement: 'top', theme: 'light' },
+      {
+        content: () =>
+          h(
+            'div',
+            { class: 'access-token-tip' },
+            accessTokenTips.map((item) => h('p', { key: item }, item)),
+          ),
+        default: () =>
+          h(IconifyIcon, {
+            class: 'access-token-warning-icon',
+            icon: 'lucide:circle-alert',
+          }),
+      },
+    ),
+  ]);
+}
+
 const columns: PrimaryTableCol[] = [
   { colKey: 'serial-number', title: '序号', width: 70 },
   { colKey: 'code', title: '账户编码', width: 150, ellipsis: true },
   { colKey: 'name', title: '账户名称', minWidth: 160, ellipsis: true },
   { colKey: 'username', title: 'Git用户名', minWidth: 160, ellipsis: true },
+  { colKey: 'accessToken', title: renderAccessTokenTitle, width: 150, cell: 'accessToken' },
+  { colKey: 'commitAuthorName', title: '提交作者', minWidth: 160, ellipsis: true },
+  { colKey: 'commitAuthorEmail', title: '提交邮箱', minWidth: 200, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100, cell: 'status' },
   { colKey: 'createTime', title: '创建时间', width: 180, cell: 'createTime' },
   { colKey: 'operation', title: '操作', width: 110, fixed: 'right', cell: 'operation' },
@@ -80,6 +118,8 @@ function resetForm(row?: SprintGitApi.GitAccount) {
   Object.assign(form, {
     accessToken: row?.accessToken || '',
     code: row?.code || '',
+    commitAuthorEmail: row?.commitAuthorEmail || '',
+    commitAuthorName: row?.commitAuthorName || '',
     description: row?.description || '',
     name: row?.name || '',
     status: row?.status || 'active',
@@ -124,6 +164,8 @@ async function saveAccount() {
     const payload = {
       ...form,
       accessToken: form.accessToken?.trim() || undefined,
+      commitAuthorEmail: form.commitAuthorEmail?.trim() || undefined,
+      commitAuthorName: form.commitAuthorName?.trim() || undefined,
       description: form.description?.trim() || undefined,
     };
     if (editingId.value) {
@@ -186,6 +228,11 @@ onMounted(loadAccounts);
         :loading="loading"
         hover
       >
+        <template #accessToken="{ row }">
+          <TTag :theme="row.accessToken ? 'warning' : 'default'" variant="light">
+            {{ row.accessToken ? '已配置' : '未配置' }}
+          </TTag>
+        </template>
         <template #status="{ row }">
           <TTag :theme="row.status === 'active' ? 'success' : 'default'" variant="light">
             {{ row.status === 'active' ? '启用' : '停用' }}
@@ -229,8 +276,27 @@ onMounted(loadAccounts);
         <TFormItem label="用户名" name="username">
           <TInput v-model="form.username" placeholder="git username" />
         </TFormItem>
-        <TFormItem label="访问令牌">
+        <TFormItem>
+          <template #label>
+            <span class="field-label-with-tip">
+              访问令牌
+              <TTooltip placement="top" theme="light">
+                <template #content>
+                  <div class="access-token-tip">
+                    <p v-for="item in accessTokenTips" :key="item">{{ item }}</p>
+                  </div>
+                </template>
+                <IconifyIcon class="access-token-warning-icon" icon="lucide:circle-alert" />
+              </TTooltip>
+            </span>
+          </template>
           <TInput v-model="form.accessToken" type="password" placeholder="密码或Personal Access Token" />
+        </TFormItem>
+        <TFormItem label="提交作者">
+          <TInput v-model="form.commitAuthorName" placeholder="AgentSprint Bot" />
+        </TFormItem>
+        <TFormItem label="提交邮箱">
+          <TInput v-model="form.commitAuthorEmail" placeholder="agentsprint-bot@example.com" />
         </TFormItem>
         <TFormItem label="状态">
           <TSelect v-model="form.status" :options="statusOptions" />
@@ -291,5 +357,30 @@ onMounted(loadAccounts);
 .pagination-bar {
   margin-top: 12px;
   color: var(--td-text-color-secondary);
+}
+
+.field-label-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.access-token-warning-icon {
+  color: var(--td-warning-color);
+  cursor: help;
+  font-size: 16px;
+}
+
+.access-token-tip {
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.access-token-tip p {
+  margin: 0;
+}
+
+.access-token-tip p + p {
+  margin-top: 6px;
 }
 </style>

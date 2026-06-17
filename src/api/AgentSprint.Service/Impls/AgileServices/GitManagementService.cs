@@ -50,6 +50,8 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
             Name = NormalizeRequired(request.Name, "Git account name is required."),
             Username = NormalizeRequired(request.Username, "Git username is required."),
             AccessToken = NormalizeOptional(request.AccessToken),
+            CommitAuthorName = ResolveCommitAuthorName(request),
+            CommitAuthorEmail = ResolveCommitAuthorEmail(request),
             Description = NormalizeOptional(request.Description),
             Status = NormalizeAccountStatus(request.Status, GitAccountStatuses.Active),
             CreatedBy = userId
@@ -66,6 +68,8 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
         entity.Name = NormalizeRequired(request.Name, "Git account name is required.");
         entity.Username = NormalizeRequired(request.Username, "Git username is required.");
         entity.AccessToken = NormalizeOptional(request.AccessToken);
+        entity.CommitAuthorName = ResolveCommitAuthorName(request);
+        entity.CommitAuthorEmail = ResolveCommitAuthorEmail(request);
         entity.Description = NormalizeOptional(request.Description);
         entity.Status = NormalizeAccountStatus(request.Status, entity.Status);
         await _accountDomain.UpdateAsync(entity);
@@ -397,6 +401,30 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
         return normalized;
     }
 
+    private static string? ResolveCommitAuthorName(SaveGitAccountRequest request)
+    {
+        var name = NormalizeOptional(request.CommitAuthorName);
+        var email = NormalizeOptional(request.CommitAuthorEmail);
+        if ((name is null) != (email is null))
+        {
+            throw new InvalidOperationException("Git commit author name and email must be configured together.");
+        }
+
+        return name;
+    }
+
+    private static string? ResolveCommitAuthorEmail(SaveGitAccountRequest request)
+    {
+        var name = NormalizeOptional(request.CommitAuthorName);
+        var email = NormalizeOptional(request.CommitAuthorEmail);
+        if ((name is null) != (email is null))
+        {
+            throw new InvalidOperationException("Git commit author name and email must be configured together.");
+        }
+
+        return email;
+    }
+
     private static string NormalizeAccountStatus(string? status, string currentStatus)
     {
         var normalized = NormalizeOptional(status) ?? currentStatus;
@@ -443,6 +471,8 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
             entity.Name,
             entity.Username,
             entity.AccessToken,
+            entity.CommitAuthorName,
+            entity.CommitAuthorEmail,
             entity.Description,
             entity.Status,
             entity.CreatedBy,

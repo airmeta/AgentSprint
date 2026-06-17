@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgentSprint.Worker")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+85f21ff29849b29f340942d0e648401926bb890d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dabb708f7150403c01db09e7bc2caf38ff45cffe")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgentSprint.Worker")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgentSprint.Worker")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

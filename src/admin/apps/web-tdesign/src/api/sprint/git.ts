@@ -4,6 +4,8 @@ export namespace SprintGitApi {
   export interface GitAccount {
     accessToken?: string;
     code: string;
+    commitAuthorEmail?: string;
+    commitAuthorName?: string;
     createTime: string;
     createdBy: string;
     description?: string;
@@ -16,6 +18,8 @@ export namespace SprintGitApi {
   export interface SaveGitAccountRequest {
     accessToken?: string;
     code: string;
+    commitAuthorEmail?: string;
+    commitAuthorName?: string;
     description?: string;
     name: string;
     status?: string;

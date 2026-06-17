@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 using AgentSprint.Worker.Models;
 
@@ -62,8 +63,8 @@ public sealed class CodexProcessRunner
 
         using var watcherCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var fatalOutput = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var lastOutputTicks = DateTimeOffset.UtcNow.UtcTicks;
+        var hasOutput = false;
 
         using var process = new Process
         {
@@ -82,6 +83,9 @@ public sealed class CodexProcessRunner
         WorkerDiagnostics.Info(
             "Codex进程启动参数",
             $"runId={request.RunId}, fileName={process.StartInfo.FileName}, workingDirectory={process.StartInfo.WorkingDirectory}, arguments={FormatArguments(process.StartInfo.ArgumentList)}");
+        WorkerDiagnostics.Info(
+            "Codex启动环境诊断",
+            BuildLaunchDiagnostics(request, paths.FinalPath, idleTimeout));
 
         try
         {
@@ -120,13 +124,14 @@ public sealed class CodexProcessRunner
                 var idleTimeoutTask = WatchIdleAsync(
                     idleTimeout,
                     () => new DateTimeOffset(Interlocked.Read(ref lastOutputTicks), TimeSpan.Zero),
+                    () => Volatile.Read(ref hasOutput),
+                    progress => ReportProgressAsync(request, progress, CancellationToken.None),
                     watcherCts.Token);
 
                 var completedTask = await Task.WhenAny(
                     processExitTask,
                     runTimeoutTask,
-                    idleTimeoutTask,
-                    fatalOutput.Task);
+                    idleTimeoutTask);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -163,14 +168,6 @@ public sealed class CodexProcessRunner
                     await StopProcessAsync(process, watcherCts, pumpCts);
                     await WaitForPumpsAsync(stdoutTask, stderrTask);
                 }
-                else
-                {
-                    status = "codex_failed";
-                    error = await fatalOutput.Task;
-                    WorkerDiagnostics.Error("Codex进程检测到致命输出", $"runId={request.RunId}, error={error}");
-                    await StopProcessAsync(process, watcherCts, pumpCts);
-                    await WaitForPumpsAsync(stdoutTask, stderrTask);
-                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -191,12 +188,8 @@ public sealed class CodexProcessRunner
         void OnOutputLine(string line)
         {
             Interlocked.Exchange(ref lastOutputTicks, DateTimeOffset.UtcNow.UtcTicks);
+            Volatile.Write(ref hasOutput, true);
             WorkerDiagnostics.Info("Codex输出", $"runId={request.RunId}, line={WorkerDiagnostics.Trim(line, 2000)}");
-            if (TryClassifyFatalOutputLine(line, out var reason))
-            {
-                WorkerDiagnostics.Error("Codex输出命中快速失败规则", $"runId={request.RunId}, reason={reason}, line={WorkerDiagnostics.Trim(line, 2000)}");
-                fatalOutput.TrySetResult(reason);
-            }
         }
 
         var completedAt = DateTimeOffset.UtcNow;
@@ -253,75 +246,6 @@ public sealed class CodexProcessRunner
         startInfo.ArgumentList.Add(request.Prompt);
     }
 
-    internal static bool TryClassifyFatalOutputLine(string line, out string reason)
-    {
-        reason = string.Empty;
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return false;
-        }
-
-        var normalized = line.Trim();
-        var lower = normalized.ToLowerInvariant();
-        var hasErrorSignal =
-            lower.Contains("error", StringComparison.Ordinal) ||
-            lower.Contains("failed", StringComparison.Ordinal) ||
-            lower.Contains("failure", StringComparison.Ordinal) ||
-            lower.Contains("unauthorized", StringComparison.Ordinal) ||
-            lower.Contains("forbidden", StringComparison.Ordinal) ||
-            lower.Contains("invalid", StringComparison.Ordinal) ||
-            lower.Contains("timeout", StringComparison.Ordinal) ||
-            lower.Contains("timed out", StringComparison.Ordinal);
-
-        if (lower.Contains("unauthorized", StringComparison.Ordinal) ||
-            lower.Contains("forbidden", StringComparison.Ordinal) ||
-            lower.Contains("invalid api key", StringComparison.Ordinal) ||
-            lower.Contains("authentication", StringComparison.Ordinal) ||
-            lower.Contains("not logged in", StringComparison.Ordinal) ||
-            lower.Contains("access is denied", StringComparison.Ordinal) ||
-            ((lower.Contains("401", StringComparison.Ordinal) ||
-              lower.Contains("403", StringComparison.Ordinal)) &&
-             hasErrorSignal))
-        {
-            reason = $"Codex authentication failed: {normalized}";
-            return true;
-        }
-
-        if (lower.Contains("429", StringComparison.Ordinal) ||
-            lower.Contains("rate limit", StringComparison.Ordinal) ||
-            lower.Contains("quota", StringComparison.Ordinal))
-        {
-            reason = $"Codex rate limit or quota failure: {normalized}";
-            return true;
-        }
-
-        if ((lower.Contains("500", StringComparison.Ordinal) ||
-             lower.Contains("502", StringComparison.Ordinal) ||
-             lower.Contains("503", StringComparison.Ordinal) ||
-             lower.Contains("504", StringComparison.Ordinal) ||
-             lower.Contains("bad gateway", StringComparison.Ordinal) ||
-             lower.Contains("service unavailable", StringComparison.Ordinal) ||
-             lower.Contains("gateway timeout", StringComparison.Ordinal)) &&
-            hasErrorSignal)
-        {
-            reason = $"Codex upstream service failed: {normalized}";
-            return true;
-        }
-
-        if (lower.Contains("enotfound", StringComparison.Ordinal) ||
-            lower.Contains("econnrefused", StringComparison.Ordinal) ||
-            lower.Contains("econnreset", StringComparison.Ordinal) ||
-            lower.Contains("etimedout", StringComparison.Ordinal) ||
-            lower.Contains("fetch failed", StringComparison.Ordinal) ||
-            lower.Contains("network error", StringComparison.Ordinal))
-        {
-            reason = $"Codex network failure: {normalized}";
-            return true;
-        }
-
-        return false;
-    }
-
     private static async Task PumpAsync(
         StreamReader reader,
         StreamWriter writer,
@@ -342,22 +266,202 @@ public sealed class CodexProcessRunner
         }
     }
 
-    private static async Task<string> WatchIdleAsync(
+    internal static async Task<string> WatchIdleAsync(
         TimeSpan idleTimeout,
         Func<DateTimeOffset> getLastOutputAt,
+        Func<bool> hasOutput,
+        Func<CodexRunProgressEvent, Task> reportProgressAsync,
         CancellationToken cancellationToken)
     {
         var delay = TimeSpan.FromSeconds(Math.Clamp(idleTimeout.TotalSeconds / 4, 1, 10));
+        var warningAfter = TimeSpan.FromSeconds(Math.Max(1, idleTimeout.TotalSeconds / 2));
+        var warningReported = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var idleFor = DateTimeOffset.UtcNow - getLastOutputAt();
+            var observedAt = DateTimeOffset.UtcNow;
+            var lastOutputAt = getLastOutputAt();
+            var idleFor = observedAt - lastOutputAt;
+            if (!warningReported && idleFor >= warningAfter)
+            {
+                warningReported = true;
+                WorkerDiagnostics.Warn(
+                    "Codex进程长时间无输出",
+                    FormatIdleDiagnostics(WorkerEventTypes.CodexIdleWaiting, observedAt, lastOutputAt, idleFor, idleTimeout, hasOutput()));
+                await reportProgressAsync(new CodexRunProgressEvent(
+                    WorkerEventTypes.CodexIdleWaiting,
+                    "warn",
+                    "Codex process is still running but has not produced stdout/stderr recently.",
+                    observedAt,
+                    lastOutputAt,
+                    idleFor,
+                    idleTimeout,
+                    hasOutput()));
+            }
+
             if (idleFor >= idleTimeout)
             {
+                WorkerDiagnostics.Warn(
+                    "Codex进程空闲超时诊断",
+                    FormatIdleDiagnostics(WorkerEventTypes.CodexIdleTimeout, observedAt, lastOutputAt, idleFor, idleTimeout, hasOutput()));
+                await reportProgressAsync(new CodexRunProgressEvent(
+                    WorkerEventTypes.CodexIdleTimeout,
+                    "error",
+                    "Codex process reached stdout/stderr idle timeout.",
+                    observedAt,
+                    lastOutputAt,
+                    idleFor,
+                    idleTimeout,
+                    hasOutput()));
                 return $"Codex process produced no stdout/stderr for {FormatDuration(idleTimeout)}.";
             }
 
             await Task.Delay(delay, cancellationToken);
+        }
+    }
+
+    internal static string BuildLaunchDiagnostics(
+        CodexRunRequest request,
+        string finalPath,
+        TimeSpan idleTimeout)
+    {
+        var rawCodexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
+        var codexHome = NormalizeForLog(rawCodexHome);
+        var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var agentToken = Environment.GetEnvironmentVariable("AGENTSPRINT_AGENT_TOKEN");
+        var configPath = string.IsNullOrWhiteSpace(rawCodexHome)
+            ? string.Empty
+            : Path.Combine(rawCodexHome.Trim(), "config.toml");
+        var config = InspectCodexConfig(configPath);
+
+        return string.Join(
+            ", ",
+            $"runId={request.RunId}",
+            $"codexExecutable={request.CodexExecutable ?? "codex"}",
+            $"workingDirectory={request.WorkingDirectory}",
+            $"workingDirectoryExists={Directory.Exists(request.WorkingDirectory)}",
+            $"finalPath={finalPath}",
+            $"promptLength={request.Prompt.Length}",
+            $"sandboxMode={request.SandboxMode}",
+            $"skipGitRepoCheck={request.SkipGitRepoCheck}",
+            $"timeout={FormatDuration(request.Timeout)}",
+            $"idleTimeout={FormatDuration(idleTimeout)}",
+            $"processCODEX_HOME={codexHome}",
+            $"configPath={configPath}",
+            $"configExists={config.Exists}",
+            $"configLength={config.Length?.ToString() ?? "<null>"}",
+            $"configLastWriteUtc={config.LastWriteUtc ?? "<null>"}",
+            $"configSha256={config.Sha256Prefix ?? "<null>"}",
+            $"configModel={config.Model ?? "<null>"}",
+            $"configProvider={config.Provider ?? "<null>"}",
+            $"configBaseUrl={config.BaseUrl ?? "<null>"}",
+            $"configReadError={config.ReadError ?? "<null>"}",
+            $"hasOPENAI_API_KEY={!string.IsNullOrWhiteSpace(openAiApiKey)}",
+            $"hasAGENTSPRINT_AGENT_TOKEN={!string.IsNullOrWhiteSpace(agentToken)}",
+            $"hasHTTP_PROXY={!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HTTP_PROXY"))}",
+            $"hasHTTPS_PROXY={!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HTTPS_PROXY"))}",
+            $"hasNO_PROXY={!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("NO_PROXY"))}");
+    }
+
+    private static CodexConfigDiagnostics InspectCodexConfig(string configPath)
+    {
+        if (string.IsNullOrWhiteSpace(configPath))
+        {
+            return new CodexConfigDiagnostics(false, null, null, null, null, null, null, null);
+        }
+
+        try
+        {
+            if (!File.Exists(configPath))
+            {
+                return new CodexConfigDiagnostics(false, null, null, null, null, null, null, null);
+            }
+
+            var bytes = File.ReadAllBytes(configPath);
+            var lines = File.ReadAllLines(configPath);
+            return new CodexConfigDiagnostics(
+                true,
+                bytes.LongLength,
+                File.GetLastWriteTimeUtc(configPath).ToString("O"),
+                Convert.ToHexString(SHA256.HashData(bytes))[..12],
+                ReadTomlValue(lines, "model"),
+                ReadTomlValue(lines, "model_provider"),
+                ReadTomlValue(lines, "base_url"),
+                null);
+        }
+        catch (Exception ex)
+        {
+            return new CodexConfigDiagnostics(
+                File.Exists(configPath),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                ex.Message);
+        }
+    }
+
+    private static string? ReadTomlValue(IReadOnlyCollection<string> lines, string key)
+    {
+        var prefix = key + " = ";
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return trimmed[prefix.Length..].Trim().Trim('"');
+        }
+
+        return null;
+    }
+
+    private static string FormatIdleDiagnostics(
+        string eventType,
+        DateTimeOffset observedAt,
+        DateTimeOffset lastOutputAt,
+        TimeSpan idleFor,
+        TimeSpan idleTimeout,
+        bool hasOutput)
+    {
+        return string.Join(
+            ", ",
+            $"eventType={eventType}",
+            $"observedAt={observedAt:O}",
+            $"lastOutputAt={lastOutputAt:O}",
+            $"idleFor={FormatDuration(idleFor)}",
+            $"idleTimeout={FormatDuration(idleTimeout)}",
+            $"hasOutput={hasOutput}");
+    }
+
+    private static string NormalizeForLog(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "<empty>" : value.Trim();
+    }
+
+    private static async Task ReportProgressAsync(
+        CodexRunRequest request,
+        CodexRunProgressEvent progress,
+        CancellationToken cancellationToken)
+    {
+        if (request.ProgressReporter is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await request.ProgressReporter(progress, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Warn(
+                "Codex运行进度上报失败",
+                $"runId={request.RunId}, eventType={progress.EventType}, error={ex.Message}");
         }
     }
 
@@ -412,4 +516,14 @@ public sealed class CodexProcessRunner
                 ? "\"" + argument.Replace("\"", "\\\"", StringComparison.Ordinal) + "\""
                 : argument));
     }
+
+    private sealed record CodexConfigDiagnostics(
+        bool Exists,
+        long? Length,
+        string? LastWriteUtc,
+        string? Sha256Prefix,
+        string? Model,
+        string? Provider,
+        string? BaseUrl,
+        string? ReadError);
 }

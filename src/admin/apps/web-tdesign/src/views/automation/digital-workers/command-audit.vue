@@ -75,6 +75,7 @@ const sessionStatusOptions = [
   { label: '已过期', value: 'expired' },
 ];
 const columns: PrimaryTableCol[] = [
+  { colKey: 'gitCommitId', title: 'Git Commit', cell: 'gitCommitId', ellipsis: true, minWidth: 160 },
   { colKey: 'commandType', title: '命令', cell: 'commandType', width: 150 },
   { colKey: 'status', title: '状态', cell: 'commandStatus', width: 110 },
   { colKey: 'sessionId', title: '会话', cell: 'sessionId', ellipsis: true, minWidth: 180 },
@@ -106,6 +107,8 @@ const filteredCommands = computed(() => {
       command.createdBy,
       command.payloadJson,
       command.resultJson,
+      command.changedFilesJson,
+      command.gitCommitId,
       command.error,
     ]
       .filter(Boolean)
@@ -149,6 +152,10 @@ function formatJson(value?: string) {
   } catch {
     return value;
   }
+}
+
+function shortCommit(value?: string) {
+  return value ? value.slice(0, 12) : '-';
 }
 
 async function applyFilters() {
@@ -324,6 +331,7 @@ onMounted(loadPage);
         </div>
 
         <TTable row-key="id" :columns="columns" :data="filteredCommands" :loading="loading" hover stripe>
+          <template #gitCommitId="{ row }">{{ shortCommit(row.gitCommitId) }}</template>
           <template #commandType="{ row }">{{ commandText(row.commandType) }}</template>
           <template #commandStatus="{ row }">
             <TTag :theme="commandStatusTheme(row.status)" variant="light">{{ commandStatusText(row.status) }}</TTag>
@@ -375,6 +383,14 @@ onMounted(loadPage);
             <div class="text-block">
               <h4>Result JSON</h4>
               <pre>{{ formatJson(selectedCommand.resultJson) }}</pre>
+            </div>
+            <div class="text-block">
+              <h4>Git Commit</h4>
+              <pre>{{ selectedCommand.gitCommitId || '-' }}</pre>
+            </div>
+            <div class="text-block">
+              <h4>Changed Files</h4>
+              <pre>{{ formatJson(selectedCommand.changedFilesJson) }}</pre>
             </div>
             <div v-if="selectedCommand.error" class="text-block text-block--error">
               <h4>错误信息</h4>

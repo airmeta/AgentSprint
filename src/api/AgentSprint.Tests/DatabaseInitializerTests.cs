@@ -101,7 +101,8 @@ public sealed class DatabaseInitializerTests
 
         Assert.True(await dbContext.Users.AnyAsync(entity => entity.Username == "admin"));
         Assert.True(await dbContext.Menus.AnyAsync(entity => entity.Path == "/automation"));
-        Assert.True(await dbContext.SystemConfigurations.AnyAsync(entity => entity.Key == "AiPlatform:openai"));
+        Assert.True(await dbContext.SystemConfigurations.AnyAsync(entity => entity.Key == "Mcp:Endpoint"));
+        Assert.False(await dbContext.SystemConfigurations.AnyAsync(entity => entity.Key == "AiPlatform:openai"));
         Assert.True(await dbContext.DictionaryTypes.AnyAsync(entity => entity.Code == "digital_worker_employee_type"));
         Assert.True(await dbContext.RuntimeEnvironments.AnyAsync(entity => entity.Code == "test" && entity.ProjectId == null));
         Assert.True(await dbContext.PromptTemplates.AnyAsync(entity => entity.Code == "digital_worker_task_execution"));

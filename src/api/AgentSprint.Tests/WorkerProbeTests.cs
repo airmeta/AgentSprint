@@ -244,6 +244,73 @@ public sealed class WorkerProbeTests
     }
 
     [Fact]
+    public void AgentSprintWorkerService_BuildWorkerCommitMessage_IncludesRequirementContext()
+    {
+        var target = new AgentSprintWorkerService.WorkerCommandTarget(
+            "task",
+            "task",
+            "task-001",
+            "taskId",
+            "math",
+            null,
+            "main",
+            "Task");
+        var context = new WorkerPromptContextResult(
+            "task",
+            "task-001",
+            "project-id",
+            "project-code",
+            "Project",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "req-001",
+            "Checkout search",
+            "Allow users to search orders from the checkout page.",
+            "developing",
+            null,
+            null,
+            "task-001",
+            "Implement checkout search API",
+            "Add endpoint, service logic, and focused tests.",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "/worker-runtime/work/task/task-001/complete",
+            "Worker completes through API.");
+        var result = new CodexRunResult(
+            "run-001",
+            "success",
+            0,
+            false,
+            DateTimeOffset.UnixEpoch,
+            DateTimeOffset.UnixEpoch,
+            "/runs/run-001",
+            "/runs/run-001/stdout.log",
+            "/runs/run-001/stderr.log",
+            "/runs/run-001/final.md",
+            null);
+
+        var message = AgentSprintWorkerService.BuildWorkerCommitMessage(target, context, result);
+
+        Assert.Contains("AgentSprint worker update: Implement checkout search API", message);
+        Assert.Contains("Requirement: req-001 - Checkout search", message);
+        Assert.Contains("Requirement summary: Allow users to search orders from the checkout page.", message);
+        Assert.Contains("Task: task-001 - Implement checkout search API", message);
+        Assert.DoesNotContain("AgentSprint worker update: task task-001\r\n", message);
+    }
+
+    [Fact]
     public void GitWorkspaceManager_ResolveWorkspacePath_RejectsEscapingProjectCode()
     {
         var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
@@ -273,13 +340,13 @@ public sealed class WorkerProbeTests
         await RunGitForTestAsync("push -u origin main", source);
 
         var manager = new GitWorkspaceManager();
-        var cloned = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
+        var cloned = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, null, null, CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "second");
         await RunGitForTestAsync("add README.md", source);
         await RunGitForTestAsync("commit -m second", source);
         await RunGitForTestAsync("push", source);
 
-        var pulled = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
+        var pulled = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, null, null, CancellationToken.None);
 
         Assert.True(cloned.Succeeded);
         Assert.True(pulled.Succeeded);
@@ -287,6 +354,36 @@ public sealed class WorkerProbeTests
         Assert.Equal("main", pulled.Branch);
         Assert.False(pulled.Dirty);
         Assert.Equal("second", await File.ReadAllTextAsync(Path.Combine(pulled.WorkspacePath, "README.md")));
+    }
+
+    [Fact]
+    public async Task GitWorkspaceManager_PrepareAsync_CleansExistingWorkspaceBeforePull()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
+        var remote = Path.Combine(root, "remote.git");
+        var source = Path.Combine(root, "source");
+        var workspaces = Path.Combine(root, "workspaces");
+        Directory.CreateDirectory(root);
+        await RunGitForTestAsync("init --bare " + Quote(remote), root);
+        await RunGitForTestAsync("init -b main " + Quote(source), root);
+        await ConfigureGitUserAsync(source);
+        await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "first");
+        await RunGitForTestAsync("add README.md", source);
+        await RunGitForTestAsync("commit -m first", source);
+        await RunGitForTestAsync("remote add origin " + Quote(remote), source);
+        await RunGitForTestAsync("push -u origin main", source);
+
+        var manager = new GitWorkspaceManager();
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, null, null, CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "README.md"), "stale local edit");
+        await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "scratch.txt"), "stale untracked file");
+
+        var cleaned = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, null, null, CancellationToken.None);
+
+        Assert.True(cleaned.Succeeded);
+        Assert.False(cleaned.Dirty);
+        Assert.Equal("first", await File.ReadAllTextAsync(Path.Combine(cleaned.WorkspacePath, "README.md")));
+        Assert.False(File.Exists(Path.Combine(cleaned.WorkspacePath, "scratch.txt")));
     }
 
     [Fact]
@@ -307,8 +404,7 @@ public sealed class WorkerProbeTests
         await RunGitForTestAsync("push -u origin main", source);
 
         var manager = new GitWorkspaceManager();
-        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
-        await ConfigureGitUserAsync(prepared.WorkspacePath);
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, "Project Worker", "project-worker@example.com", CancellationToken.None);
         await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "README.md"), "worker");
 
         var published = await manager.PublishAsync(
@@ -316,16 +412,44 @@ public sealed class WorkerProbeTests
             remote,
             null,
             null,
-            "worker update",
+            "Project Worker",
+            "project-worker@example.com",
+            "worker update\nRequirement: req-001 - Checkout search\nRequirement summary: Search orders from checkout.",
             (_, _) => Task.FromResult(new GitConflictResolutionResult(false, "unexpected")),
             CancellationToken.None);
         await RunGitForTestAsync("pull --ff-only", source);
+        var commitMessage = await ReadGitForTestAsync("log -1 --pretty=%B", source);
 
         Assert.True(published.Succeeded);
         Assert.True(published.HasChanges);
         Assert.True(published.Pushed);
         Assert.False(published.ConflictResolved);
         Assert.Equal("worker", await File.ReadAllTextAsync(Path.Combine(source, "README.md")));
+        Assert.Contains("\"path\":\"README.md\"", published.ChangedFilesJson);
+        Assert.Contains("\"status\":\"modified\"", published.ChangedFilesJson);
+        Assert.Contains("Requirement: req-001 - Checkout search", commitMessage);
+        Assert.Contains("Requirement summary: Search orders from checkout.", commitMessage);
+        Assert.Equal("Project Worker", await ReadGitForTestAsync("config user.name", prepared.WorkspacePath));
+        Assert.Equal("project-worker@example.com", await ReadGitForTestAsync("config user.email", prepared.WorkspacePath));
+    }
+
+    [Fact]
+    public void GitWorkspaceManager_BuildChangedFilesJson_ParsesPorcelainStatus()
+    {
+        var json = GitWorkspaceManager.BuildChangedFilesJson("""
+             M README.md
+            ?? src/NewFile.cs
+            R  old.txt -> new.txt
+            D  removed.txt
+            """);
+
+        Assert.Contains("\"path\":\"README.md\"", json);
+        Assert.Contains("\"status\":\"modified\"", json);
+        Assert.Contains("\"path\":\"src/NewFile.cs\"", json);
+        Assert.Contains("\"status\":\"added\"", json);
+        Assert.Contains("\"path\":\"new.txt\"", json);
+        Assert.Contains("\"oldPath\":\"old.txt\"", json);
+        Assert.Contains("\"status\":\"deleted\"", json);
     }
 
     [Fact]
@@ -346,7 +470,7 @@ public sealed class WorkerProbeTests
         await RunGitForTestAsync("push -u origin main", source);
 
         var manager = new GitWorkspaceManager();
-        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, CancellationToken.None);
+        var prepared = await manager.PrepareAsync(workspaces, "math", remote, "main", null, null, "Project Worker", "project-worker@example.com", CancellationToken.None);
         await ConfigureGitUserAsync(prepared.WorkspacePath);
         await File.WriteAllTextAsync(Path.Combine(prepared.WorkspacePath, "README.md"), "local worker");
         await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "remote update");
@@ -360,6 +484,8 @@ public sealed class WorkerProbeTests
             remote,
             null,
             null,
+            "Project Worker",
+            "project-worker@example.com",
             "worker update",
             async (request, _) =>
             {
@@ -388,7 +514,7 @@ public sealed class WorkerProbeTests
         var root = Path.Combine(Path.GetTempPath(), "agentsprint-worker-tests", Guid.NewGuid().ToString("N"));
         var manager = new GitWorkspaceManager();
 
-        var result = await manager.PrepareAsync(root, "math", null, null, null, null, CancellationToken.None);
+        var result = await manager.PrepareAsync(root, "math", null, null, null, null, null, null, CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.False(result.RepositoryAvailable);
@@ -493,6 +619,22 @@ public sealed class WorkerProbeTests
         {
             throw new InvalidOperationException(result.Stderr + result.Stdout + result.Error);
         }
+    }
+
+    private static async Task<string> ReadGitForTestAsync(string arguments, string workingDirectory)
+    {
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            arguments,
+            workingDirectory,
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(result.Stderr + result.Stdout + result.Error);
+        }
+
+        return result.Stdout.Trim();
     }
 
     private static async Task ConfigureGitUserAsync(string workingDirectory)

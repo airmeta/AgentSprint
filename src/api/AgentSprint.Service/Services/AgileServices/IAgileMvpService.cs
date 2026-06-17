@@ -105,32 +105,38 @@ public interface IAgileMvpService
     Task<SprintSkillResult> UpdateSkillAsync(string id, UpdateSprintSkillRequest request);
 
     /// <summary>
-    /// zh-cn: 鍒涘缓椤圭洰绔紝骞跺悓姝ョ璐熻矗浜恒€佸紑鍙戝拰娴嬭瘯浜哄憳涓洪」鐩垚鍛樸€?    /// en-us: Creates a project endpoint and syncs its owner, developers, and testers as project members.
+    /// zh-cn: 创建项目端，并同步端负责人、开发和测试人员为项目成员。
+    /// en-us: Creates a project endpoint and syncs its owner, developers, and testers as project members.
     /// </summary>
     Task<SprintProjectEndpointResult> CreateProjectEndpointAsync(CreateSprintProjectEndpointRequest request, string userId);
 
     /// <summary>
-    /// zh-cn: 鏌ヨ椤圭洰绔垪琛紝鐢ㄤ簬闇€姹傚綊灞炲拰妯″潡缁存姢銆?    /// en-us: Lists project endpoints for requirement ownership and module maintenance.
+    /// zh-cn: 查询项目端列表，用于需求归属和模块维护。
+    /// en-us: Lists project endpoints for requirement ownership and module maintenance.
     /// </summary>
     Task<IReadOnlyList<SprintProjectEndpointResult>> ListProjectEndpointsAsync(string? projectId);
 
     /// <summary>
-    /// zh-cn: 鏇存柊椤圭洰绔殑鍚嶇О銆佺被鍨嬨€佽礋璐ｄ汉鍜屼汉鍛橀厤缃€?    /// en-us: Updates endpoint name, type, owner, and staffing configuration.
+    /// zh-cn: 更新项目端的名称、类型、负责人和人员配置。
+    /// en-us: Updates endpoint name, type, owner, and staffing configuration.
     /// </summary>
     Task<SprintProjectEndpointResult> UpdateProjectEndpointAsync(string id, UpdateSprintProjectEndpointRequest request);
 
     /// <summary>
-    /// zh-cn: 鍒涘缓绔笅鍔熻兘妯″潡锛岄渶姹傚拰寤鸿鍙粦瀹氬埌璇ユā鍧椼€?    /// en-us: Creates a feature module under an endpoint so requirements and suggestions can bind to it.
+    /// zh-cn: 创建端下功能模块，需求和建议可绑定到该模块。
+    /// en-us: Creates a feature module under an endpoint so requirements and suggestions can bind to it.
     /// </summary>
     Task<SprintFeatureModuleResult> CreateFeatureModuleAsync(CreateSprintFeatureModuleRequest request, string userId);
 
     /// <summary>
-    /// zh-cn: 鏌ヨ鍔熻兘妯″潡鍒楄〃锛屽彲鎸夐」鐩垨绔瓫閫夈€?    /// en-us: Lists feature modules filtered by project or endpoint.
+    /// zh-cn: 查询功能模块列表，可按项目或端筛选。
+    /// en-us: Lists feature modules filtered by project or endpoint.
     /// </summary>
     Task<IReadOnlyList<SprintFeatureModuleResult>> ListFeatureModulesAsync(string? projectId, string? endpointId);
 
     /// <summary>
-    /// zh-cn: 鏇存柊鍔熻兘妯″潡淇℃伅鍜屼汉鍛橀厤缃紝妯″潡浜哄憳浼樺厛浜庣鍜岄」鐩汉鍛樸€?    /// en-us: Updates module information and staffing; module staffing takes precedence over endpoint and project staffing.
+    /// zh-cn: 更新功能模块信息和人员配置，模块人员优先于端和项目人员。
+    /// en-us: Updates module information and staffing; module staffing takes precedence over endpoint and project staffing.
     /// </summary>
     Task<SprintFeatureModuleResult> UpdateFeatureModuleAsync(string id, UpdateSprintFeatureModuleRequest request);
 
@@ -318,14 +324,16 @@ public interface IAgileMvpService
         string userId);
 
     /// <summary>
-    /// zh-cn: 椤圭洰鍙備笌浜烘彁浜ゅ姛鑳藉缓璁紝鍙叧鑱旈」鐩€佺銆佹ā鍧楀拰鍙€夐渶姹傘€?    /// en-us: Lets project participants submit feature suggestions linked to a project, endpoint, module, and optional requirement.
+    /// zh-cn: 项目参与人提交功能建议，可关联项目、端、模块和可选需求。
+    /// en-us: Lets project participants submit feature suggestions linked to a project, endpoint, module, and optional requirement.
     /// </summary>
     Task<SprintFeatureSuggestionResult> CreateFeatureSuggestionAsync(
         CreateSprintFeatureSuggestionRequest request,
         string userId);
 
     /// <summary>
-    /// zh-cn: 鏌ヨ鍔熻兘寤鸿鍒楄〃锛屾敮鎸侀」鐩€佹ā鍧楀拰闇€姹傜瓫閫夈€?    /// en-us: Lists feature suggestions with project, module, and requirement filters.
+    /// zh-cn: 查询功能建议列表，支持项目、模块和需求筛选。
+    /// en-us: Lists feature suggestions with project, module, and requirement filters.
     /// </summary>
     Task<IReadOnlyList<SprintFeatureSuggestionResult>> ListFeatureSuggestionsAsync(
         string? projectId,

@@ -115,12 +115,14 @@ export namespace AutomationApi {
 
   export interface WorkerCommand {
     ackedAt?: string;
+    changedFilesJson?: string;
     commandType: WorkerCommandType;
     completedAt?: string;
     createTime: string;
     createdBy: string;
     error?: string;
     expiresAt?: string;
+    gitCommitId?: string;
     id: string;
     payloadJson?: string;
     resultJson?: string;

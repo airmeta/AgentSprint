@@ -52,7 +52,9 @@ public sealed record FinishWorkerRunRequest(
     [property: JsonPropertyName("exitCode")] int? ExitCode,
     [property: JsonPropertyName("timedOut")] bool TimedOut,
     [property: JsonPropertyName("error")] string? Error,
-    [property: JsonPropertyName("resultJson")] string? ResultJson);
+    [property: JsonPropertyName("resultJson")] string? ResultJson,
+    [property: JsonPropertyName("changedFilesJson")] string? ChangedFilesJson = null,
+    [property: JsonPropertyName("gitCommitId")] string? GitCommitId = null);
 
 public sealed record ReportWorkerEventRequest(
     [property: JsonPropertyName("workerId")] string WorkerId,
@@ -137,6 +139,8 @@ public sealed record WorkerPromptContextResult(
     [property: JsonPropertyName("repositoryDefaultBranch")] string? RepositoryDefaultBranch,
     [property: JsonPropertyName("gitUsername")] string? GitUsername,
     [property: JsonPropertyName("gitAccessToken")] string? GitAccessToken,
+    [property: JsonPropertyName("gitCommitAuthorName")] string? GitCommitAuthorName,
+    [property: JsonPropertyName("gitCommitAuthorEmail")] string? GitCommitAuthorEmail,
     [property: JsonPropertyName("workspacePath")] string? WorkspacePath,
     [property: JsonPropertyName("requirementId")] string RequirementId,
     [property: JsonPropertyName("requirementTitle")] string RequirementTitle,

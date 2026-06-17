@@ -1,4 +1,4 @@
-﻿using AgentSprint.Model.Modules.Agile;
+using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Domains;
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Model.Modules.Agile.Workers;
@@ -799,7 +799,11 @@ public sealed class AgileMvpServiceTests
     [Fact]
     public async Task DecomposeRequirementAsync_ManualModePreservesDigitalWorkerAssigneeType()
     {
-        var service = CreateService();
+        var workerDomain = new InMemoryAgileDigitalWorkerDomain();
+        var commandDomain = new InMemoryAgileWorkerCommandDomain();
+        var service = CreateService(
+            digitalWorkerDomain: workerDomain,
+            workerCommandDomain: commandDomain);
         var project = await service.CreateProjectAsync(
             CreateProjectRequest("MVP-DIGITAL-DECOMPOSE", "Digital decompose"),
             "pm-1");
@@ -807,6 +811,14 @@ public sealed class AgileMvpServiceTests
             new CreateSprintRequirementRequest(project.Id, "Digital assigned tasks", "Assign worker", 1),
             "po-1");
         requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var worker = new DigitalWorkerEntity
+        {
+            Name = "Codex Worker",
+            Code = "codex-worker",
+            AgentUserId = "worker-agent-1",
+            Status = DigitalWorkerStatuses.Active
+        };
+        await workerDomain.CreateAsync(worker);
 
         var tasks = await service.DecomposeRequirementAsync(
             requirement.Id,
@@ -821,6 +833,13 @@ public sealed class AgileMvpServiceTests
         var task = Assert.Single(tasks);
         Assert.Equal("worker-agent-1", task.AssigneeId);
         Assert.Equal(SprintTaskAssigneeTypes.DigitalWorker, task.AssigneeType);
+
+        var command = Assert.Single(await commandDomain.ListAsync());
+        Assert.Equal(worker.Id, command.WorkerId);
+        Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
+        Assert.Equal(WorkerCommandStatuses.Pending, command.Status);
+        Assert.Contains(task.Id, command.PayloadJson, StringComparison.Ordinal);
+        Assert.Equal("po-1", command.CreatedBy);
     }
 
     [Fact]

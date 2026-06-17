@@ -1,4 +1,4 @@
-﻿<script lang="ts" setup>
+<script lang="ts" setup>
 import type { AutomationApi } from '#/api';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 

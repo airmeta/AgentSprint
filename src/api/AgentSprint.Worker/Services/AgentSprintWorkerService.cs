@@ -392,9 +392,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
             StartedMessage: "Smoke run started.",
             FinishedMessage: "Smoke run finished.",
             Target: null,
+            PromptContext: null,
             WorkspaceResult: null,
             GitUsername: null,
             GitAccessToken: null,
+            GitCommitAuthorName: null,
+            GitCommitAuthorEmail: null,
             stoppingToken);
     }
 
@@ -456,6 +459,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
         var branch = ResolveBranch(target, prompt);
         var gitUsername = ResolveGitUsername(target, prompt, repositoryUrl);
         var gitAccessToken = ResolveGitAccessToken(target, prompt, repositoryUrl);
+        var gitCommitAuthorName = ResolveGitCommitAuthorName(target, prompt, repositoryUrl);
+        var gitCommitAuthorEmail = ResolveGitCommitAuthorEmail(target, prompt, repositoryUrl);
         WorkerDiagnostics.Info(
             "Worker准备Git工作区开始",
             $"runId={runId}, workspaceRoot={snapshot.WorkspaceRoot}, projectCode={projectCode ?? string.Empty}, repositoryUrl={repositoryUrl ?? string.Empty}, branch={branch ?? string.Empty}, hasGitUsername={!string.IsNullOrWhiteSpace(gitUsername)}, hasGitAccessToken={!string.IsNullOrWhiteSpace(gitAccessToken)}");
@@ -466,6 +471,8 @@ public sealed class AgentSprintWorkerService : BackgroundService
             branch,
             gitUsername,
             gitAccessToken,
+            gitCommitAuthorName,
+            gitCommitAuthorEmail,
             stoppingToken);
         workspace = workspaceResult.WorkspacePath;
         WorkerDiagnostics.Info(
@@ -499,22 +506,6 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 target.TargetId,
                 workspace,
                 "Project repository is not configured; Worker blocked before starting Codex.",
-                stoppingToken);
-            await ReportWorkspacePreparedAsync(sessionId, blockedRun.Id, workspaceResult, CancellationToken.None);
-            return;
-        }
-
-        if (workspaceResult.Dirty)
-        {
-            var blockedRun = await FinishFailedRunWithoutCodexAsync(
-                command,
-                sessionId,
-                WorkerPlatformStatuses.Blocked,
-                target.RunType,
-                target.TargetType,
-                target.TargetId,
-                workspace,
-                "Project workspace has uncommitted changes before task execution; Worker blocked to avoid mixing stale local changes into this run.",
                 stoppingToken);
             await ReportWorkspacePreparedAsync(sessionId, blockedRun.Id, workspaceResult, CancellationToken.None);
             return;
@@ -556,9 +547,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
             $"{target.DisplayName} run started.",
             $"{target.DisplayName} run finished.",
             target,
+            prompt.Context,
             workspaceResult,
             gitUsername,
             gitAccessToken,
+            gitCommitAuthorName,
+            gitCommitAuthorEmail,
             stoppingToken);
     }
 
@@ -574,9 +568,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
         string StartedMessage,
         string FinishedMessage,
         WorkerCommandTarget? Target,
+        WorkerPromptContextResult? PromptContext,
         WorkspacePreparationResult? WorkspaceResult,
         string? GitUsername,
         string? GitAccessToken,
+        string? GitCommitAuthorName,
+        string? GitCommitAuthorEmail,
         CancellationToken stoppingToken)
     {
         WorkerDiagnostics.Info(
@@ -637,6 +634,16 @@ public sealed class AgentSprintWorkerService : BackgroundService
             runCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             heartbeatTask = MaintainBusyHeartbeatAsync(sessionId, platformRun.Id, runCancellation, stoppingToken);
             WorkerDiagnostics.Info("Codex本地执行开始", $"platformRunId={platformRun.Id}, localRunId={request.RunId}");
+            var localRunId = request.RunId;
+            request = request with
+            {
+                ProgressReporter = (progress, token) => ReportCodexProgressAsync(
+                    sessionId,
+                    platformRun.Id,
+                    localRunId,
+                    progress,
+                    token)
+            };
             var result = await _codexProcessRunner.RunAsync(request, runCancellation.Token);
             WorkspacePublishResult? publishResult = null;
             WorkerDiagnostics.Info(
@@ -654,7 +661,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     WorkspaceResult.RepositoryUrl,
                     GitUsername,
                     GitAccessToken,
-                    BuildWorkerCommitMessage(Target, result),
+                    GitCommitAuthorName,
+                    GitCommitAuthorEmail,
+                    BuildWorkerCommitMessage(Target, PromptContext, result),
                     (conflict, token) => ResolveGitConflictWithCodexAsync(conflict, request, paths, token),
                     CancellationToken.None);
                 WorkerDiagnostics.Info(
@@ -689,7 +698,9 @@ public sealed class AgentSprintWorkerService : BackgroundService
                     result.ExitCode,
                     result.TimedOut,
                     result.Error,
-                    ResultJson: BuildRunResultJson(result, publishResult)),
+                    ResultJson: BuildRunResultJson(result, publishResult),
+                    ChangedFilesJson: publishResult?.ChangedFilesJson,
+                    GitCommitId: publishResult?.Commit),
                 CancellationToken.None);
             WorkerDiagnostics.Info(
                 "平台Run结束已上报",
@@ -1002,6 +1013,26 @@ public sealed class AgentSprintWorkerService : BackgroundService
             : null;
     }
 
+    private static string? ResolveGitCommitAuthorName(
+        WorkerCommandTarget target,
+        WorkerPromptResult prompt,
+        string? repositoryUrl)
+    {
+        return CanUsePromptGitConfig(target, prompt, repositoryUrl)
+            ? prompt.Context?.GitCommitAuthorName
+            : null;
+    }
+
+    private static string? ResolveGitCommitAuthorEmail(
+        WorkerCommandTarget target,
+        WorkerPromptResult prompt,
+        string? repositoryUrl)
+    {
+        return CanUsePromptGitConfig(target, prompt, repositoryUrl)
+            ? prompt.Context?.GitCommitAuthorEmail
+            : null;
+    }
+
     private static bool CanUsePromptGitConfig(
         WorkerCommandTarget target,
         WorkerPromptResult prompt,
@@ -1070,14 +1101,88 @@ public sealed class AgentSprintWorkerService : BackgroundService
         return builder.ToString().Trim();
     }
 
-    private static string BuildWorkerCommitMessage(
+    internal static string BuildWorkerCommitMessage(
         WorkerCommandTarget? target,
+        WorkerPromptContextResult? context,
         CodexRunResult result)
     {
         var targetText = target is null || string.IsNullOrWhiteSpace(target.TargetId)
             ? result.RunId
             : $"{target.TargetType ?? target.RunType} {target.TargetId}";
-        return $"AgentSprint worker update: {targetText}";
+        var title = BuildCommitSubject(target, context, targetText);
+        var builder = new StringBuilder(title);
+        AppendCommitLine(builder, "Target", targetText);
+
+        if (context is null)
+        {
+            return builder.ToString();
+        }
+
+        AppendCommitLine(builder, "Requirement", FormatNamedReference(context.RequirementId, context.RequirementTitle));
+        AppendCommitLine(builder, "Requirement status", context.RequirementStatus);
+        AppendCommitLine(builder, "Requirement summary", NormalizeCommitText(context.RequirementDescription, 500));
+        AppendCommitLine(builder, "Task", FormatNamedReference(context.TaskId, context.TaskTitle));
+        AppendCommitLine(builder, "Task summary", NormalizeCommitText(context.TaskDescription, 300));
+        AppendCommitLine(builder, "Bug", FormatNamedReference(context.BugId, context.BugTitle));
+        AppendCommitLine(builder, "Bug summary", NormalizeCommitText(context.BugDescription, 300));
+        AppendCommitLine(builder, "Bug environment", NormalizeCommitText(context.BugEnvironment, 200));
+        return builder.ToString();
+    }
+
+    private static string BuildCommitSubject(
+        WorkerCommandTarget? target,
+        WorkerPromptContextResult? context,
+        string fallbackTargetText)
+    {
+        var runType = target?.TargetType ?? target?.RunType ?? context?.TargetType;
+        var source = string.Equals(runType, "bug", StringComparison.OrdinalIgnoreCase)
+            ? context?.BugTitle
+            : context?.TaskTitle;
+        source = NormalizeCommitText(source, 80) ??
+            NormalizeCommitText(context?.RequirementTitle, 80) ??
+            fallbackTargetText;
+        return $"AgentSprint worker update: {source}";
+    }
+
+    private static string? FormatNamedReference(string? id, string? name)
+    {
+        id = NormalizeCommitText(id, 120);
+        name = NormalizeCommitText(name, 200);
+        return (id, name) switch
+        {
+            (null, null) => null,
+            (not null, null) => id,
+            (null, not null) => name,
+            _ => $"{id} - {name}"
+        };
+    }
+
+    private static void AppendCommitLine(StringBuilder builder, string label, string? value)
+    {
+        value = NormalizeCommitText(value, 800);
+        if (value is null)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.Append(label);
+        builder.Append(": ");
+        builder.Append(value);
+    }
+
+    private static string? NormalizeCommitText(string? value, int maxLength)
+    {
+        value = string.Join(" ", (value ?? string.Empty)
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Length <= maxLength
+            ? value
+            : value[..Math.Max(0, maxLength - 3)] + "...";
     }
 
     private static string BuildRunResultJson(CodexRunResult result, WorkspacePublishResult? publishResult = null)
@@ -1220,6 +1325,34 @@ public sealed class AgentSprintWorkerService : BackgroundService
         }
 
         return Task.CompletedTask;
+    }
+
+    private async Task ReportCodexProgressAsync(
+        string sessionId,
+        string platformRunId,
+        string localRunId,
+        CodexRunProgressEvent progress,
+        CancellationToken cancellationToken)
+    {
+        var payloadJson = JsonSerializer.Serialize(
+            new
+            {
+                LocalRunId = localRunId,
+                progress.ObservedAt,
+                progress.LastOutputAt,
+                IdleForSeconds = Math.Round(progress.IdleFor.TotalSeconds, 3),
+                IdleTimeoutSeconds = Math.Round(progress.IdleTimeout.TotalSeconds, 3),
+                progress.HasOutput
+            },
+            JsonOptions);
+        await ReportEventAsync(
+            sessionId,
+            platformRunId,
+            progress.EventType,
+            progress.Level,
+            progress.Message,
+            payloadJson,
+            cancellationToken);
     }
 
     private async Task ReportAkkaClusterStartedAsync(

@@ -18,6 +18,7 @@ public sealed record WorkspacePublishResult(
     bool ConflictResolved,
     string? Branch,
     string? Commit,
+    string? ChangedFilesJson,
     string? Error);
 
 public sealed record GitConflictResolutionRequest(

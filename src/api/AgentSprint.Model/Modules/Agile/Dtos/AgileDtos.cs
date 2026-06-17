@@ -36,6 +36,8 @@ public sealed record SaveGitAccountRequest(
     string Name,
     string Username,
     string? AccessToken = null,
+    string? CommitAuthorName = null,
+    string? CommitAuthorEmail = null,
     string? Description = null,
     string? Status = null);
 
@@ -63,6 +65,8 @@ public sealed record GitAccountResult(
     string Name,
     string Username,
     string? AccessToken,
+    string? CommitAuthorName,
+    string? CommitAuthorEmail,
     string? Description,
     string Status,
     string CreatedBy,

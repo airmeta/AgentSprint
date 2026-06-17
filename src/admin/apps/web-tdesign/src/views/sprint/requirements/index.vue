@@ -1,4 +1,4 @@
-﻿<script lang="ts" setup>
+<script lang="ts" setup>
 import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
@@ -140,7 +140,7 @@ const convertFeedbackForm = reactive({
 });
 const requirementRules: FormRules<typeof requirementForm> = {
   endpointId: requiredRule('请选择端', 'change'),
-  moduleId: requiredRule('璇烽€夋嫨鍔熻兘妯″潡', 'change'),
+  moduleId: requiredRule('请选择功能模块', 'change'),
   priority: requiredRule('请选择优先级', 'change'),
   projectId: requiredRule('请选择所属项目', 'change'),
   title: requiredRule('请输入需求标题'),
@@ -162,7 +162,7 @@ const pagination = reactive({
 
 const projectOptions = computed(() =>
   projects.value.map((project) => ({
-    label: `${project.code} 璺?${project.name}`,
+    label: `${project.code} - ${project.name}`,
     value: project.id,
   })),
 );
@@ -309,12 +309,12 @@ const statusText: Record<string, string> = {
   completed: '已完成',
   decomposed: '待推进',
   developing: '已推进',
-  draft: '鑽夌',
+  draft: '草稿',
   pending_fix: '待修复',
   pending_review: '待评审',
   ready_development: '待拆解',
   ready_test: '待测试',
-  rejected: '璇勫椹冲洖',
+  rejected: '评审驳回',
   tested: '已测试',
   testing: '测试中',
   voided: '已作废',
@@ -328,12 +328,12 @@ const healthTheme: Record<string, 'default' | 'primary' | 'success' | 'warning'>
 };
 const healthText: Record<string, string> = {
   primary: '推进中',
-  success: '鍋ュ悍',
+  success: '健康',
   voided: '已作废',
   warn: '有缺陷',
 };
 const reviewStatusText: Record<string, string> = {
-  approved: '宸查€氳繃',
+  approved: '已通过',
   pending: '待评审',
   rejected: '已驳回',
 };
@@ -355,14 +355,14 @@ const reviewAllowedStatuses = new Set(['draft', 'rejected']);
 
 const columns: PrimaryTableCol[] = [
   { colKey: 'row-select', type: 'single', width: 48 },
-  { colKey: 'title', ellipsis: true, title: '闇€姹傚悕' },
-  { colKey: 'endpointId', title: '鎵€灞炵', width: 140 },
+  { colKey: 'title', ellipsis: true, title: '需求名' },
+  { colKey: 'endpointId', title: '所属端', width: 140 },
   { colKey: 'status', title: '状态', width: 120 },
-  { colKey: 'health', title: '鍋ュ悍', width: 90 },
+  { colKey: 'health', title: '健康', width: 90 },
   { colKey: 'priority', title: '优先级', width: 90 },
-  { colKey: 'createdBy', title: '浜у搧缁忕悊', width: 130 },
+  { colKey: 'createdBy', title: '产品经理', width: 130 },
   { colKey: 'stakeholders', title: '干系人', width: 160 },
-  { colKey: 'actions', title: '鎿嶄綔', width: 100 },
+  { colKey: 'actions', title: '操作', width: 100 },
 ];
 const statusOptions = computed(() =>
   Object.entries(statusText).map(([value, label]) => ({ label, value })),
@@ -497,12 +497,12 @@ function resolveEndpointName(endpointId?: string) {
 }
 
 function resolvePriorityText(priority: number) {
-  return priorityOptions.find((item) => item.value === priority)?.label || `娴兼ê鍘涚痪?${priority}`;
+  return priorityOptions.find((item) => item.value === priority)?.label || `优先级 ${priority}`;
 }
 
 function getRequirementFollowUpItems(requirement: SprintMvpApi.Requirement) {
   const feedbackItems = getRequirementFeedback(requirement.id).map((feedback) => ({
-    content: feedback.content || '閺嗗倹妫ら崘鍛啇',
+    content: feedback.content || '暂无内容',
     createdAt: feedback.createTime,
     feedback,
     id: `feedback:${feedback.id}`,
@@ -512,7 +512,7 @@ function getRequirementFollowUpItems(requirement: SprintMvpApi.Requirement) {
   }));
   const childItems = (childRequirementsBySource.value[requirement.id] || []).map((child) => ({
     child,
-    content: child.description || '閺嗗倹妫ら崘鍛啇',
+    content: child.description || '暂无内容',
     createdAt: child.createTime,
     id: `requirement:${child.id}`,
     status: child.status,
@@ -643,14 +643,14 @@ function openFeedback(requirement: SprintMvpApi.Requirement, task?: SprintMvpApi
     return;
   }
   if (task && task.status !== 'completed') {
-    MessagePlugin.warning('娴犲懎鍑＄€瑰本鍨氭禒璇插閺€顖涘瘮鐠佹澘缍嶉崶鐐侯洯');
+    MessagePlugin.warning('请先完成任务后再记录回馈');
     return;
   }
   selectedRequirement.value = requirement;
   selectedFeedbackTaskId.value = task?.id || '';
   Object.assign(feedbackForm, {
     content: task?.description || '',
-    title: task ? `娴犺濮熼崶鐐侯洯 - ${task.title}` : '',
+    title: task ? `任务回馈 - ${task.title}` : '',
   });
   feedbackVisible.value = true;
 }
@@ -813,7 +813,7 @@ async function saveRequirement() {
   if (requirementSaving.value) return;
   if (!(await validateForm(requirementFormRef.value))) return;
   if (!requirementForm.projectId) {
-    MessagePlugin.warning('璇峰厛閫夋嫨椤圭洰');
+    MessagePlugin.warning('请先选择项目');
     return;
   }
   if (!requirementForm.title.trim()) {
@@ -821,7 +821,7 @@ async function saveRequirement() {
     return;
   }
   if (!requirementForm.endpointId || !requirementForm.moduleId) {
-    MessagePlugin.warning('璇烽€夋嫨绔拰鍔熻兘妯″潡');
+    MessagePlugin.warning('请选择端和功能模块');
     return;
   }
 
@@ -854,7 +854,7 @@ async function saveRequirement() {
       });
     }
 
-    MessagePlugin.success('闇€姹傚凡淇濆瓨');
+    MessagePlugin.success('需求已保存');
     editorVisible.value = false;
     if (!selectedRequirement.value && selectedProjectId.value !== requirementForm.projectId) {
       selectedProjectId.value = requirementForm.projectId;
@@ -889,7 +889,7 @@ async function decomposeRequirement() {
   if (!selectedRequirement.value) return;
   const manualAssigneeId = decomposeForm.assigneeId.trim();
   if (decomposeForm.assignmentMode === 'manual' && !manualAssigneeId) {
-    MessagePlugin.warning('璇烽€夋嫨鐮斿彂浜哄憳');
+    MessagePlugin.warning('请选择指派人员');
     return;
   }
   decomposing.value = true;
@@ -924,14 +924,14 @@ function deleteDraftRequirement(requirement: SprintMvpApi.Requirement) {
   if (isRequirementActionPending(requirement.id)) return;
   setRequirementActionPending(requirement.id, true);
   confirmAndClose({
-    body: `纭鍒犻櫎鑽夌闇€姹傘€?{requirement.title}銆嶏紵`,
-    confirmBtn: '鍒犻櫎',
+    body: `确认删除草稿需求「${requirement.title}」？`,
+    confirmBtn: '删除',
     header: '删除草稿需求',
     onClose: () => setRequirementActionPending(requirement.id, false),
     onConfirm: async () => {
       try {
         await deleteDraftRequirementApi(requirement.id);
-        MessagePlugin.success('鑽夌闇€姹傚凡鍒犻櫎');
+        MessagePlugin.success('草稿需求已删除');
         detailVisible.value = false;
         await loadRequirements();
       } finally {
@@ -972,7 +972,7 @@ async function saveFeedback() {
   if (!selectedRequirement.value) return;
   if (!(await validateForm(feedbackFormRef.value))) return;
   if (!feedbackForm.title.trim()) {
-    MessagePlugin.warning('鍥為鏍囬涓嶈兘涓虹┖');
+    MessagePlugin.warning('回馈标题不能为空');
     return;
   }
 
@@ -1004,7 +1004,7 @@ async function convertFeedback() {
   }
 
   if (convertFeedbackForm.feedbackIds.length === 0 && convertFeedbackForm.suggestionIds.length === 0) {
-    MessagePlugin.warning('璇烽€夋嫨鑷冲皯涓€涓洖棣堟垨浼樺寲寤鸿');
+    MessagePlugin.warning('请选择至少一个回馈或优化建议');
     return;
   }
 
@@ -1123,13 +1123,13 @@ onActivated(async () => {
     </template>
 
     <template #project-meta="{ project }">
-      <span>缁忕悊 {{ resolveUserName(project.projectManagerId) }}</span>
+      <span>经理 {{ resolveUserName(project.projectManagerId) }}</span>
     </template>
 
     <template #workspace-header>
         <div class="workspace-head">
           <div>
-            <h3>{{ selectedProject?.name || '璇烽€夋嫨椤圭洰' }}</h3>
+            <h3>{{ selectedProject?.name || '请选择项目' }}</h3>
             <p>{{ selectedProject?.code || '-' }}</p>
           </div>
           <TButton theme="primary" :disabled="!selectedProjectId" @click="openCreate">
@@ -1168,7 +1168,7 @@ onActivated(async () => {
           <TInput
             v-model="filters.requirementInfo"
             clearable
-            placeholder="闇€姹傚悕銆佸唴瀹广€佸共绯讳汉"
+            placeholder="需求名、内容、干系人"
             @change="handleLocalFilterChange"
           />
         </div>
@@ -1177,13 +1177,13 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:search" />
             </template>
-            鏌ヨ
+            查询
           </TButton>
           <TButton theme="default" :disabled="loading" @click="resetFilters">
             <template #icon>
               <IconifyIcon icon="lucide:rotate-ccw" />
             </template>
-            閲嶇疆
+            重置
           </TButton>
         </div>
       </div>
@@ -1201,7 +1201,7 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:clipboard-check" />
             </template>
-            绔嬮」鎺ㄨ繘
+            立项推进
           </TButton>
           <TButton
             theme="primary"
@@ -1211,7 +1211,7 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:list-tree" />
             </template>
-            浠诲姟鎷嗚В
+            任务拆解
           </TButton>
           <TButton
             theme="success"
@@ -1221,7 +1221,7 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:check-circle" />
             </template>
-            楠屾敹鍏抽棴
+            验收关闭
           </TButton>
           <TButton
             theme="primary"
@@ -1232,7 +1232,7 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:message-square" />
             </template>
-            璁板綍鍥為
+            记录回馈
           </TButton>
           <TButton
             theme="danger"
@@ -1244,7 +1244,7 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:trash-2" />
             </template>
-            鍒犻櫎
+            删除
           </TButton>
           <TButton
             theme="danger"
@@ -1255,9 +1255,9 @@ onActivated(async () => {
             <template #icon>
               <IconifyIcon icon="lucide:ban" />
             </template>
-            浣滃簾
+            作废
           </TButton>
-          <TButton shape="circle" variant="outline" title="鍒锋柊" :loading="loading" @click="loadRequirements">
+          <TButton shape="circle" variant="outline" title="刷新" :loading="loading" @click="loadRequirements">
             <IconifyIcon icon="lucide:refresh-cw" />
           </TButton>
         </div>
@@ -1285,9 +1285,9 @@ onActivated(async () => {
         <template #expandedRow="{ row }">
           <div class="requirement-expanded">
             <section class="expanded-section">
-              <h4>浠诲姟鎷嗚В</h4>
+              <h4>任务拆解</h4>
               <div v-if="getRequirementTasks(row.id).length === 0" class="expanded-empty">
-                鏆傛棤鎷嗚В浠诲姟
+                暂无拆解任务
               </div>
               <div
                 v-for="task in getRequirementTasks(row.id)"
@@ -1297,21 +1297,22 @@ onActivated(async () => {
                 <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
                 <strong>{{ task.title }}</strong>
                 <span>指派人: {{ resolveTaskAssigneeName(task) }}</span>
-                <span>浼樺厛绾?{{ task.priority }}</span>
+                <span>优先级 {{ task.priority }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
                   <TLink v-if="task.status !== 'completed'" theme="primary" @click="goTaskAdvance(task)">
                     <IconifyIcon icon="lucide:play" />
-                    浠诲姟鎺ㄨ繘
+                    任务推进
                   </TLink>
                 </TSpace>
-                <p>{{ task.description || '鏆傛棤浠诲姟璇存槑' }}</p>
+                <p>{{ task.description || '暂无任务说明' }}</p>
               </div>
             </section>
 
             <section class="expanded-section">
               <h4>反馈与子需求</h4>
               <div v-if="getRequirementFollowUpItems(row).length === 0" class="expanded-empty">
-                鏆傛棤鍥為涓庡瓙闇€姹?              </div>
+                暂无回馈与子需求
+              </div>
               <div
                 v-for="item in getRequirementFollowUpItems(row)"
                 :key="item.id"
@@ -1337,7 +1338,8 @@ onActivated(async () => {
                       @click="openConvertFeedbackFromRequirement(row, item.feedback)"
                     >
                       <IconifyIcon icon="lucide:arrow-right" />
-                      杞渶姹?                    </TLink>
+                      转需求
+                    </TLink>
                   </template>
                   <template v-else>
                     <TLink
@@ -1346,7 +1348,7 @@ onActivated(async () => {
                       @click="openReview(item.child)"
                     >
                       <IconifyIcon icon="lucide:clipboard-check" />
-                      鎻愪氦璇勫
+                      提交评审
                     </TLink>
                     <TLink
                       v-if="decomposeAllowedStatuses.has(item.child.status)"
@@ -1354,7 +1356,7 @@ onActivated(async () => {
                       @click="openDecompose(item.child)"
                     >
                       <IconifyIcon icon="lucide:list-tree" />
-                      浠诲姟鎷嗚В
+                      任务拆解
                     </TLink>
                     <TLink
                       v-if="item.child.status === 'developing' || item.child.status === 'pending_fix'"
@@ -1362,18 +1364,19 @@ onActivated(async () => {
                       @click="completeRequirementDevelopment(item.child)"
                     >
                       <IconifyIcon icon="lucide:check" />
-                      瀹屾垚寮€鍙?                    </TLink>
+                      完成开发
+                    </TLink>
                     <TLink
                       v-if="item.child.status === 'tested'"
                       theme="success"
                       @click="closeRequirement(item.child)"
                     >
                       <IconifyIcon icon="lucide:check-circle" />
-                      楠屾敹鍏抽棴
+                      验收关闭
                     </TLink>
                     <TLink theme="primary" @click="openDetail(item.child)">
                       <IconifyIcon icon="lucide:eye" />
-                      璇︽儏
+                      详情
                     </TLink>
                   </template>
                 </TSpace>
@@ -1406,11 +1409,11 @@ onActivated(async () => {
           <TSpace class="sprint-row-actions">
             <TLink v-if="canEditRequirement(row)" theme="primary" @click="openEdit(row)">
               <IconifyIcon icon="lucide:pencil" />
-              缂栬緫
+              编辑
             </TLink>
             <TLink v-else theme="primary" @click="openDetail(row)">
               <IconifyIcon icon="lucide:eye" />
-              璇︽儏
+              详情
             </TLink>
           </TSpace>
         </template>
@@ -1421,7 +1424,7 @@ onActivated(async () => {
       v-model:visible="editorVisible"
       :size="'60%'"
       :header="selectedRequirement ? '编辑需求' : '新增需求'"
-      :confirm-btn="{ content: '淇濆瓨', loading: requirementSaving }"
+      :confirm-btn="{ content: '保存', loading: requirementSaving }"
       @confirm="saveRequirement"
     >
       <TForm ref="requirementFormRef" :data="requirementForm" :rules="requirementRules" label-width="90px">
@@ -1441,12 +1444,12 @@ onActivated(async () => {
               placeholder="请选择端"
             />
           </TFormItem>
-          <TFormItem label="鍔熻兘妯″潡" name="moduleId">
+          <TFormItem label="功能模块" name="moduleId">
             <TSelect
               v-model="requirementForm.moduleId"
               :disabled="!!selectedRequirement"
               :options="moduleOptions"
-              placeholder="璇烽€夋嫨鍔熻兘妯″潡"
+              placeholder="请选择功能模块"
             />
           </TFormItem>
         </div>
@@ -1514,13 +1517,13 @@ onActivated(async () => {
         <dl>
           <dt>状态</dt>
           <dd>{{ statusText[selectedRequirement.status] || selectedRequirement.status }}</dd>
-          <dt>浜у搧缁忕悊</dt>
+          <dt>产品经理</dt>
           <dd>{{ resolveUserName(selectedRequirement.createdBy) }}</dd>
           <dt>干系人</dt>
           <dd>{{ resolveStakeholderNames(selectedRequirement.stakeholders) }}</dd>
         </dl>
         <section v-if="requirementReviews.length > 0" class="review-history">
-          <h4>璇勫璁板綍</h4>
+          <h4>评审记录</h4>
           <div
             v-for="review in requirementReviews"
             :key="review.id"
@@ -1531,13 +1534,13 @@ onActivated(async () => {
               {{ userMap[review.reviewerId]?.displayName || review.reviewerId }}
             </strong>
             <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
-            <p>{{ review.comment || '鏆傛棤鎰忚' }}</p>
+            <p>{{ review.comment || '暂无意见' }}</p>
           </div>
         </section>
         <section class="feedback-history">
-          <h4>浜у搧鍥為</h4>
+          <h4>产品回馈</h4>
           <div v-if="requirementFeedback.length === 0" class="feedback-empty">
-            鏆傛棤鍥為
+            暂无回馈
           </div>
           <div
             v-for="feedback in requirementFeedback"
@@ -1549,7 +1552,7 @@ onActivated(async () => {
             </TTag>
             <strong>{{ feedback.title }}</strong>
             <span>{{ formatDateTime(feedback.createTime) }}</span>
-            <p>{{ feedback.content || '鏆傛棤鍐呭' }}</p>
+            <p>{{ feedback.content || '暂无内容' }}</p>
             <TButton
               v-if="feedback.status === 'open'"
               size="small"
@@ -1574,7 +1577,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:pencil" />
               </template>
-              缂栬緫
+              编辑
             </TButton>
             <TButton
               v-if="decomposeAllowedStatuses.has(selectedRequirement.status)"
@@ -1584,7 +1587,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:list-tree" />
               </template>
-              浠诲姟鎷嗚В
+              任务拆解
             </TButton>
             <TButton
               v-if="canSubmitReview(selectedRequirement)"
@@ -1594,7 +1597,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:clipboard-check" />
               </template>
-              绔嬮」鎺ㄨ繘
+              立项推进
             </TButton>
             <TButton
               v-if="selectedRequirement.status === 'draft'"
@@ -1607,7 +1610,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:trash-2" />
               </template>
-              鍒犻櫎鑽夌
+              删除草稿
             </TButton>
             <TButton
               v-if="selectedRequirement.status === 'rejected'"
@@ -1619,7 +1622,8 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:ban" />
               </template>
-              浣滃簾闇€姹?            </TButton>
+              作废需求
+            </TButton>
             <TButton
               v-if="selectedRequirement.status === 'tested'"
               theme="success"
@@ -1630,7 +1634,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:check-circle" />
               </template>
-              楠屾敹鍏抽棴
+              验收关闭
             </TButton>
             <TButton
               v-if="canCreateFeedback(selectedRequirement)"
@@ -1641,7 +1645,7 @@ onActivated(async () => {
               <template #icon>
                 <IconifyIcon icon="lucide:message-square" />
               </template>
-              璁板綍鍥為
+              记录回馈
             </TButton>
           </TSpace>
         </div>
@@ -1652,7 +1656,7 @@ onActivated(async () => {
       v-model:visible="reviewVisible"
       :size="'40%'"
       header="提交需求评审"
-      :confirm-btn="{ content: '鎻愪氦', loading: reviewSubmitting }"
+      :confirm-btn="{ content: '提交', loading: reviewSubmitting }"
       @confirm="submitReview"
     >
       <TForm ref="reviewFormRef" :data="reviewForm" :rules="reviewRules" label-width="90px">
@@ -1670,42 +1674,42 @@ onActivated(async () => {
     <TDrawer
       v-model:visible="decomposeVisible"
       :size="'60%'"
-      header="AI 浠诲姟鎷嗚В"
-      :confirm-btn="{ content: '鐢熸垚浠诲姟', loading: decomposing }"
+      header="AI 任务拆解"
+      :confirm-btn="{ content: '生成任务', loading: decomposing }"
       @confirm="decomposeRequirement"
     >
       <TForm :data="decomposeForm" label-width="110px">
-        <TFormItem label="浠诲姟鍒嗘淳">
+        <TFormItem label="任务分派">
           <TSelect
             v-model="decomposeForm.assignmentMode"
             :options="[
-              { label: '鑷姩鍒嗘淳', value: 'auto' },
-              { label: '鎵嬪姩鎸囨淳', value: 'manual' },
+              { label: '自动分派', value: 'auto' },
+              { label: '手动指派', value: 'manual' },
             ]"
           />
         </TFormItem>
-        <TFormItem v-if="decomposeForm.assignmentMode === 'manual'" label="鎸囨淳绫诲瀷">
+        <TFormItem v-if="decomposeForm.assignmentMode === 'manual'" label="指派类型">
           <TSelect
             v-model="decomposeForm.assigneeType"
             :options="[
-              { label: '鍛樺伐', value: 0 },
-              { label: '鏁板瓧鍛樺伐', value: 1 },
+              { label: '员工', value: 0 },
+              { label: '数字员工', value: 1 },
             ]"
             @change="handleDecomposeAssigneeTypeChange"
           />
         </TFormItem>
         <TFormItem
           v-if="decomposeForm.assignmentMode === 'manual'"
-          :label="decomposeForm.assigneeType === 1 ? '鏁板瓧鍛樺伐' : '鐮斿彂浜哄憳'"
+          :label="decomposeForm.assigneeType === 1 ? '数字员工' : '研发人员'"
         >
           <TSelect
             v-model="decomposeForm.assigneeId"
             filterable
             :options="decomposeAssigneeOptions"
-            :placeholder="decomposeForm.assigneeType === 1 ? '閫夋嫨鏁板瓧鍛樺伐' : '閫夋嫨鐮斿彂浜哄憳'"
+            :placeholder="decomposeForm.assigneeType === 1 ? '选择数字员工' : '选择研发人员'"
           />
         </TFormItem>
-        <TFormItem label="鎷嗚В琛ュ厖瑕佹眰" class="markdown-form-item">
+        <TFormItem label="拆解补充要求" class="markdown-form-item">
           <MarkdownEditor
             v-model="decomposeForm.instruction"
             :height="420"
@@ -1718,19 +1722,19 @@ onActivated(async () => {
     <TDrawer
       v-model:visible="feedbackVisible"
       :size="'60%'"
-      header="璁板綍浜у搧鍥為"
-      :confirm-btn="{ content: '淇濆瓨', loading: feedbackSaving }"
+      header="记录产品回馈"
+      :confirm-btn="{ content: '保存', loading: feedbackSaving }"
       @confirm="saveFeedback"
     >
       <TForm ref="feedbackFormRef" :data="feedbackForm" :rules="feedbackRules" label-width="90px">
-        <TFormItem label="鏍囬" name="title">
+        <TFormItem label="标题" name="title">
           <TInput v-model="feedbackForm.title" />
         </TFormItem>
-        <TFormItem label="鍐呭" class="markdown-form-item">
+        <TFormItem label="内容" class="markdown-form-item">
           <MarkdownEditor
             v-model="feedbackForm.content"
             :height="420"
-            placeholder="璁板綍楠屾敹鍚庣殑鏂版兂娉曘€佽ˉ鍏呰寖鍥存垨浼樺寲寤鸿"
+            placeholder="记录验收后的新想法、补充范围或优化建议"
           />
         </TFormItem>
       </TForm>
@@ -1740,7 +1744,7 @@ onActivated(async () => {
       v-model:visible="convertFeedbackVisible"
       :size="'60%'"
       header="转为后续需求"
-      :confirm-btn="{ content: '鍒涘缓鑽夌', loading: convertingFeedback }"
+      :confirm-btn="{ content: '创建草稿', loading: convertingFeedback }"
       @confirm="convertFeedback"
     >
       <TForm
@@ -1749,10 +1753,10 @@ onActivated(async () => {
         :rules="convertFeedbackRules"
         label-width="90px"
       >
-        <TFormItem label="鏍囬" name="title">
+        <TFormItem label="标题" name="title">
           <TInput v-model="convertFeedbackForm.title" />
         </TFormItem>
-        <TFormItem label="鍥為鏉ユ簮">
+        <TFormItem label="回馈来源">
           <TSelect
             v-model="convertFeedbackForm.feedbackIds"
             :options="convertFeedbackOptions"
@@ -1760,7 +1764,7 @@ onActivated(async () => {
             multiple
           />
         </TFormItem>
-        <TFormItem label="寤鸿鏉ユ簮">
+        <TFormItem label="建议来源">
           <TSelect
             v-model="convertFeedbackForm.suggestionIds"
             :options="convertSuggestionOptions"
@@ -1791,7 +1795,7 @@ onActivated(async () => {
             placeholder="选择干系人"
           />
         </TFormItem>
-        <TFormItem label="澶囨敞">
+        <TFormItem label="备注">
           <TTextarea
             v-model="convertFeedbackForm.remark"
             class="drawer-textarea drawer-textarea--short"
@@ -1802,7 +1806,7 @@ onActivated(async () => {
           <MarkdownEditor
             v-model="convertFeedbackForm.description"
             :height="360"
-            placeholder="鍚庣画闇€姹備細淇濈暀鏉ユ簮闇€姹傚拰鏉ユ簮鍥為"
+            placeholder="后续需求会保留来源需求和来源回馈"
           />
         </TFormItem>
       </TForm>

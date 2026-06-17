@@ -443,6 +443,8 @@ public sealed class DigitalWorkerManagementService :
             entity.CompletedAt,
             entity.ExpiresAt,
             entity.ResultJson,
+            entity.ChangedFilesJson,
+            entity.GitCommitId,
             entity.Error,
             entity.CreatedBy,
             entity.CreateTime);
@@ -1120,6 +1122,8 @@ public sealed class DigitalWorkerRuntimeService :
                     : WorkerCommandStatuses.Failed;
                 command.CompletedAt = DateTime.UtcNow;
                 command.ResultJson = DigitalWorkerManagementService.NormalizeOptional(request.ResultJson);
+                command.ChangedFilesJson = DigitalWorkerManagementService.NormalizeOptional(request.ChangedFilesJson);
+                command.GitCommitId = DigitalWorkerManagementService.NormalizeOptional(request.GitCommitId);
                 command.Error = run.Error;
                 await _commandDomain.UpdateAsync(command);
             }
@@ -1277,6 +1281,8 @@ public sealed class DigitalWorkerRuntimeService :
             gitConfig?.DefaultBranch,
             gitConfig?.Username,
             gitConfig?.AccessToken,
+            gitConfig?.CommitAuthorName,
+            gitConfig?.CommitAuthorEmail,
             BuildWorkspacePath(worker.WorkspaceRoot, project.Code),
             requirement.Id,
             requirement.Title,
@@ -1319,6 +1325,8 @@ public sealed class DigitalWorkerRuntimeService :
             gitConfig?.DefaultBranch,
             gitConfig?.Username,
             gitConfig?.AccessToken,
+            gitConfig?.CommitAuthorName,
+            gitConfig?.CommitAuthorEmail,
             BuildWorkspacePath(worker.WorkspaceRoot, project.Code),
             requirement.Id,
             requirement.Title,
@@ -1570,6 +1578,8 @@ public sealed class DigitalWorkerRuntimeService :
             ?? DigitalWorkerManagementService.NormalizeOptional(repository.GitAccountId);
         string? username = null;
         string? accessToken = null;
+        string? commitAuthorName = null;
+        string? commitAuthorEmail = null;
         if (accountId is not null)
         {
             var account = await _gitAccountDomain.GetAsync(accountId)
@@ -1581,6 +1591,8 @@ public sealed class DigitalWorkerRuntimeService :
 
             username = account.Username;
             accessToken = account.AccessToken;
+            commitAuthorName = account.CommitAuthorName;
+            commitAuthorEmail = account.CommitAuthorEmail;
         }
 
         return new WorkerGitRepositoryConfig(
@@ -1589,7 +1601,9 @@ public sealed class DigitalWorkerRuntimeService :
             repository.RepositoryUrl,
             DigitalWorkerManagementService.NormalizeOptional(repository.DefaultBranch),
             username,
-            accessToken);
+            accessToken,
+            commitAuthorName,
+            commitAuthorEmail);
     }
 
     private async Task<SprintRequirementEntity> GetRequirementOrThrowAsync(string id)
@@ -1673,7 +1687,7 @@ public sealed class DigitalWorkerRuntimeService :
             worker.MaxRunMinutes,
             worker.SandboxMode,
             worker.RunSmokeOnStartup,
-            worker.SmokePrompt ?? "浣犲ソ",
+            worker.SmokePrompt ?? "你好",
             aiPlatform.Provider,
             aiPlatform.Model,
             aiPlatform.OpenAiBaseUrl,
@@ -1826,7 +1840,9 @@ public sealed class DigitalWorkerRuntimeService :
         string RepositoryUrl,
         string? DefaultBranch,
         string? Username,
-        string? AccessToken);
+        string? AccessToken,
+        string? CommitAuthorName,
+        string? CommitAuthorEmail);
 
     private sealed record ResolvedAiPlatform(
         string Provider,

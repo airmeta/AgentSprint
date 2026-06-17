@@ -1,4 +1,4 @@
-﻿using AgentSprint.Model.Modules.Security;
+using AgentSprint.Model.Modules.Security;
 using AgentSprint.Model.Modules.Security.Domains;
 using AgentSprint.Service.Impls.SecurityServices;
 using AgentSprint.Service.Impls.UserServices;

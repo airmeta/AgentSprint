@@ -14,7 +14,13 @@ public sealed class GitManagementServiceTests
         var repositoryDomain = new InMemoryGitRepositoryDomain();
         var service = CreateService(accountDomain, repositoryDomain);
         var account = await service.CreateAccountAsync(
-            new SaveGitAccountRequest("MAIN", "Main account", "codex", "token"),
+            new SaveGitAccountRequest(
+                "MAIN",
+                "Main account",
+                "codex",
+                "token",
+                "AgentSprint Bot",
+                "agentsprint-bot@example.com"),
             "admin");
 
         var repository = await service.CreateRepositoryAsync(
@@ -27,8 +33,27 @@ public sealed class GitManagementServiceTests
             "admin");
 
         Assert.Equal(account.Id, repository.GitAccountId);
+        Assert.Equal("AgentSprint Bot", account.CommitAuthorName);
+        Assert.Equal("agentsprint-bot@example.com", account.CommitAuthorEmail);
         Assert.Equal("https://example.com/agentsprint.git", repository.RepositoryUrl);
         Assert.Equal("main", repository.DefaultBranch);
+    }
+
+    [Fact]
+    public async Task CreateAccountAsync_RequiresCompleteCommitAuthor()
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAccountAsync(
+                new SaveGitAccountRequest(
+                    "MAIN",
+                    "Main account",
+                    "codex",
+                    CommitAuthorName: "AgentSprint Bot"),
+                "admin"));
+
+        Assert.Equal("Git commit author name and email must be configured together.", ex.Message);
     }
 
     [Fact]

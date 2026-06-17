@@ -20,6 +20,7 @@ import { openWindow } from '@vben/utils';
 
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
+import HeaderProjectSelect from '#/components/header-project-select/header-project-select.vue';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 const notifications = ref<NotificationItem[]>([
@@ -218,6 +219,9 @@ watch(
 
 <template>
   <BasicLayout @clear-preferences-and-logout="handleLogout">
+    <template #header-right-100>
+      <HeaderProjectSelect />
+    </template>
     <template #user-dropdown>
       <UserDropdown
         :avatar

@@ -169,6 +169,12 @@ public sealed class WorkerCommandEntity : EntityBase
     [Column(TypeName = "text")]
     public string? ResultJson { get; set; }
 
+    [Column(TypeName = "text")]
+    public string? ChangedFilesJson { get; set; }
+
+    [MaxLength(64)]
+    public string? GitCommitId { get; set; }
+
     [MaxLength(1024)]
     public string? Error { get; set; }
 

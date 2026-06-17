@@ -246,6 +246,8 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             request.ExpiresAt,
             null,
             null,
+            null,
+            null,
             userId,
             DateTime.UtcNow));
     }
@@ -271,6 +273,8 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             WorkerCommandTypes.Smoke,
             null,
             WorkerCommandStatuses.Pending,
+            null,
+            null,
             null,
             null,
             null,
@@ -411,7 +415,7 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             60,
             "workspace-write",
             false,
-            "浣犲ソ",
+            "你好",
             "openai",
             "gpt-5.4",
             null,
@@ -467,6 +471,8 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     "admin",
                     DateTime.UtcNow)
             ]));
@@ -491,6 +497,8 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
                 "project-id",
                 "project-code",
                 "Project",
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -601,6 +609,8 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             status,
             DateTime.UtcNow,
             status == WorkerCommandStatuses.Running ? DateTime.UtcNow : null,
+            null,
+            null,
             null,
             null,
             null,

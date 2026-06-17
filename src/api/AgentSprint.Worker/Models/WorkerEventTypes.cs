@@ -38,6 +38,10 @@ public static class WorkerEventTypes
 
     public const string CodexStarted = "codex_started";
 
+    public const string CodexIdleWaiting = "codex_idle_waiting";
+
+    public const string CodexIdleTimeout = "codex_idle_timeout";
+
     public const string CodexFinished = "codex_finished";
 
     public const string WorkCompletionStarted = "work_completion_started";
