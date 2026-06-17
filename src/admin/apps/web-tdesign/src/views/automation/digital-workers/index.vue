@@ -6,12 +6,9 @@ import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { IconifyIcon } from '@vben/icons';
-
 import {
   createDigitalWorkerApi,
   createWorkerCommandApi,
-  getDigitalWorkerDetailApi,
   listAgentTokensApi,
   listAiPlatformsApi,
   listDictionaryItemsApi,
@@ -27,7 +24,6 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
-  Button as TButton,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -47,9 +43,7 @@ defineOptions({ name: 'AutomationDigitalWorkers' });
 const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
-const detailLoading = ref(false);
 const visible = ref(false);
-const detailVisible = ref(false);
 const formRef = ref<FormInstanceFunctions>();
 const activeWorkerFormTab = ref('employee');
 const workers = ref<AutomationApi.DigitalWorker[]>([]);
@@ -57,8 +51,6 @@ const users = ref<SprintUserApi.UserOption[]>([]);
 const tokens = ref<SystemApi.AgentToken[]>([]);
 const aiPlatforms = ref<SystemApi.AiPlatform[]>([]);
 const employeeTypeItems = ref<SystemApi.DictionaryItem[]>([]);
-const detail = ref<AutomationApi.DigitalWorkerDetail>();
-const selectedWorkerId = ref('');
 
 const filters = reactive({
   keyword: '',
@@ -143,7 +135,6 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'updateTime', title: '更新时间', cell: 'updateTime', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 260 },
 ];
-const workerRowSelection = { type: 'single' };
 
 const tablePagination = computed(() => ({
   current: pagination.current,
@@ -151,8 +142,6 @@ const tablePagination = computed(() => ({
   pageSizeOptions: pagination.pageSizeOptions,
   total: workers.value.length,
 }));
-const selectedWorkerKeys = computed(() => (selectedWorkerId.value ? [selectedWorkerId.value] : []));
-const selectedWorker = computed(() => workers.value.find((item) => item.id === selectedWorkerId.value));
 const activeEmployeeTypeItems = computed(() =>
   (employeeTypeItems.value.length ? employeeTypeItems.value : fallbackEmployeeTypeItems).filter(
     (item) => item.status === 1,
@@ -174,8 +163,6 @@ const aiPlatformOptions = computed(() =>
   })),
 );
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
-const detailCommands = computed(() => detail.value?.pendingCommands || []);
-
 function resetForm(row?: AutomationApi.DigitalWorker) {
   Object.assign(form, {
     agentTokenId: row?.agentTokenId || '',
@@ -249,19 +236,6 @@ function resolveDriverTypeName(type?: string) {
   return driverTypeOptions.find((item) => item.value === type)?.label || type || '-';
 }
 
-function sessionStatusText(status?: string) {
-  const labels: Record<string, string> = {
-    auth_required: '待认证',
-    busy: '运行中',
-    error: '异常',
-    expired: '已过期',
-    idle: '空闲',
-    offline: '离线',
-    starting: '启动中',
-  };
-  return status ? labels[status] || status : '-';
-}
-
 function commandText(commandType?: string) {
   return commandOptions.find((item) => item.value === commandType)?.label || commandType || '-';
 }
@@ -279,13 +253,7 @@ function openEdit(row: AutomationApi.DigitalWorker) {
 }
 
 async function openDetail(row: AutomationApi.DigitalWorker) {
-  detailVisible.value = true;
-  detailLoading.value = true;
-  try {
-    detail.value = await getDigitalWorkerDetailApi(row.id);
-  } finally {
-    detailLoading.value = false;
-  }
+  await router.push(`/automation/digital-workers/${row.id}/command-audit`);
 }
 
 function buildPayload() {
@@ -366,19 +334,6 @@ function sendCommand(row: AutomationApi.DigitalWorker, commandType: AutomationAp
   });
 }
 
-function handleWorkerSelectChange(keys: Array<number | string>) {
-  selectedWorkerId.value = keys[0]?.toString() || '';
-}
-
-async function openCommandAudit() {
-  if (!selectedWorker.value) {
-    MessagePlugin.warning('请先勾选一个数字员工');
-    return;
-  }
-
-  await router.push(`/automation/digital-workers/${selectedWorker.value.id}/command-audit`);
-}
-
 async function applyFilters() {
   Object.assign(query, filters);
   pagination.current = 1;
@@ -414,9 +369,6 @@ async function load() {
   loading.value = true;
   try {
     workers.value = await listDigitalWorkersApi(query);
-    if (selectedWorkerId.value && !workers.value.some((item) => item.id === selectedWorkerId.value)) {
-      selectedWorkerId.value = '';
-    }
   } finally {
     loading.value = false;
   }
@@ -429,7 +381,7 @@ onMounted(async () => {
 
 <template>
   <AdminListPage
-    title="数字员工管理"
+    title="员工实例管理"
     description="维护通过 AgentSprint.Worker 注册和执行的数字员工，管理平台账号、员工类型、驱动类型和运行策略。"
     table-title="数字员工列表"
     add-button-text="新增数字员工"
@@ -437,24 +389,12 @@ onMounted(async () => {
     :data="workers"
     :loading="loading"
     :pagination="tablePagination"
-    :row-selection="workerRowSelection"
-    :selected-row-keys="selectedWorkerKeys"
     @add="openCreate"
     @page-change="handlePageChange"
     @refresh="load"
     @reset="resetFilters"
     @search="applyFilters"
-    @select-change="handleWorkerSelectChange"
   >
-    <template #toolbar>
-      <TButton variant="outline" :disabled="!selectedWorker" @click="openCommandAudit">
-        <template #icon>
-          <IconifyIcon icon="lucide:history" />
-        </template>
-        行为审计
-      </TButton>
-    </template>
-
     <template #filters>
       <label class="filter-field">
         <span>员工信息</span>
@@ -465,8 +405,8 @@ onMounted(async () => {
         <TSelect v-model="filters.workerType" clearable placeholder="全部驱动" :options="driverTypeOptions" />
       </label>
       <label class="filter-field">
-	    <span>状态</span>
-	    <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+        <span>状态</span>
+        <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
       </label>
     </template>
 
@@ -484,9 +424,9 @@ onMounted(async () => {
     </template>
     <template #actions="{ row }">
       <TSpace>
-        <RowAction icon="lucide:eye" label="详情" @click="openDetail(row)" />
+        <RowAction icon="lucide:history" label="审计" @click="openDetail(row)" />
         <RowAction label="编辑" @click="openEdit(row)" />
-	        <RowAction icon="lucide:rotate-cw" label="烟测" @click="sendCommand(row, 'smoke')" />
+        <RowAction icon="lucide:rotate-cw" label="烟测" @click="sendCommand(row, 'smoke')" />
         <RowAction
           v-if="row.status === 'active'"
           icon="lucide:pause-circle"
@@ -610,47 +550,6 @@ onMounted(async () => {
       </TTabs>
     </TForm>
   </TDrawer>
-
-  <TDrawer v-model:visible="detailVisible" size="860px" header="数字员工详情" :footer="false">
-    <div v-if="detail" class="detail-panel">
-      <section class="detail-section">
-        <h3>{{ detail.worker.name }} ({{ detail.worker.code }})</h3>
-        <div class="detail-grid">
-          <span>平台账号: {{ resolveUserName(detail.worker.agentUserId) }}</span>
-          <span>员工类型: {{ resolveEmployeeTypeName(detail.worker.employeeType) }}</span>
-          <span>驱动类型: {{ resolveDriverTypeName(detail.worker.workerType) }}</span>
-          <span>状态: {{ statusText(detail.worker.status) }}</span>
-          <span>配置版本: {{ detail.worker.configVersion }}</span>
-          <span>模型: {{ detail.worker.codexModel }}</span>
-          <span>创建人: {{ detail.worker.createdBy }}</span>
-          <span>创建时间: {{ formatDateTime(detail.worker.createTime) }}</span>
-        </div>
-      </section>
-
-      <section class="detail-section">
-        <h3>最近会话</h3>
-        <div v-if="detail.latestSession" class="detail-grid">
-          <span>实例: {{ detail.latestSession.instanceId }}</span>
-          <span>状态: {{ sessionStatusText(detail.latestSession.status) }}</span>
-          <span>主机: {{ detail.latestSession.hostName || '-' }}</span>
-          <span>最后心跳: {{ formatDateTime(detail.latestSession.lastHeartbeatAt) }}</span>
-          <span>工作区: {{ detail.latestSession.workspaceRoot || '-' }}</span>
-        </div>
-        <TTag v-else variant="light">暂无会话</TTag>
-      </section>
-
-      <section class="detail-section">
-        <h3>待领取命令</h3>
-        <div v-if="detailCommands.length" class="command-list">
-          <div v-for="command in detailCommands" :key="command.id" class="command-item">
-            <strong>{{ commandText(command.commandType) }}</strong>
-            <span>{{ command.status }} / {{ formatDateTime(command.createTime) }}</span>
-          </div>
-        </div>
-        <TTag v-else variant="light">暂无待领取命令</TTag>
-      </section>
-    </div>
-  </TDrawer>
 </template>
 
 <style scoped>
@@ -689,37 +588,6 @@ onMounted(async () => {
   gap: 14px;
   padding-top: 14px;
 }
-
-.detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.detail-section {
-  padding: 12px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.detail-section h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.command-list {
-  display: grid;
-  gap: 8px;
-}
-
-.command-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
-  background: var(--td-bg-color-container-hover);
-  border-radius: 4px;
-}
-
 
 @media (max-width: 760px) {
   .filter-field,

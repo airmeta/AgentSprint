@@ -223,7 +223,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('#/views/automation/digital-workers/index.vue'),
         meta: {
           icon: 'lucide:bot',
-          title: '数字员工管理',
+          title: '员工实例管理',
         },
       },
       {

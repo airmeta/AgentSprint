@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { AutomationApi } from '#/api';
+import type { SprintUserApi } from '#/api/sprint/mvp';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 import { IconifyIcon } from '@vben/icons';
@@ -13,6 +14,7 @@ import {
   listWorkerSessionsApi,
   replayWorkerCommandApi,
 } from '#/api';
+import { listUserOptionsApi } from '#/api/sprint/mvp';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import { formatDateTime } from '#/views/_shared/date-format';
 import RowAction from '#/views/system/_shared/row-action.vue';
@@ -20,6 +22,7 @@ import {
   Button as TButton,
   Descriptions as TDescriptions,
   DescriptionsItem as TDescriptionsItem,
+  Drawer as TDrawer,
   Empty as TEmpty,
   Input as TInput,
   MessagePlugin,
@@ -27,6 +30,7 @@ import {
   Space as TSpace,
   Table as TTable,
   Tag as TTag,
+  Tooltip as TTooltip,
 } from 'tdesign-vue-next';
 
 defineOptions({ name: 'AutomationDigitalWorkerCommandAudit' });
@@ -40,7 +44,9 @@ const worker = ref<AutomationApi.DigitalWorker>();
 const detail = ref<AutomationApi.DigitalWorkerDetail>();
 const commands = ref<AutomationApi.WorkerCommand[]>([]);
 const sessions = ref<AutomationApi.WorkerSession[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
 const selectedCommandId = ref('');
+const detailVisible = ref(false);
 const filters = reactive({
   commandType: '',
   keyword: '',
@@ -76,13 +82,10 @@ const sessionStatusOptions = [
 ];
 const columns: PrimaryTableCol[] = [
   { colKey: 'gitCommitId', title: 'Git Commit', cell: 'gitCommitId', ellipsis: true, minWidth: 160 },
-  { colKey: 'commandType', title: '命令', cell: 'commandType', width: 150 },
-  { colKey: 'status', title: '状态', cell: 'commandStatus', width: 110 },
-  { colKey: 'sessionId', title: '会话', cell: 'sessionId', ellipsis: true, minWidth: 180 },
-  { colKey: 'createdBy', title: '创建人', width: 120 },
+  { colKey: 'createdBy', title: '创建人', cell: 'createdBy', width: 120 },
+  { colKey: 'commandType', title: '命令', cell: 'commandType', width: 140 },
+  { colKey: 'status', title: '状态', cell: 'commandStatus', width: 130 },
   { colKey: 'createTime', title: '创建时间', cell: 'createTime', width: 170 },
-  { colKey: 'startedAt', title: '开始时间', cell: 'startedAt', width: 170 },
-  { colKey: 'completedAt', title: '完成时间', cell: 'completedAt', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', fixed: 'right', width: 150 },
 ];
 
@@ -92,6 +95,8 @@ const selectedCommand = computed(() => commands.value.find((item) => item.id ===
 const selectedSession = computed(() =>
   sessions.value.find((item) => item.id === (selectedCommand.value?.sessionId || routeSessionId.value)),
 );
+const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+const userNameMap = computed(() => Object.fromEntries(users.value.map((item) => [item.username, item])));
 const filteredCommands = computed(() => {
   const keyword = query.keyword.trim().toLowerCase();
   if (!keyword) {
@@ -145,6 +150,12 @@ function sessionStatusText(status?: string) {
   return sessionStatusOptions.find((item) => item.value === status)?.label || status || '-';
 }
 
+function resolveUserName(userId?: string) {
+  if (!userId) return '-';
+  const user = userMap.value[userId] || userNameMap.value[userId];
+  return user?.displayName || user?.username || userId;
+}
+
 function formatJson(value?: string) {
   if (!value) return '-';
   try {
@@ -156,6 +167,10 @@ function formatJson(value?: string) {
 
 function shortCommit(value?: string) {
   return value ? value.slice(0, 12) : '-';
+}
+
+function commandTimeTips(command: AutomationApi.WorkerCommand) {
+  return `开始时间: ${formatDateTime(command.startedAt)}\n结束时间: ${formatDateTime(command.completedAt)}`;
 }
 
 async function applyFilters() {
@@ -183,14 +198,16 @@ async function loadCommands() {
 async function loadPage() {
   loading.value = true;
   try {
-    const [workerRows, detailResult, sessionRows] = await Promise.all([
+    const [workerRows, detailResult, sessionRows, userRows] = await Promise.all([
       listDigitalWorkersApi(),
       getDigitalWorkerDetailApi(workerId.value),
       listWorkerSessionsApi({ workerId: workerId.value }),
+      listUserOptionsApi(),
     ]);
     worker.value = workerRows.find((item) => item.id === workerId.value) || detailResult.worker;
     detail.value = detailResult;
     sessions.value = sessionRows;
+    users.value = userRows;
     if (routeSessionId.value && !filters.keyword) {
       filters.keyword = routeSessionId.value;
       query.keyword = routeSessionId.value;
@@ -203,10 +220,11 @@ async function loadPage() {
 
 function selectCommand(command: AutomationApi.WorkerCommand) {
   selectedCommandId.value = command.id;
+  detailVisible.value = true;
 }
 
 async function replayCommand(command: AutomationApi.WorkerCommand) {
-  if (replayingCommandId.value) return;
+  if (replayingCommandId.value || command.status === 'succeeded') return;
 
   confirmAndClose({
     body: `确认回放 ${commandText(command.commandType)} 命令？系统会复制原载荷并创建一条新的待领取命令。`,
@@ -331,32 +349,49 @@ onMounted(loadPage);
         </div>
 
         <TTable row-key="id" :columns="columns" :data="filteredCommands" :loading="loading" hover stripe>
-          <template #gitCommitId="{ row }">{{ shortCommit(row.gitCommitId) }}</template>
-          <template #commandType="{ row }">{{ commandText(row.commandType) }}</template>
-          <template #commandStatus="{ row }">
-            <TTag :theme="commandStatusTheme(row.status)" variant="light">{{ commandStatusText(row.status) }}</TTag>
+          <template #gitCommitId="{ row }">
+            <TSpace size="small" align="center">
+              <span>{{ shortCommit(row.gitCommitId) }}</span>
+              <TButton shape="square" variant="text" size="small">
+                <template #icon>
+                  <IconifyIcon icon="lucide:eye" />
+                </template>
+              </TButton>
+            </TSpace>
           </template>
-          <template #sessionId="{ row }">{{ row.sessionId || '-' }}</template>
+          <template #createdBy="{ row }">{{ resolveUserName(row.createdBy) }}</template>
+          <template #commandType="{ row }">
+            <TTag variant="light" theme="primary">{{ commandText(row.commandType) }}</TTag>
+          </template>
+          <template #commandStatus="{ row }">
+            <TTooltip :content="commandTimeTips(row)" placement="top" theme="light">
+              <TTag :theme="commandStatusTheme(row.status)" variant="light">{{ commandStatusText(row.status) }}</TTag>
+            </TTooltip>
+          </template>
           <template #createTime="{ row }">{{ formatDateTime(row.createTime) }}</template>
-          <template #startedAt="{ row }">{{ formatDateTime(row.startedAt) }}</template>
-          <template #completedAt="{ row }">{{ formatDateTime(row.completedAt) }}</template>
           <template #actions="{ row }">
             <TSpace>
               <RowAction icon="lucide:eye" label="详情" @click="selectCommand(row)" />
-              <RowAction
-                icon="lucide:rotate-cw"
-                label="回放"
-                :theme="replayingCommandId === row.id ? 'default' : 'primary'"
+              <TButton
+                variant="text"
+                theme="primary"
+                size="small"
+                :loading="replayingCommandId === row.id"
+                :disabled="row.status === 'succeeded'"
                 @click="replayCommand(row)"
-              />
+              >
+                <template #icon>
+                  <IconifyIcon icon="lucide:rotate-cw" />
+                </template>
+                回放
+              </TButton>
             </TSpace>
           </template>
         </TTable>
       </section>
 
-      <section class="detail-layout">
-        <article class="panel">
-          <h3>命令详情</h3>
+      <TDrawer v-model:visible="detailVisible" size="860px" header="命令详情" :footer="false">
+        <div class="detail-drawer">
           <TEmpty v-if="!selectedCommand" description="请选择一条命令" />
           <template v-else>
             <TDescriptions bordered :column="2">
@@ -368,7 +403,7 @@ onMounted(loadPage);
                 </TTag>
               </TDescriptionsItem>
               <TDescriptionsItem label="会话 ID">{{ selectedCommand.sessionId || '-' }}</TDescriptionsItem>
-              <TDescriptionsItem label="创建人">{{ selectedCommand.createdBy || '-' }}</TDescriptionsItem>
+              <TDescriptionsItem label="创建人">{{ resolveUserName(selectedCommand.createdBy) }}</TDescriptionsItem>
               <TDescriptionsItem label="创建时间">{{ formatDateTime(selectedCommand.createTime) }}</TDescriptionsItem>
               <TDescriptionsItem label="确认时间">{{ formatDateTime(selectedCommand.ackedAt) }}</TDescriptionsItem>
               <TDescriptionsItem label="过期时间">{{ formatDateTime(selectedCommand.expiresAt) }}</TDescriptionsItem>
@@ -396,29 +431,29 @@ onMounted(loadPage);
               <h4>错误信息</h4>
               <pre>{{ selectedCommand.error }}</pre>
             </div>
-          </template>
-        </article>
 
-        <aside class="panel">
-          <h3>关联会话</h3>
-          <TEmpty v-if="!selectedSession" description="命令未绑定会话或会话已清理" />
-          <TDescriptions v-else bordered :column="1">
-            <TDescriptionsItem label="实例">{{ selectedSession.instanceId }}</TDescriptionsItem>
-            <TDescriptionsItem label="状态">{{ sessionStatusText(selectedSession.status) }}</TDescriptionsItem>
-            <TDescriptionsItem label="主机">{{ selectedSession.hostName || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="容器">{{ selectedSession.containerId || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="Codex">{{ selectedSession.codexVersion || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="Node">{{ selectedSession.nodeVersion || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="Git">{{ selectedSession.gitVersion || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="工作区">{{ selectedSession.workspaceRoot || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="Codex Home">{{ selectedSession.codexHome || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="运行目录">{{ selectedSession.runsRoot || '-' }}</TDescriptionsItem>
-            <TDescriptionsItem label="启动时间">{{ formatDateTime(selectedSession.startedAt) }}</TDescriptionsItem>
-            <TDescriptionsItem label="最后心跳">{{ formatDateTime(selectedSession.lastHeartbeatAt) }}</TDescriptionsItem>
-            <TDescriptionsItem label="错误摘要">{{ selectedSession.errorSummary || '-' }}</TDescriptionsItem>
-          </TDescriptions>
-        </aside>
-      </section>
+            <section class="session-detail">
+              <h3>关联会话</h3>
+              <TEmpty v-if="!selectedSession" description="命令未绑定会话或会话已清理" />
+              <TDescriptions v-else bordered :column="1">
+                <TDescriptionsItem label="实例">{{ selectedSession.instanceId }}</TDescriptionsItem>
+                <TDescriptionsItem label="状态">{{ sessionStatusText(selectedSession.status) }}</TDescriptionsItem>
+                <TDescriptionsItem label="主机">{{ selectedSession.hostName || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="容器">{{ selectedSession.containerId || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="Codex">{{ selectedSession.codexVersion || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="Node">{{ selectedSession.nodeVersion || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="Git">{{ selectedSession.gitVersion || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="工作区">{{ selectedSession.workspaceRoot || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="Codex Home">{{ selectedSession.codexHome || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="运行目录">{{ selectedSession.runsRoot || '-' }}</TDescriptionsItem>
+                <TDescriptionsItem label="启动时间">{{ formatDateTime(selectedSession.startedAt) }}</TDescriptionsItem>
+                <TDescriptionsItem label="最后心跳">{{ formatDateTime(selectedSession.lastHeartbeatAt) }}</TDescriptionsItem>
+                <TDescriptionsItem label="错误摘要">{{ selectedSession.errorSummary || '-' }}</TDescriptionsItem>
+              </TDescriptions>
+            </section>
+          </template>
+        </div>
+      </TDrawer>
     </template>
   </div>
 </template>
@@ -485,10 +520,15 @@ onMounted(loadPage);
   width: 260px;
 }
 
-.detail-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 16px;
+.detail-drawer,
+.session-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.session-detail {
+  margin-top: 14px;
 }
 
 .text-block {
@@ -518,7 +558,6 @@ onMounted(loadPage);
 }
 
 @media (max-width: 1100px) {
-  .detail-layout,
   .summary {
     grid-template-columns: 1fr;
   }
