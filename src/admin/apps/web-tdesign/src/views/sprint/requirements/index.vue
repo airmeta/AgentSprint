@@ -104,7 +104,6 @@ const pendingRequirementActionIds = ref(new Set<string>());
 
 const filters = reactive({
   endpointId: '',
-  health: '',
   requirementInfo: '',
   status: '',
 });
@@ -336,18 +335,6 @@ const statusText: Record<string, string> = {
   voided: '已作废',
 };
 
-const healthTheme: Record<string, 'default' | 'primary' | 'success' | 'warning'> = {
-  primary: 'primary',
-  success: 'success',
-  voided: 'default',
-  warn: 'warning',
-};
-const healthText: Record<string, string> = {
-  primary: '推进中',
-  success: '健康',
-  voided: '已作废',
-  warn: '有缺陷',
-};
 const reviewStatusText: Record<string, string> = {
   approved: '已通过',
   pending: '待评审',
@@ -374,7 +361,6 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'title', ellipsis: true, title: '需求名' },
   { colKey: 'endpointId', title: '所属端', width: 140 },
   { colKey: 'status', title: '状态', width: 120 },
-  { colKey: 'health', title: '健康', width: 90 },
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'createdBy', title: '产品经理', width: 130 },
   { colKey: 'stakeholders', title: '干系人', width: 160 },
@@ -382,9 +368,6 @@ const columns: PrimaryTableCol[] = [
 ];
 const statusOptions = computed(() =>
   Object.entries(statusText).map(([value, label]) => ({ label, value })),
-);
-const healthOptions = computed(() =>
-  Object.entries(healthText).map(([value, label]) => ({ label, value })),
 );
 const selectedRequirementForAction = computed(() =>
   requirements.value.find((requirement) => requirement.id === selectedRequirementKeys.value[0]),
@@ -723,7 +706,6 @@ async function loadRequirements() {
   try {
     const [nextRequirements, nextTasks] = await Promise.all([
       listRequirementsApi(selectedProjectId.value || undefined, {
-        health: filters.health || undefined,
         keyword: filters.requirementInfo || undefined,
         status: filters.status || undefined,
       }),
@@ -789,7 +771,6 @@ async function resetFilters() {
   selectedRequirementKeys.value = [];
   Object.assign(filters, {
     endpointId: '',
-    health: '',
     requirementInfo: '',
     status: '',
   });
@@ -1196,16 +1177,6 @@ onActivated(async () => {
           />
         </div>
         <div class="sprint-filter-field">
-          <span>健康度</span>
-          <TSelect
-            v-model="filters.health"
-            :options="healthOptions"
-            clearable
-            placeholder="全部健康状态"
-            @change="handleLocalFilterChange"
-          />
-        </div>
-        <div class="sprint-filter-field">
           <span>需求信息</span>
           <TInput
             v-model="filters.requirementInfo"
@@ -1443,11 +1414,6 @@ onActivated(async () => {
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
-        <template #health="{ row }">
-          <TTag :theme="healthTheme[row.health] || 'primary'" variant="light">
-            {{ healthText[row.health] || row.health }}
-          </TTag>
-        </template>
         <template #priority="{ row }">
           <TTag variant="light">{{ resolvePriorityText(row.priority) }}</TTag>
         </template>
@@ -1551,9 +1517,6 @@ onActivated(async () => {
       :header="selectedRequirement?.title || '需求详情'"
     >
       <article v-if="selectedRequirement" class="detail">
-        <TTag :theme="healthTheme[selectedRequirement.health] || 'primary'" variant="light">
-          {{ healthText[selectedRequirement.health] || selectedRequirement.health }}
-        </TTag>
         <h3>{{ selectedRequirement.title }}</h3>
         <article
           class="markdown-preview detail-markdown"

@@ -45,7 +45,6 @@ const gitRepositories = ref<SprintGitApi.GitRepository[]>([]);
 const requirementColumns = [
   { colKey: 'title', title: '需求' },
   { colKey: 'status', title: '状态', width: 130 },
-  { colKey: 'health', title: '健康', width: 100 },
   { colKey: 'createdBy', title: '产品经理', width: 140 },
 ];
 const taskColumns = [

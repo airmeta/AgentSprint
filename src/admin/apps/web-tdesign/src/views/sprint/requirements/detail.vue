@@ -53,18 +53,6 @@ const statusText: Record<string, string> = {
   testing: '测试中',
   voided: '已作废',
 };
-const healthTheme: Record<string, 'default' | 'primary' | 'success' | 'warning'> = {
-  primary: 'primary',
-  success: 'success',
-  voided: 'default',
-  warn: 'warning',
-};
-const healthText: Record<string, string> = {
-  primary: '推进中',
-  success: '健康',
-  voided: '已作废',
-  warn: '有缺陷',
-};
 const taskColumns = [
   { colKey: 'title', title: '任务' },
   { colKey: 'status', title: '状态', width: 130 },
@@ -137,11 +125,6 @@ onMounted(loadDetail);
         <TDescriptions bordered :column="2">
           <TDescriptionsItem label="状态">
             <TTag variant="light">{{ statusText[requirement.status] || requirement.status }}</TTag>
-          </TDescriptionsItem>
-          <TDescriptionsItem label="健康">
-            <TTag :theme="healthTheme[requirement.health] || 'primary'" variant="light">
-              {{ healthText[requirement.health] || requirement.health }}
-            </TTag>
           </TDescriptionsItem>
           <TDescriptionsItem label="产品经理">
             {{ resolveUserName(requirement.createdBy, userLookup) }}
