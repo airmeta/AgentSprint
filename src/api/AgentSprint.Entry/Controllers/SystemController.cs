@@ -16,6 +16,7 @@ public sealed class SystemController : ControllerBase
     private readonly ISystemManagementService _systemService;
     private readonly IAgentTokenService _agentTokenService;
     private readonly ISystemConfigurationService _configurationService;
+    private readonly IAiConversationService _aiConversationService;
 
     /// <summary>
     /// zh-cn: 创建系统管理控制器，暴露当前项目范围内的 RBAC 主体、菜单、权限码和通用关联表维护接口。
@@ -28,11 +29,13 @@ public sealed class SystemController : ControllerBase
     public SystemController(
         ISystemManagementService systemService,
         IAgentTokenService agentTokenService,
-        ISystemConfigurationService configurationService)
+        ISystemConfigurationService configurationService,
+        IAiConversationService aiConversationService)
     {
         _systemService = systemService;
         _agentTokenService = agentTokenService;
         _configurationService = configurationService;
+        _aiConversationService = aiConversationService;
     }
 
     [HttpGet("users")]
@@ -249,6 +252,34 @@ public sealed class SystemController : ControllerBase
     public async Task<ApiResponse<bool>> DeleteAiPlatform(string id)
     {
         return ApiResponse<bool>.Ok(await _configurationService.DeleteAiPlatformAsync(id));
+    }
+
+    [HttpGet("ai-conversations")]
+    public async Task<ApiResponse<IReadOnlyList<AiConversationResult>>> ListAiConversations(
+        [FromQuery] string? keyword,
+        [FromQuery] string? projectId,
+        [FromQuery] string? requirementId,
+        [FromQuery] string? taskId,
+        [FromQuery] string? testPlanId,
+        [FromQuery] string? bugId,
+        [FromQuery] string? status)
+    {
+        return ApiResponse<IReadOnlyList<AiConversationResult>>.Ok(
+            await _aiConversationService.ListConversationsAsync(
+                keyword,
+                projectId,
+                requirementId,
+                taskId,
+                testPlanId,
+                bugId,
+                status));
+    }
+
+    [HttpPost("ai-conversations")]
+    public async Task<ActionResult<ApiResponse<AiConversationResult>>> StartAiConversation(
+        StartAiConversationRequest request)
+    {
+        return await ExecuteAsync(() => _aiConversationService.StartConversationAsync(request, GetUserId()));
     }
 
     [HttpGet("user-groups")]

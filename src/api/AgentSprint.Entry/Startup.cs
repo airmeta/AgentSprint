@@ -12,9 +12,11 @@ using AgentSprint.Repository;
 using AgentSprint.Repository.DbContexts;
 using AgentSprint.Service.Impls.AuthServices;
 using AgentSprint.Service.Impls.AgileServices;
+using AgentSprint.Service.Impls.SecurityServices;
 using AgentSprint.Service.Security;
 using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.AuthServices;
+using AgentSprint.Service.Services.SecurityServices;
 
 using Air.Cloud.Core.App;
 using Air.Cloud.Core.App.Startups;
@@ -77,6 +79,7 @@ public sealed class Startup : AppStartup
         services.AddSingleton<IDistributedLockStandard, RedisLockDependency>();
         services.AddSingleton<IWorkerCommandLogBuffer, RedisWorkerCommandLogBuffer>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
+        services.AddHttpClient<IAiConversationService, AiConversationService>();
 
         services.Configure<JwtOptions>(AppCore.Configuration.GetSection("Jwt"));
         var jwtOptions = AppCore.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
@@ -118,6 +121,7 @@ public sealed class Startup : AppStartup
         services.AddTransient<IPermissionDomain, PermissionDomain>();
         services.AddTransient<IAgentTokenDomain, AgentTokenDomain>();
         services.AddTransient<ISystemConfigurationDomain, SystemConfigurationDomain>();
+        services.AddTransient<IAiConversationDomain, AiConversationDomain>();
         services.AddTransient<IUserGroupDomain, UserGroupDomain>();
         services.AddTransient<IRoleGroupDomain, RoleGroupDomain>();
         services.AddTransient<IDepartmentDomain, DepartmentDomain>();

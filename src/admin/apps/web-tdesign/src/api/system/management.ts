@@ -97,6 +97,38 @@ export namespace SystemApi {
     status: number;
   }
 
+  export interface StartAiConversationRequest {
+    aiPlatformCode?: string;
+    bugId?: string;
+    message: string;
+    projectId?: string;
+    requirementId?: string;
+    taskId?: string;
+    testPlanId?: string;
+    title?: string;
+  }
+
+  export interface AiConversation {
+    aiPlatformCode: string;
+    assistantMessage?: string;
+    bugId?: string;
+    completedAt?: string;
+    contextSnapshot: string;
+    createdBy: string;
+    errorMessage?: string;
+    id: string;
+    model: string;
+    projectId?: string;
+    provider: string;
+    requirementId?: string;
+    startedAt: string;
+    status: string;
+    taskId?: string;
+    testPlanId?: string;
+    title: string;
+    userMessage: string;
+  }
+
   export interface CodeName {
     code: string;
     description?: string;
@@ -295,6 +327,16 @@ export function saveAiPlatformApi(data: Partial<SystemApi.AiPlatform>) {
 
 export function deleteAiPlatformApi(id: string) {
   return requestClient.delete<boolean>(`/system/ai-platforms/${id}`);
+}
+
+export function listAiConversationsApi(params?: SystemApi.ManagementQuery) {
+  return requestClient.get<SystemApi.AiConversation[]>('/system/ai-conversations', {
+    params: normalizeQuery(params),
+  });
+}
+
+export function startAiConversationApi(data: SystemApi.StartAiConversationRequest) {
+  return requestClient.post<SystemApi.AiConversation>('/system/ai-conversations', data);
 }
 
 export function listUserGroupsApi() {

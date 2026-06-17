@@ -34,6 +34,8 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<SystemConfigurationEntity> SystemConfigurations => Set<SystemConfigurationEntity>();
 
+    public DbSet<AiConversationEntity> AiConversations => Set<AiConversationEntity>();
+
     public DbSet<UserGroupEntity> UserGroups => Set<UserGroupEntity>();
 
     public DbSet<RoleGroupEntity> RoleGroups => Set<RoleGroupEntity>();
@@ -125,6 +127,9 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<AgentTokenEntity>().HasIndex(entity => new { entity.OwnerUserId, entity.Status });
         modelBuilder.Entity<AgentTokenEntity>().HasIndex(entity => entity.ProjectId);
         modelBuilder.Entity<SystemConfigurationEntity>().HasIndex(entity => entity.Key).IsUnique();
+        modelBuilder.Entity<AiConversationEntity>().HasIndex(entity => new { entity.ProjectId, entity.CreateTime });
+        modelBuilder.Entity<AiConversationEntity>().HasIndex(entity => new { entity.RequirementId, entity.TaskId, entity.TestPlanId, entity.BugId });
+        modelBuilder.Entity<AiConversationEntity>().HasIndex(entity => new { entity.AiPlatformCode, entity.Status });
         modelBuilder.Entity<UserGroupEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<RoleGroupEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<DepartmentEntity>().HasIndex(entity => entity.Code).IsUnique();

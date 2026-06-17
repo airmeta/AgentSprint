@@ -110,6 +110,15 @@ const routes: RouteRecordRaw[] = [
           title: '需求评审',
         },
       },
+      {
+        name: 'SprintAiChat',
+        path: '/sprint/ai-chat',
+        component: () => import('#/views/sprint/ai-chat/index.vue'),
+        meta: {
+          icon: 'lucide:message-circle',
+          title: 'AI对话',
+        },
+      },
     ],
   },
   {

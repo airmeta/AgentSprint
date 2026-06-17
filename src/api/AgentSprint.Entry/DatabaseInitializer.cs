@@ -64,6 +64,7 @@ public sealed class DatabaseInitializer : IHostedService
         {
             await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
             await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
+            await EnsureAiConversationTablesAsync(dbContext, cancellationToken);
             await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
             await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
             await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
@@ -83,6 +84,7 @@ public sealed class DatabaseInitializer : IHostedService
         {
             await EnsureAgentTokenTablesAsync(dbContext, cancellationToken);
             await EnsureSystemConfigurationTablesAsync(dbContext, cancellationToken);
+            await EnsureAiConversationTablesAsync(dbContext, cancellationToken);
             await EnsureSecurityEvolutionTablesAsync(dbContext, cancellationToken);
             await EnsureAgileMvpTablesAsync(dbContext, cancellationToken);
             await EnsureDigitalWorkerTablesAsync(dbContext, cancellationToken);
@@ -272,6 +274,41 @@ public sealed class DatabaseInitializer : IHostedService
             """;
 
         await dbContext.Database.ExecuteSqlRawAsync(configurationSql, cancellationToken);
+    }
+
+    private static async Task EnsureAiConversationTablesAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
+    {
+        const string conversationSql = """
+            CREATE TABLE IF NOT EXISTS ai_conversation (
+              Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+              Title varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              AiPlatformCode varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Provider varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Model varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+              ProjectId varchar(64) CHARACTER SET utf8mb4 NULL,
+              RequirementId varchar(64) CHARACTER SET utf8mb4 NULL,
+              TaskId varchar(64) CHARACTER SET utf8mb4 NULL,
+              TestPlanId varchar(64) CHARACTER SET utf8mb4 NULL,
+              BugId varchar(64) CHARACTER SET utf8mb4 NULL,
+              CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+              Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              StartedAt datetime(6) NOT NULL,
+              CompletedAt datetime(6) NULL,
+              ContextSnapshot text CHARACTER SET utf8mb4 NOT NULL,
+              UserMessage text CHARACTER SET utf8mb4 NOT NULL,
+              AssistantMessage text CHARACTER SET utf8mb4 NULL,
+              ErrorMessage varchar(2048) CHARACTER SET utf8mb4 NULL,
+              CreateTime datetime(6) NOT NULL,
+              UpdateTime datetime(6) NULL,
+              IsDelete int NOT NULL,
+              PRIMARY KEY (Id),
+              INDEX IX_ai_conversation_ProjectId_CreateTime (ProjectId, CreateTime),
+              INDEX IX_ai_conversation_Targets (RequirementId, TaskId, TestPlanId, BugId),
+              INDEX IX_ai_conversation_Platform_Status (AiPlatformCode, Status)
+            ) CHARACTER SET=utf8mb4;
+            """;
+
+        await dbContext.Database.ExecuteSqlRawAsync(conversationSql, cancellationToken);
     }
 
     private static async Task EnsureTestTablesAsync(DefaultDbContext dbContext, CancellationToken cancellationToken)
@@ -2774,8 +2811,9 @@ public sealed class DatabaseInitializer : IHostedService
             cancellationToken);
 
         var aiPlatformsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/ai-platforms", "GlobalConfigAiPlatforms", "/system/ai-platforms/index", "lucide:cpu", 10, cancellationToken);
-        var promptTemplatesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 20, cancellationToken);
-        var skillsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/skills", "GlobalConfigSkills", "/sprint/skills/index", "lucide:brain-circuit", 30, cancellationToken);
+        var aiConversationsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/ai-conversations", "GlobalConfigAiConversations", "/system/ai-conversations/index", "lucide:messages-square", 20, cancellationToken);
+        var promptTemplatesMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/prompt-templates", "GlobalConfigPromptTemplates", "/system/prompt-templates/index", "lucide:message-square-code", 30, cancellationToken);
+        var skillsMenu = await EnsureSystemMenuAsync(dbContext, role.Id, globalConfig.Id, "/global-config/skills", "GlobalConfigSkills", "/sprint/skills/index", "lucide:brain-circuit", 40, cancellationToken);
 
         var security = await dbContext.Menus.FirstOrDefaultAsync(entity => entity.Path == "/security", cancellationToken);
         if (security is null)
@@ -2809,6 +2847,7 @@ public sealed class DatabaseInitializer : IHostedService
         await EnsurePermissionAsync(dbContext, role.Id, "System:Dictionary:Manage", "Dictionary management", dictionariesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:RuntimeEnvironment:Manage", "Runtime environment management", runtimeEnvironmentsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:AiPlatform:Manage", "AI platform management", aiPlatformsMenu.Id, cancellationToken);
+        await EnsurePermissionAsync(dbContext, role.Id, "System:AiConversation:Manage", "AI conversation management", aiConversationsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:PromptTemplate:Manage", "Prompt template management", promptTemplatesMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "System:Configuration:Manage", "System configuration management", configurationsMenu.Id, cancellationToken);
         await EnsurePermissionAsync(dbContext, role.Id, "CodeReview:Task:Manage", "Code review task management", codeReviewTasksMenu.Id, cancellationToken);

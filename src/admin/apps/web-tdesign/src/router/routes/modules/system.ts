@@ -146,6 +146,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'GlobalConfigAiConversations',
+        path: '/global-config/ai-conversations',
+        component: () => import('#/views/system/ai-conversations/index.vue'),
+        meta: {
+          icon: 'lucide:messages-square',
+          keepAlive: false,
+          title: 'AI对话管理',
+        },
+      },
+      {
         name: 'GlobalConfigPromptTemplates',
         path: '/global-config/prompt-templates',
         component: () => import('#/views/system/prompt-templates/index.vue'),

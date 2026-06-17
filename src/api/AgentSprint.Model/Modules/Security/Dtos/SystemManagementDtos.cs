@@ -170,6 +170,36 @@ public sealed record AiPlatformRuntimeResult(
     string? OpenAiBaseUrl,
     int Status);
 
+public sealed record StartAiConversationRequest(
+    string Message,
+    string? AiPlatformCode = null,
+    string? ProjectId = null,
+    string? RequirementId = null,
+    string? TaskId = null,
+    string? TestPlanId = null,
+    string? BugId = null,
+    string? Title = null);
+
+public sealed record AiConversationResult(
+    string Id,
+    string Title,
+    string AiPlatformCode,
+    string Provider,
+    string Model,
+    string? ProjectId,
+    string? RequirementId,
+    string? TaskId,
+    string? TestPlanId,
+    string? BugId,
+    string CreatedBy,
+    string Status,
+    DateTime StartedAt,
+    DateTime? CompletedAt,
+    string ContextSnapshot,
+    string UserMessage,
+    string? AssistantMessage,
+    string? ErrorMessage);
+
 public sealed record UpsertUserGroupRequest(
     string? Id,
     string Code,

@@ -104,6 +104,13 @@ public sealed class SystemConfigurationDomain : EntityDomainBase<SystemConfigura
     }
 }
 
+public sealed class AiConversationDomain : EntityDomainBase<AiConversationEntity>, IAiConversationDomain
+{
+    public AiConversationDomain(IRepository<AiConversationEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class UserGroupDomain : EntityDomainBase<UserGroupEntity>, IUserGroupDomain
 {
     public UserGroupDomain(IRepository<UserGroupEntity> repository) : base(repository)

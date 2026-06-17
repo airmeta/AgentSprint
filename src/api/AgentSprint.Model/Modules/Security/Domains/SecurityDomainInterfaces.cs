@@ -50,6 +50,8 @@ public interface ISystemConfigurationDomain : IEntityDomainBase<SystemConfigurat
     Task<SystemConfigurationEntity?> FindByKeyAsync(string key);
 }
 
+public interface IAiConversationDomain : IEntityDomainBase<AiConversationEntity>;
+
 public interface IUserGroupDomain : IEntityDomainBase<UserGroupEntity>;
 
 public interface IRoleGroupDomain : IEntityDomainBase<RoleGroupEntity>;

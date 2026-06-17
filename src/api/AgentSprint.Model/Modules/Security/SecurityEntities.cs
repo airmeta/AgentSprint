@@ -136,6 +136,66 @@ public sealed class SystemConfigurationEntity : EntityBase
     public int Status { get; set; } = 1;
 }
 
+[Table("ai_conversation")]
+public sealed class AiConversationEntity : EntityBase
+{
+    [MaxLength(128)]
+    public string Title { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string AiPlatformCode { get; set; } = "openai";
+
+    [MaxLength(64)]
+    public string Provider { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Model { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? ProjectId { get; set; }
+
+    [MaxLength(64)]
+    public string? RequirementId { get; set; }
+
+    [MaxLength(64)]
+    public string? TaskId { get; set; }
+
+    [MaxLength(64)]
+    public string? TestPlanId { get; set; }
+
+    [MaxLength(64)]
+    public string? BugId { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+
+    [MaxLength(32)]
+    public string Status { get; set; } = AiConversationStatuses.Completed;
+
+    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime? CompletedAt { get; set; }
+
+    [Column(TypeName = "text")]
+    public string ContextSnapshot { get; set; } = string.Empty;
+
+    [Column(TypeName = "text")]
+    public string UserMessage { get; set; } = string.Empty;
+
+    [Column(TypeName = "text")]
+    public string? AssistantMessage { get; set; }
+
+    [MaxLength(2048)]
+    public string? ErrorMessage { get; set; }
+}
+
+public static class AiConversationStatuses
+{
+    public const string Completed = "completed";
+
+    public const string Failed = "failed";
+}
+
 [Table("sys_user_group")]
 public sealed class UserGroupEntity : EntityBase
 {
