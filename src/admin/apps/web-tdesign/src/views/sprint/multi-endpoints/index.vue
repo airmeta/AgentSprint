@@ -68,6 +68,7 @@ const modules = ref<SprintMvpApi.FeatureModule[]>([]);
 const requirements = ref<SprintMvpApi.Requirement[]>([]);
 const skills = ref<SprintMvpApi.Skill[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
+const deletingModuleIds = ref(new Set<string>());
 const endpointPagers = reactive<Record<string, EndpointPager>>({});
 
 const endpointForm = reactive({
@@ -189,6 +190,20 @@ function moduleRequirementCount(moduleId: string) {
 
 function canDeleteModule(module: SprintMvpApi.FeatureModule) {
   return moduleRequirementCount(module.id) === 0;
+}
+
+function isDeletingModule(moduleId: string) {
+  return deletingModuleIds.value.has(moduleId);
+}
+
+function setDeletingModule(moduleId: string, deleting: boolean) {
+  const nextIds = new Set(deletingModuleIds.value);
+  if (deleting) {
+    nextIds.add(moduleId);
+  } else {
+    nextIds.delete(moduleId);
+  }
+  deletingModuleIds.value = nextIds;
 }
 
 function endpointModules(endpointId: string) {
@@ -392,20 +407,27 @@ async function saveModule() {
 }
 
 function deleteModule(module: SprintMvpApi.FeatureModule) {
+  if (isDeletingModule(module.id)) return;
   const requirementCount = moduleRequirementCount(module.id);
   if (requirementCount > 0) {
     MessagePlugin.warning(`妯″潡宸叉湁 ${requirementCount} 涓渶姹傚紩鐢紝涓嶈兘鍒犻櫎`);
     return;
   }
 
+  setDeletingModule(module.id, true);
   confirmAndClose({
     body: `确认删除模块 ${module.name}？`,
     confirmBtn: '删除',
     header: '删除模块',
+    onClose: () => setDeletingModule(module.id, false),
     onConfirm: async () => {
-      await deleteFeatureModuleApi(module.id);
-      MessagePlugin.success('模块已删除');
-      await loadData();
+      try {
+        await deleteFeatureModuleApi(module.id);
+        MessagePlugin.success('模块已删除');
+        await loadData();
+      } finally {
+        setDeletingModule(module.id, false);
+      }
     },
   });
 }
@@ -573,13 +595,24 @@ onMounted(loadData);
                       <IconifyIcon icon="lucide:pencil" />
                       缂栬緫
                     </TLink>
-                    <TLink v-if="canDeleteModule(row)" theme="danger" @click="deleteModule(row)">
-                      <IconifyIcon icon="lucide:trash-2" />
+                    <TButton
+                      v-if="canDeleteModule(row)"
+                      size="small"
+                      theme="danger"
+                      variant="text"
+                      :disabled="isDeletingModule(row.id)"
+                      :loading="isDeletingModule(row.id)"
+                      @click="deleteModule(row)"
+                    >
+                      <template #icon>
+                        <IconifyIcon icon="lucide:trash-2" />
+                      </template>
                       鍒犻櫎
-                    </TLink>
-                    <TTag v-else size="small" variant="light">
+                    </TButton>
+                    <TLink v-else theme="default" disabled>
+                      <IconifyIcon icon="lucide:trash-2" />
                       已关联 {{ moduleRequirementCount(row.id) }} 个需求
-                    </TTag>
+                    </TLink>
                   </TSpace>
                 </template>
               </TTable>

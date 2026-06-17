@@ -560,18 +560,19 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var normalizedHealth = NormalizeOptional(health);
         var entities = await _requirementDomain.ListAsync(entity =>
             (string.IsNullOrWhiteSpace(projectId) || entity.ProjectId == projectId) &&
-            (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus) &&
-            (string.IsNullOrWhiteSpace(normalizedKeyword) ||
+            (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus));
+        var results = new List<SprintRequirementResult>();
+
+        foreach (var entity in entities
+            .Where(entity =>
+                string.IsNullOrWhiteSpace(normalizedKeyword) ||
                 TextContains(
                     normalizedKeyword,
                     entity.Title,
                     entity.Description,
                     entity.Stakeholders,
                     entity.CreatedBy,
-                    entity.ReviewedBy)));
-        var results = new List<SprintRequirementResult>();
-
-        foreach (var entity in entities
+                    entity.ReviewedBy))
             .OrderBy(entity => entity.Status)
             .ThenByDescending(entity => entity.CreateTime))
         {

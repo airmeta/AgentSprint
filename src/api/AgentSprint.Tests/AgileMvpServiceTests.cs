@@ -1638,6 +1638,26 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task ListRequirementsAsync_FiltersByKeywordAfterDatabaseSafeQuery()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-REQ-KEYWORD", "Requirement keyword filter"),
+            "pm-1");
+        await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Payment export", "CSV settlement report", 1),
+            "po-1");
+        await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Profile settings", "User avatar management", 2),
+            "po-1");
+
+        var requirements = await service.ListRequirementsAsync(project.Id, "settlement");
+
+        var requirement = Assert.Single(requirements);
+        Assert.Equal("Payment export", requirement.Title);
+    }
+
+    [Fact]
     public async Task DeleteFeatureModuleAsync_AllowsDeletingModuleWithoutRequirements()
     {
         var service = CreateService();
@@ -2278,4 +2298,3 @@ internal sealed class InMemoryAgileDigitalWorkerDomain :
 internal sealed class InMemoryAgileWorkerCommandDomain :
     InMemoryDomainBase<WorkerCommandEntity>,
     IWorkerCommandDomain;
-

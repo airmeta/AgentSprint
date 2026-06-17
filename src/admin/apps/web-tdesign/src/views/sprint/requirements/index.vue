@@ -98,6 +98,7 @@ const users = ref<SprintUserApi.UserOption[]>([]);
 const selectedFeedback = ref<SprintMvpApi.RequirementFeedback>();
 const selectedFeedbackTaskId = ref('');
 const expandedRequirementIds = ref<Array<number | string>>([]);
+const pendingRequirementActionIds = ref(new Set<string>());
 
 const filters = reactive({
   health: '',
@@ -202,7 +203,7 @@ const skillOptions = computed(() =>
 );
 const priorityOptions = [
   { label: '加急', theme: 'danger', value: 1 },
-  { label: '正常', theme: 'primary', value: 2 },
+  { label: '正常', theme: 'default', value: 2 },
   { label: '可延后', theme: 'success', value: 3 },
 ];
 const getPriorityTheme = (priority: number, value: number, theme: string) =>
@@ -212,6 +213,19 @@ const getPriorityButtonClass = (priority: number, value: number) => ({
   'priority-option-button--danger': priority !== value && value === 1,
   'priority-option-button--success': priority !== value && value === 3,
 });
+function isRequirementActionPending(requirementId: string) {
+  return pendingRequirementActionIds.value.has(requirementId);
+}
+
+function setRequirementActionPending(requirementId: string, pending: boolean) {
+  const nextIds = new Set(pendingRequirementActionIds.value);
+  if (pending) {
+    nextIds.add(requirementId);
+  } else {
+    nextIds.delete(requirementId);
+  }
+  pendingRequirementActionIds.value = nextIds;
+}
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const userNameMap = computed(() => Object.fromEntries(users.value.map((item) => [item.username, item])));
 const digitalWorkerMap = computed(() =>
@@ -894,38 +908,63 @@ async function decomposeRequirement() {
   }
 }
 async function voidRequirement(requirement: SprintMvpApi.Requirement) {
-  await voidRequirementApi(requirement.id);
-  MessagePlugin.success('闂団偓濮瑰倸鍑℃担婊冪熬');
-  detailVisible.value = false;
-  await loadRequirements();
+  if (isRequirementActionPending(requirement.id)) return;
+  setRequirementActionPending(requirement.id, true);
+  try {
+    await voidRequirementApi(requirement.id);
+    MessagePlugin.success('闂団偓濮瑰倸鍑℃担婊冪熬');
+    detailVisible.value = false;
+    await loadRequirements();
+  } finally {
+    setRequirementActionPending(requirement.id, false);
+  }
 }
 
 function deleteDraftRequirement(requirement: SprintMvpApi.Requirement) {
+  if (isRequirementActionPending(requirement.id)) return;
+  setRequirementActionPending(requirement.id, true);
   confirmAndClose({
     body: `纭鍒犻櫎鑽夌闇€姹傘€?{requirement.title}銆嶏紵`,
     confirmBtn: '鍒犻櫎',
     header: '删除草稿需求',
+    onClose: () => setRequirementActionPending(requirement.id, false),
     onConfirm: async () => {
-      await deleteDraftRequirementApi(requirement.id);
-      MessagePlugin.success('鑽夌闇€姹傚凡鍒犻櫎');
-      detailVisible.value = false;
-      await loadRequirements();
+      try {
+        await deleteDraftRequirementApi(requirement.id);
+        MessagePlugin.success('鑽夌闇€姹傚凡鍒犻櫎');
+        detailVisible.value = false;
+        await loadRequirements();
+      } finally {
+        setRequirementActionPending(requirement.id, false);
+      }
     },
   });
 }
 
 async function closeRequirement(requirement: SprintMvpApi.Requirement) {
-  await closeRequirementApi(requirement.id);
-  MessagePlugin.success('需求已作废');
-  detailVisible.value = false;
-  await loadRequirements();
+  if (isRequirementActionPending(requirement.id)) return;
+  setRequirementActionPending(requirement.id, true);
+  try {
+    await closeRequirementApi(requirement.id);
+    MessagePlugin.success('需求已作废');
+    detailVisible.value = false;
+    await loadRequirements();
+  } finally {
+    setRequirementActionPending(requirement.id, false);
+  }
 }
 
 async function completeRequirementDevelopment(requirement: SprintMvpApi.Requirement) {
-  await completeRequirementDevelopmentApi(requirement.id, {});
-  MessagePlugin.success('需求已确认开发完成，进入待测试');
-  detailVisible.value = false;
-  await loadRequirements();
+  if (isRequirementActionPending(requirement.id)) return;
+  setRequirementActionPending(requirement.id, true);
+  try {
+    await completeRequirementDevelopmentApi(requirement.id, {});
+    MessagePlugin.success('需求已确认开发完成，进入待测试');
+    detailVisible.value = false;
+    await loadRequirements();
+  } finally {
+    setRequirementActionPending(requirement.id, false);
+  }
 }
 
 async function saveFeedback() {
@@ -1198,7 +1237,8 @@ onActivated(async () => {
           <TButton
             theme="danger"
             variant="outline"
-            :disabled="!canDeleteDraftSelectedRequirement"
+            :disabled="!canDeleteDraftSelectedRequirement || isRequirementActionPending(selectedRequirementForAction?.id || '')"
+            :loading="isRequirementActionPending(selectedRequirementForAction?.id || '')"
             @click="deleteSelectedDraftRequirement"
           >
             <template #icon>
@@ -1208,7 +1248,8 @@ onActivated(async () => {
           </TButton>
           <TButton
             theme="danger"
-            :disabled="!canVoidSelectedRequirement"
+            :disabled="!canVoidSelectedRequirement || isRequirementActionPending(selectedRequirementForAction?.id || '')"
+            :loading="isRequirementActionPending(selectedRequirementForAction?.id || '')"
             @click="voidSelectedRequirement"
           >
             <template #icon>
@@ -1559,6 +1600,8 @@ onActivated(async () => {
               v-if="selectedRequirement.status === 'draft'"
               theme="danger"
               variant="outline"
+              :disabled="isRequirementActionPending(selectedRequirement.id)"
+              :loading="isRequirementActionPending(selectedRequirement.id)"
               @click="deleteDraftRequirement(selectedRequirement)"
             >
               <template #icon>
@@ -1569,6 +1612,8 @@ onActivated(async () => {
             <TButton
               v-if="selectedRequirement.status === 'rejected'"
               theme="danger"
+              :disabled="isRequirementActionPending(selectedRequirement.id)"
+              :loading="isRequirementActionPending(selectedRequirement.id)"
               @click="voidRequirement(selectedRequirement)"
             >
               <template #icon>
@@ -1578,6 +1623,8 @@ onActivated(async () => {
             <TButton
               v-if="selectedRequirement.status === 'tested'"
               theme="success"
+              :disabled="isRequirementActionPending(selectedRequirement.id)"
+              :loading="isRequirementActionPending(selectedRequirement.id)"
               @click="closeRequirement(selectedRequirement)"
             >
               <template #icon>
