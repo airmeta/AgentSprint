@@ -1,0 +1,10 @@
+model = "gpt-5.4"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+openai_base_url = "https://devai.yunsee.cn"
+
+[mcp_servers.agentsprint]
+url = "http://mcp:5010/mcp"
+bearer_token_env_var = "AGENTSPRINT_AGENT_TOKEN"
+required = false
+tool_timeout_sec = 120

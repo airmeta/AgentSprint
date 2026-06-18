@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: agentsprint-api:latest
+    container_name: agentsprint-api
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__AgentSprintConnectionString: "server=192.168.100.100;port=3306;database=agentsprint;user=root;password=${AGENTSPRINT_DB_PASSWORD};Allow User Variables=True;UseAffectedRows=False;CharSet=utf8mb4;"
+      Database__AutoInitialize: "true"
+      RedisSettings__ConnectionString: "${AGENTSPRINT_REDIS_CONNECTION_STRING:-192.168.100.100:6379}"
+      RedisSettings__UserName: "${AGENTSPRINT_REDIS_USERNAME:-}"
+      RedisSettings__Password: "${AGENTSPRINT_REDIS_PASSWORD:-}"
+      AkkaSettings__SystemName: "agentsprint-cluster"
+      AkkaSettings__Host: "api"
+      AkkaSettings__Port: "25520"
+      AkkaSettings__SeedNodes__0: "akka.tcp://agentsprint-cluster@api:25520"
+    ports:
+      - "5000:5000"
+      - "25520:25520"

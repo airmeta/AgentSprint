@@ -1,0 +1,46 @@
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: agentsprint-mcp:latest
+    container_name: agentsprint-mcp
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      TZ: Asia/Shanghai
+      ASPNETCORE_ENVIRONMENT: Production
+      AGENTSPRINT_API_BASE_URL: "http://api:5000"
+      AGENTSPRINT_MCP_USERNAME: "developer"
+      AGENTSPRINT_MCP_PASSWORD: "change-me"
+      AGENTSPRINT_WORKSPACE_PATH: "/workspace"
+    ports:
+      - "5010:5010"
+
+  math-codex-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: agentsprint-worker:latest
+    container_name: math-codex-worker-1
+    privileged: true
+    restart: unless-stopped
+    depends_on:
+      - api
+      - mcp
+    environment:
+      TZ: Asia/Shanghai
+      DOTNET_ENVIRONMENT: Production
+      AgentSprint__ApiBaseUrl: "http://api:5000"
+      AgentSprint__AgentToken: "${AGENTSPRINT_AGENT_TOKEN:-}"
+      AkkaSettings__SystemName: "agentsprint-cluster"
+      AkkaSettings__Host: "math-codex-worker-1"
+      AkkaSettings__Port: "0"
+      AkkaSettings__SeedNodes__0: "akka.tcp://agentsprint-cluster@api:25520"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      CODEX_HOME: "/codex-home"
+    volumes:
+      - /opt/math-for-codex/primary/worker-1/workspaces:/workspaces
+      - /opt/math-for-codex/primary/worker-1/codex-home:/codex-home
+      - /opt/math-for-codex/primary/worker-1/runs:/runs
