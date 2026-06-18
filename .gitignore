@@ -40,3 +40,4 @@
 *.db
 *.gz
 *.bin
+/src/api/.vs/AgentSprint/CopilotIndices/18.8.1006.39443
