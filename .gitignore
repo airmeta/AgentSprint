@@ -33,10 +33,10 @@
 *.pid
 *.prev
 /lefthook.yml
-/docs/node_modules
-/docs/.vuepress/.cache
-/docs/.vuepress/.temp
-/docs/.vuepress/dist
+/docs/docs_site/node_modules
+/docs/docs_site/.vuepress/.cache
+/docs/docs_site/.vuepress/.temp
+/docs/docs_site/.vuepress/dist
 *.db
 *.gz
 *.bin

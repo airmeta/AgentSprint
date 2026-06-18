@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vuepress dev .",
-    "build": "vuepress build .",
+    "dev": "vuepress dev .. --config .vuepress/config.ts --cache .vuepress/.cache --temp .vuepress/.temp --dest .vuepress/dist",
+    "build": "vuepress build .. --config .vuepress/config.ts --cache .vuepress/.cache --temp .vuepress/.temp --dest .vuepress/dist",
     "preview": "vuepress dev .vuepress/dist"
   },
   "devDependencies": {
