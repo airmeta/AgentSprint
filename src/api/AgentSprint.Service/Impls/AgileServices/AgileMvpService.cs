@@ -1224,6 +1224,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         {
             WorkerId = worker.Id,
             CommandType = WorkerCommandTypes.StartTask,
+            Title = task.Title,
             PayloadJson = payloadJson,
             Status = WorkerCommandStatuses.Pending,
             CreatedBy = string.IsNullOrWhiteSpace(assignedBy) ? "system" : assignedBy.Trim()

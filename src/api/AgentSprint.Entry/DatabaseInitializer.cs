@@ -1043,6 +1043,7 @@ public sealed class DatabaseInitializer : IHostedService
               WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
               SessionId varchar(64) CHARACTER SET utf8mb4 NULL,
               CommandType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+              Title varchar(256) CHARACTER SET utf8mb4 NOT NULL DEFAULT '',
               PayloadJson text CHARACTER SET utf8mb4 NULL,
               Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
               AckedAt datetime(6) NULL,
@@ -1145,6 +1146,12 @@ public sealed class DatabaseInitializer : IHostedService
         DefaultDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        await EnsureColumnAsync(
+            dbContext,
+            "worker_command",
+            "Title",
+            "ALTER TABLE worker_command ADD COLUMN Title varchar(256) CHARACTER SET utf8mb4 NOT NULL DEFAULT '' AFTER CommandType;",
+            cancellationToken);
         await EnsureColumnAsync(
             dbContext,
             "worker_command",

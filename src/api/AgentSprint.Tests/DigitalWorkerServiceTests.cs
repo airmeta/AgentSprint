@@ -186,7 +186,7 @@ public sealed class DigitalWorkerServiceTests
             new CreateDigitalWorkerRequest("Codex Worker 2", "agent-1", Code: "codex-2"),
             "admin");
         var command = await management.CreateCommandAsync(
-            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"hi\"}"),
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"hi\"}", Title: "Manual smoke"),
             "admin");
 
         var session = await runtime.RegisterSessionAsync(
@@ -204,6 +204,7 @@ public sealed class DigitalWorkerServiceTests
             new WorkerHeartbeatRequest(worker.Id, session.Id, WorkerSessionStatuses.Idle));
 
         Assert.Single(heartbeat.Commands, item => item.Id == command.Id);
+        Assert.Equal("Manual smoke", command.Title);
         Assert.Equal(WorkerCommandStatuses.Acked, acked.Status);
         Assert.Equal(session.Id, acked.SessionId);
         Assert.Empty(heartbeatAfterAck.Commands);
@@ -655,6 +656,7 @@ public sealed class DigitalWorkerServiceTests
 
         Assert.Equal(worker.Id, command.WorkerId);
         Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
+        Assert.Equal(task.Title, command.Title);
     }
 
     [Fact]

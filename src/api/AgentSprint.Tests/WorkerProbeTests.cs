@@ -197,6 +197,7 @@ public sealed class WorkerProbeTests
             "worker-1",
             null,
             AgentSprint.Worker.Models.WorkerPlatformCommandTypes.StartTask,
+            "Task title",
             "{\"task_id\":\"task-001\",\"project_code\":\"math\",\"repository_url\":\"https://example.com/math.git\",\"branch\":\"main\"}",
             "pending");
 

@@ -152,6 +152,9 @@ public sealed class WorkerCommandEntity : EntityBase
     [MaxLength(32)]
     public string CommandType { get; set; } = WorkerCommandTypes.Smoke;
 
+    [MaxLength(256)]
+    public string Title { get; set; } = string.Empty;
+
     [Column(TypeName = "text")]
     public string? PayloadJson { get; set; }
 

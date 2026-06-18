@@ -17,6 +17,7 @@ import {
 import { listUserOptionsApi } from '#/api/sprint/mvp';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import { formatDateTime } from '#/views/_shared/date-format';
+import { withSerialColumn } from '#/views/_shared/table-columns';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
   Button as TButton,
@@ -88,6 +89,15 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'createTime', title: '创建时间', cell: 'createTime', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', fixed: 'right', width: 150 },
 ];
+const orderedColumns: PrimaryTableCol[] = [
+  { colKey: 'title', title: 'Title', cell: 'title', ellipsis: true, minWidth: 220 },
+  columns.find((item) => item.colKey === 'commandType')!,
+  columns.find((item) => item.colKey === 'status')!,
+  columns.find((item) => item.colKey === 'gitCommitId')!,
+  columns.find((item) => item.colKey === 'createdBy')!,
+  columns.find((item) => item.colKey === 'createTime')!,
+  columns.find((item) => item.colKey === 'actions')!,
+];
 
 const workerId = computed(() => String(route.params.id || ''));
 const routeSessionId = computed(() => String(route.query.sessionId || ''));
@@ -106,6 +116,7 @@ const filteredCommands = computed(() => {
   return commands.value.filter((command) =>
     [
       command.id,
+      command.title,
       command.sessionId,
       command.commandType,
       command.status,
@@ -348,7 +359,8 @@ onMounted(loadPage);
           </TSpace>
         </div>
 
-        <TTable row-key="id" :columns="columns" :data="filteredCommands" :loading="loading" hover stripe>
+        <TTable row-key="id" :columns="withSerialColumn(orderedColumns)" :data="filteredCommands" :loading="loading" hover stripe>
+          <template #title="{ row }">{{ row.title || '-' }}</template>
           <template #gitCommitId="{ row }">
             <TSpace size="small" align="center">
               <span>{{ shortCommit(row.gitCommitId) }}</span>
@@ -396,6 +408,7 @@ onMounted(loadPage);
           <template v-else>
             <TDescriptions bordered :column="2">
               <TDescriptionsItem label="命令 ID">{{ selectedCommand.id }}</TDescriptionsItem>
+              <TDescriptionsItem label="Title">{{ selectedCommand.title || '-' }}</TDescriptionsItem>
               <TDescriptionsItem label="命令类型">{{ commandText(selectedCommand.commandType) }}</TDescriptionsItem>
               <TDescriptionsItem label="状态">
                 <TTag :theme="commandStatusTheme(selectedCommand.status)" variant="light">

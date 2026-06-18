@@ -327,7 +327,7 @@ function sendCommand(row: AutomationApi.DigitalWorker, commandType: AutomationAp
     confirmBtn: '下发',
     header: '下发 Worker 命令',
     onConfirm: async () => {
-      await createWorkerCommandApi({ commandType, workerId: row.id });
+      await createWorkerCommandApi({ commandType, title: row.name, workerId: row.id });
       MessagePlugin.success('命令已下发');
       await openDetail(row);
     },

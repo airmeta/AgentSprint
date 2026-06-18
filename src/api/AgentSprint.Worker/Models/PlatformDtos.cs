@@ -86,6 +86,7 @@ public sealed record WorkerCommandResult(
     [property: JsonPropertyName("workerId")] string WorkerId,
     [property: JsonPropertyName("sessionId")] string? SessionId,
     [property: JsonPropertyName("commandType")] string CommandType,
+    [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("payloadJson")] string? PayloadJson,
     [property: JsonPropertyName("status")] string Status);
 

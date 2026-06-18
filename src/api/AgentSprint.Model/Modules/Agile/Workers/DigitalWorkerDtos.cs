@@ -61,7 +61,8 @@ public sealed record CreateWorkerCommandRequest(
     string CommandType,
     string? PayloadJson = null,
     string? SessionId = null,
-    DateTime? ExpiresAt = null);
+    DateTime? ExpiresAt = null,
+    string? Title = null);
 
 public sealed record RegisterWorkerSessionRequest(
     string WorkerId,
@@ -212,6 +213,7 @@ public sealed record WorkerCommandResult(
     string WorkerId,
     string? SessionId,
     string CommandType,
+    string Title,
     string? PayloadJson,
     string Status,
     DateTime? AckedAt,

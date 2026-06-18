@@ -129,6 +129,7 @@ export namespace AutomationApi {
     sessionId?: string;
     startedAt?: string;
     status: string;
+    title: string;
     workerId: string;
   }
 
@@ -208,6 +209,7 @@ export function createWorkerCommandApi(data: {
   expiresAt?: string;
   payloadJson?: string;
   sessionId?: string;
+  title?: string;
   workerId: string;
 }) {
   return requestClient.post<AutomationApi.WorkerCommand>('/workers/commands', data);

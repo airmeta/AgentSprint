@@ -204,6 +204,7 @@ public sealed class DigitalWorkerManagementService :
 
         var commandType = NormalizeCommandType(request.CommandType);
         var payloadJson = NormalizeOptional(request.PayloadJson);
+        var title = await ResolveCommandTitleAsync(worker, commandType, payloadJson, request.Title);
         await EnsureWorkerCanReceiveCommandAsync(worker, commandType, payloadJson);
 
         var entity = new WorkerCommandEntity
@@ -211,6 +212,7 @@ public sealed class DigitalWorkerManagementService :
             WorkerId = worker.Id,
             SessionId = NormalizeOptional(request.SessionId),
             CommandType = commandType,
+            Title = title,
             PayloadJson = payloadJson,
             ExpiresAt = request.ExpiresAt,
             CreatedBy = userId
@@ -287,6 +289,7 @@ public sealed class DigitalWorkerManagementService :
         {
             WorkerId = worker.Id,
             CommandType = commandType,
+            Title = ResolveCommandTitle(source),
             PayloadJson = payloadJson,
             CreatedBy = userId
         };
@@ -469,6 +472,7 @@ public sealed class DigitalWorkerManagementService :
             entity.WorkerId,
             entity.SessionId,
             entity.CommandType,
+            ResolveCommandTitle(entity),
             entity.PayloadJson,
             entity.Status,
             entity.AckedAt,
@@ -622,6 +626,56 @@ public sealed class DigitalWorkerManagementService :
                 ?? throw new InvalidOperationException("Target bug does not exist.");
             EnsureWorkerCanReceiveAssignedTarget(worker, bug.DeveloperId);
         }
+    }
+
+    private async Task<string> ResolveCommandTitleAsync(
+        DigitalWorkerEntity worker,
+        string commandType,
+        string? payloadJson,
+        string? requestedTitle)
+    {
+        var normalizedTitle = NormalizeOptional(requestedTitle);
+        if (!string.IsNullOrWhiteSpace(normalizedTitle))
+        {
+            return normalizedTitle;
+        }
+
+        if (commandType == WorkerCommandTypes.StartTask)
+        {
+            var taskId = ReadRequiredPayloadId(payloadJson, "taskId", "task_id");
+            var task = await _taskDomain.GetAsync(taskId)
+                ?? throw new InvalidOperationException("Target task does not exist.");
+            return NormalizeOptional(task.Title) ?? CommandTypeTitle(commandType);
+        }
+
+        if (commandType == WorkerCommandTypes.StartBug)
+        {
+            var bugId = ReadRequiredPayloadId(payloadJson, "bugId", "bug_id");
+            var bug = await _bugDomain.GetAsync(bugId)
+                ?? throw new InvalidOperationException("Target bug does not exist.");
+            return NormalizeOptional(bug.Title) ?? CommandTypeTitle(commandType);
+        }
+
+        return NormalizeOptional(worker.Name) ?? CommandTypeTitle(commandType);
+    }
+
+    private static string ResolveCommandTitle(WorkerCommandEntity entity)
+    {
+        return NormalizeOptional(entity.Title) ?? CommandTypeTitle(entity.CommandType);
+    }
+
+    private static string CommandTypeTitle(string commandType)
+    {
+        return commandType switch
+        {
+            WorkerCommandTypes.StartTask => "Start task",
+            WorkerCommandTypes.StartBug => "Start bug",
+            WorkerCommandTypes.CancelCurrentRun => "Cancel current run",
+            WorkerCommandTypes.StopAfterCurrent => "Stop after current",
+            WorkerCommandTypes.ReloadConfig => "Reload config",
+            WorkerCommandTypes.Smoke => "Smoke",
+            _ => commandType
+        };
     }
 
     private static void EnsureWorkerCanReceiveAssignedTarget(DigitalWorkerEntity worker, string? assigneeId)
