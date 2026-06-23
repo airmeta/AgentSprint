@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { SprintMvpApi } from '#/api/sprint/mvp';
+import type { SprintMvpApi, SprintUserApi } from '#/api/sprint/mvp';
 
 import { IconifyIcon } from '@vben/icons';
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
@@ -23,6 +23,7 @@ import {
   approveRequirementReviewApi,
   listProjectsApi,
   listMyPendingReviewsApi,
+  listUserOptionsApi,
   rejectRequirementReviewApi,
 } from '#/api/sprint/mvp';
 import { formatDateTime } from '#/views/_shared/date-format';
@@ -42,6 +43,18 @@ const reviewVisible = ref(false);
 const current = ref<SprintMvpApi.RequirementReviewItem>();
 const items = ref<SprintMvpApi.RequirementReviewItem[]>([]);
 const projects = ref<SprintMvpApi.Project[]>([]);
+const users = ref<SprintUserApi.UserOption[]>([]);
+const userMap = computed(() =>
+  Object.fromEntries(users.value.map((item) => [item.id, item])),
+);
+const userNameMap = computed(() =>
+  Object.fromEntries(users.value.map((item) => [item.username, item])),
+);
+function resolveUserName(userId?: string) {
+  if (!userId) return '未指定';
+  const user = userMap.value[userId] || userNameMap.value[userId];
+  return user?.displayName || user?.username || userId;
+}
 const filters = reactive({
   keyword: '',
   projectId: '',
@@ -127,6 +140,13 @@ async function loadProjects() {
 async function loadReviews(options: { refreshProjects?: boolean } = {}) {
   loading.value = true;
   try {
+    if (users.value.length === 0) {
+      try {
+        users.value = await listUserOptionsApi();
+      } catch {
+        users.value = [];
+      }
+    }
     if (options.refreshProjects || projects.value.length === 0) {
       await loadProjects();
     }
@@ -277,7 +297,7 @@ onActivated(loadReviews);
           {{ row.project.name }}
         </template>
         <template #requirement.createdBy="{ row }">
-          {{ row.requirement.createdBy }}
+          {{ resolveUserName(row.requirement.createdBy) }}
         </template>
         <template #requirement.stakeholders="{ row }">
           {{ row.requirement.stakeholders || '未填写' }}
@@ -324,7 +344,7 @@ onActivated(loadReviews);
             <dt>项目</dt>
             <dd>{{ current.project.name }}</dd>
             <dt>产品经理</dt>
-            <dd>{{ current.requirement.createdBy }}</dd>
+            <dd>{{ resolveUserName(current.requirement.createdBy) }}</dd>
             <dt>干系人</dt>
             <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
             <dt>提交时间</dt>
@@ -378,7 +398,7 @@ onActivated(loadReviews);
             <dt>项目</dt>
             <dd>{{ current.project.name }}</dd>
             <dt>产品经理</dt>
-            <dd>{{ current.requirement.createdBy }}</dd>
+            <dd>{{ resolveUserName(current.requirement.createdBy) }}</dd>
             <dt>干系人</dt>
             <dd>{{ current.requirement.stakeholders || '未填写' }}</dd>
             <dt>提交时间</dt>
