@@ -2,13 +2,13 @@ import { requestClient } from '#/api/request';
 
 export namespace SprintGitApi {
   export interface GitAccount {
-    accessToken?: string;
     code: string;
     commitAuthorEmail?: string;
     commitAuthorName?: string;
     createTime: string;
     createdBy: string;
     description?: string;
+    hasAccessToken: boolean;
     id: string;
     name: string;
     status: string;
@@ -17,7 +17,6 @@ export namespace SprintGitApi {
 
   export interface SaveGitAccountRequest {
     accessToken?: string;
-    code: string;
     commitAuthorEmail?: string;
     commitAuthorName?: string;
     description?: string;
@@ -41,7 +40,6 @@ export namespace SprintGitApi {
   }
 
   export interface SaveGitRepositoryRequest {
-    code: string;
     defaultBranch?: string;
     description?: string;
     gitAccountId?: string;

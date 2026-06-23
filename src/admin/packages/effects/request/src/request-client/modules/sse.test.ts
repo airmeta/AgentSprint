@@ -93,6 +93,19 @@ describe('sSE', () => {
     expect(onEnd).toHaveBeenCalled();
   });
 
+  it('should send plain object payloads as json by default', async () => {
+    const fetchMock = createFetchMock(['data']);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sse.postSSE('/sse', { foo: 'bar' }, {});
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Headers).get('content-type')).toBe(
+      'application/json',
+    );
+    expect(init.body).toBe(JSON.stringify({ foo: 'bar' }));
+  });
+
   it('should apply request interceptors', async () => {
     const interceptor = vi.fn(async (config) => {
       config.headers['x-test'] = 'intercepted';

@@ -218,6 +218,16 @@ public sealed class SprintDevelopmentTaskDomain :
     }
 }
 
+public sealed class SprintRequirementDecompositionPreviewDomain :
+    EntityDomainBase<SprintRequirementDecompositionPreviewEntity>,
+    ISprintRequirementDecompositionPreviewDomain
+{
+    public SprintRequirementDecompositionPreviewDomain(
+        IRepository<SprintRequirementDecompositionPreviewEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class SprintBugDomain : EntityDomainBase<SprintBugEntity>, ISprintBugDomain
 {
     /// <summary>

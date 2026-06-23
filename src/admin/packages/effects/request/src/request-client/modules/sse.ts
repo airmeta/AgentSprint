@@ -68,16 +68,20 @@ class SSE {
     }
 
     let bodyInit = requestOptions?.body ?? data;
-    const ct = (merged.get('content-type') || '').toLowerCase();
-    if (
+    const shouldSerializeJsonBody =
       bodyInit &&
       typeof bodyInit === 'object' &&
       !ArrayBuffer.isView(bodyInit as any) &&
       !(bodyInit instanceof ArrayBuffer) &&
       !(bodyInit instanceof Blob) &&
-      !(bodyInit instanceof FormData) &&
-      ct.includes('application/json')
-    ) {
+      !(bodyInit instanceof FormData);
+
+    if (shouldSerializeJsonBody && !merged.has('content-type')) {
+      merged.set('content-type', 'application/json');
+    }
+
+    const ct = (merged.get('content-type') || '').toLowerCase();
+    if (shouldSerializeJsonBody && ct.includes('application/json')) {
       bodyInit = JSON.stringify(bodyInit);
     }
     const requestInit: RequestInit = {

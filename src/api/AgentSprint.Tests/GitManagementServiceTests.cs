@@ -15,7 +15,6 @@ public sealed class GitManagementServiceTests
         var service = CreateService(accountDomain, repositoryDomain);
         var account = await service.CreateAccountAsync(
             new SaveGitAccountRequest(
-                "MAIN",
                 "Main account",
                 "codex",
                 "token",
@@ -25,7 +24,6 @@ public sealed class GitManagementServiceTests
 
         var repository = await service.CreateRepositoryAsync(
             new SaveGitRepositoryRequest(
-                "AGENTSPRINT",
                 "AgentSprint",
                 "https://example.com/agentsprint.git",
                 "main",
@@ -33,6 +31,9 @@ public sealed class GitManagementServiceTests
             "admin");
 
         Assert.Equal(account.Id, repository.GitAccountId);
+        Assert.StartsWith("GIT-ACCOUNT-", account.Code);
+        Assert.StartsWith("GIT-REPO-", repository.Code);
+        Assert.True(account.HasAccessToken);
         Assert.Equal("AgentSprint Bot", account.CommitAuthorName);
         Assert.Equal("agentsprint-bot@example.com", account.CommitAuthorEmail);
         Assert.Equal("https://example.com/agentsprint.git", repository.RepositoryUrl);
@@ -47,13 +48,41 @@ public sealed class GitManagementServiceTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateAccountAsync(
                 new SaveGitAccountRequest(
-                    "MAIN",
                     "Main account",
                     "codex",
                     CommitAuthorName: "AgentSprint Bot"),
                 "admin"));
 
         Assert.Equal("Git commit author name and email must be configured together.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAccountAsync_BlankAccessTokenKeepsStoredSecret()
+    {
+        var accountDomain = new InMemoryGitAccountDomain();
+        var service = CreateService(accountDomain);
+        var created = await service.CreateAccountAsync(
+            new SaveGitAccountRequest(
+                "Main account",
+                "codex",
+                "secret-token",
+                "AgentSprint Bot",
+                "agentsprint-bot@example.com"),
+            "admin");
+
+        var updated = await service.UpdateAccountAsync(
+            created.Id,
+            new SaveGitAccountRequest(
+                "Main account updated",
+                "codex",
+                "",
+                "AgentSprint Bot",
+                "agentsprint-bot@example.com"));
+
+        var entity = await accountDomain.GetAsync(created.Id);
+        Assert.True(updated.HasAccessToken);
+        Assert.Equal(created.Code, updated.Code);
+        Assert.Equal("secret-token", entity?.AccessToken);
     }
 
     [Fact]
@@ -64,7 +93,6 @@ public sealed class GitManagementServiceTests
         var service = CreateService(operationDomain: operationDomain, runner: runner);
         var repository = await service.CreateRepositoryAsync(
             new SaveGitRepositoryRequest(
-                "AGENTSPRINT",
                 "AgentSprint",
                 "https://example.com/agentsprint.git",
                 "main",
@@ -95,7 +123,6 @@ public sealed class GitManagementServiceTests
         var service = CreateService(operationDomain: operationDomain, runner: runner);
         var repository = await service.CreateRepositoryAsync(
             new SaveGitRepositoryRequest(
-                "AGENTSPRINT",
                 "AgentSprint",
                 "https://example.com/agentsprint.git",
                 "main",

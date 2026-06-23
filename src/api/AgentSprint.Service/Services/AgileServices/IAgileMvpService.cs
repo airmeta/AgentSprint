@@ -486,6 +486,11 @@ public interface IAgileMvpService
         DecomposeSprintRequirementRequest request,
         string userId);
 
+    Task<IReadOnlyList<SprintDevelopmentTaskResult>> ConfirmRequirementDecompositionAsync(
+        string id,
+        ConfirmSprintRequirementDecompositionRequest request,
+        string userId);
+
     /// <summary>
     /// zh-cn: 查询任务大厅任务，可按项目、需求、负责人过滤。
     /// en-us: Lists task-hall tasks with optional project, requirement, and assignee filters.

@@ -393,7 +393,7 @@ public sealed class AgileMvpControllerTests
         };
         claims.AddRange((roles ?? ["super"]).Select(role => new Claim(ClaimTypes.Role, role)));
 
-        return new AgileMvpController(service)
+        return new AgileMvpController(service, new EmptyRequirementDecompositionPreviewService())
         {
             ControllerContext = new ControllerContext
             {
@@ -881,6 +881,20 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         return Task.FromResult(tasks);
     }
 
+    public Task<IReadOnlyList<SprintDevelopmentTaskResult>> ConfirmRequirementDecompositionAsync(
+        string id,
+        ConfirmSprintRequirementDecompositionRequest request,
+        string userId)
+    {
+        LastRequirementId = id;
+        LastUserId = userId;
+        IReadOnlyList<SprintDevelopmentTaskResult> tasks =
+        [
+            CreateTaskResult("task-1", id, null)
+        ];
+        return Task.FromResult(tasks);
+    }
+
     public Task<IReadOnlyList<SprintDevelopmentTaskResult>> ListDevelopmentTasksAsync(
         string? projectId,
         string? requirementId,
@@ -1168,5 +1182,48 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
             DateTime.UtcNow.AddHours(8),
             null,
             DateTime.UtcNow);
+    }
+}
+
+internal sealed class EmptyRequirementDecompositionPreviewService : IRequirementDecompositionPreviewService
+{
+    public Task<SprintRequirementDecompositionPreviewResult> PreviewAsync(
+        string requirementId,
+        string? instruction,
+        int? taskCount,
+        string? aiPlatformCode,
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new SprintRequirementDecompositionPreviewResult(
+            "preview-1",
+            requirementId,
+            "project-1",
+            "local",
+            SprintRequirementDecompositionPreviewStatuses.Draft,
+            [new SprintDevelopmentTaskDraft("Task", "Description", 1)],
+            CreatedBy: userId));
+    }
+
+    public Task<IReadOnlyList<SprintRequirementDecompositionPreviewResult>> ListAsync(string requirementId)
+    {
+        IReadOnlyList<SprintRequirementDecompositionPreviewResult> rows = [];
+        return Task.FromResult(rows);
+    }
+
+    public Task<SprintRequirementDecompositionPreviewResult> SaveDraftAsync(
+        string requirementId,
+        SaveSprintRequirementDecompositionPreviewRequest request,
+        string userId)
+    {
+        return Task.FromResult(new SprintRequirementDecompositionPreviewResult(
+            request.PreviewId ?? "preview-1",
+            requirementId,
+            "project-1",
+            "local",
+            SprintRequirementDecompositionPreviewStatuses.Draft,
+            request.Tasks,
+            Instruction: request.Instruction,
+            CreatedBy: userId));
     }
 }

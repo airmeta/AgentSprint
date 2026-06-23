@@ -14,7 +14,8 @@ public sealed record CreateSprintProjectRequest(
     string? ArchitectId = null,
     string? TestEnvironmentId = null,
     string? GitRepositoryId = null,
-    string? GitAccountId = null);
+    string? GitAccountId = null,
+    string? AiPlatformCode = null);
 
 public sealed record UpdateSprintProjectRequest(
     string Name,
@@ -29,10 +30,10 @@ public sealed record UpdateSprintProjectRequest(
     string? ArchitectId = null,
     string? TestEnvironmentId = null,
     string? GitRepositoryId = null,
-    string? GitAccountId = null);
+    string? GitAccountId = null,
+    string? AiPlatformCode = null);
 
 public sealed record SaveGitAccountRequest(
-    string Code,
     string Name,
     string Username,
     string? AccessToken = null,
@@ -42,7 +43,6 @@ public sealed record SaveGitAccountRequest(
     string? Status = null);
 
 public sealed record SaveGitRepositoryRequest(
-    string Code,
     string Name,
     string RepositoryUrl,
     string? DefaultBranch = null,
@@ -64,7 +64,7 @@ public sealed record GitAccountResult(
     string Code,
     string Name,
     string Username,
-    string? AccessToken,
+    bool HasAccessToken,
     string? CommitAuthorName,
     string? CommitAuthorEmail,
     string? Description,
@@ -193,6 +193,47 @@ public sealed record DecomposeSprintRequirementRequest(
     string? AssigneeId = null,
     int? AssigneeType = null);
 
+public sealed record PreviewSprintRequirementDecompositionRequest(
+    string? Instruction,
+    int? TaskCount = null,
+    string? AiPlatformCode = null);
+
+public sealed record SprintDevelopmentTaskDraft(
+    string Title,
+    string? Description,
+    int Priority,
+    string? Id = null);
+
+public sealed record ConfirmSprintRequirementDecompositionRequest(
+    IReadOnlyList<SprintDevelopmentTaskDraft> Tasks,
+    string? Instruction = null,
+    string? AssignmentMode = null,
+    string? AssigneeId = null,
+    int? AssigneeType = null,
+    string? PreviewId = null);
+
+public sealed record SaveSprintRequirementDecompositionPreviewRequest(
+    IReadOnlyList<SprintDevelopmentTaskDraft> Tasks,
+    string? Instruction = null,
+    string? PreviewId = null);
+
+public sealed record SprintRequirementDecompositionPreviewResult(
+    string Id,
+    string RequirementId,
+    string ProjectId,
+    string Source,
+    string Status,
+    IReadOnlyList<SprintDevelopmentTaskDraft> Tasks,
+    string? RawContent = null,
+    string? Instruction = null,
+    string? AiPlatformCode = null,
+    string? ErrorMessage = null,
+    string? CreatedBy = null,
+    string? ConfirmedBy = null,
+    DateTime? ConfirmedAt = null,
+    DateTime? UpdateTime = null,
+    DateTime? CreateTime = null);
+
 /// <summary>
 /// zh-cn: 开发任务指派请求，AssigneeId 存储实际承接任务的平台账号，AssigneeType 区分员工(0)和数字员工(1)来源。
 /// en-us: Development-task assignment request; AssigneeId stores the platform account that owns the work, while AssigneeType distinguishes employee (0) and digital worker (1) sources.
@@ -259,7 +300,8 @@ public sealed record SprintProjectResult(
     IReadOnlyList<string>? TesterIds = null,
     string? TestEnvironmentId = null,
     string? GitRepositoryId = null,
-    string? GitAccountId = null);
+    string? GitAccountId = null,
+    string? AiPlatformCode = null);
 
 public sealed record SprintSkillResult(
     string Id,

@@ -55,3 +55,29 @@ public sealed record WorkerCommandLogChunkMessage(
     bool Completed,
     DateTime? StartedAt,
     DateTime? CompletedAt);
+
+/// <summary>
+/// <para>zh-cn: 表示平台端已经通过 Akka 收到并处理 Worker 命令日志增量，用于 Worker 判断是否可以跳过 HTTP 兜底。</para>
+/// <para>en-us: Acknowledges that the platform received and processed a Worker command-log chunk through Akka, allowing the Worker to skip the HTTP fallback only after a confirmed append.</para>
+/// </summary>
+/// <param name="CommandId">
+/// <para>zh-cn: 已确认的命令编号。</para>
+/// <para>en-us: Command identifier that was acknowledged.</para>
+/// </param>
+/// <param name="RunId">
+/// <para>zh-cn: 已确认的运行编号；命令尚未创建运行记录时可以为空。</para>
+/// <para>en-us: Acknowledged run identifier; it may be null before a command creates a run record.</para>
+/// </param>
+/// <param name="Sequence">
+/// <para>zh-cn: 已确认的日志片段序号。</para>
+/// <para>en-us: Acknowledged log chunk sequence.</para>
+/// </param>
+/// <param name="Completed">
+/// <para>zh-cn: 是否为完成标记的确认。</para>
+/// <para>en-us: Indicates whether this acknowledgement is for a completion marker.</para>
+/// </param>
+public sealed record WorkerCommandLogAckMessage(
+    string CommandId,
+    string? RunId,
+    long Sequence,
+    bool Completed);

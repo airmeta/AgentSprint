@@ -1,4 +1,5 @@
 using AgentSprint.Model.Modules.Agile;
+using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Service.Services;
 using AgentSprint.Service.Services.AgileServices;
 
@@ -13,14 +14,53 @@ public sealed class RequirementDecompositionService : AgentSprintServiceBase, IR
         string userId,
         int? taskCount = null)
     {
+        return CreateFromDraftsAsync(requirement, BuildLocalDrafts(requirement, instruction, taskCount), userId);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SprintDevelopmentTaskDraft>> PreviewAsync(
+        SprintRequirementEntity requirement,
+        string? instruction,
+        int? taskCount = null)
+    {
+        return Task.FromResult(BuildLocalDrafts(requirement, instruction, taskCount));
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SprintDevelopmentTaskEntity>> CreateFromDraftsAsync(
+        SprintRequirementEntity requirement,
+        IReadOnlyList<SprintDevelopmentTaskDraft> drafts,
+        string userId)
+    {
+        IReadOnlyList<SprintDevelopmentTaskEntity> tasks = drafts
+            .Select(draft => new SprintDevelopmentTaskEntity
+            {
+                ProjectId = requirement.ProjectId,
+                RequirementId = requirement.Id,
+                Title = NormalizeRequired(draft.Title, "Task title is required."),
+                Description = NormalizeOptional(draft.Description),
+                Priority = Math.Max(1, draft.Priority),
+                CreatedBy = userId
+            })
+            .ToList();
+
+        return Task.FromResult(tasks);
+    }
+
+    private static IReadOnlyList<SprintDevelopmentTaskDraft> BuildLocalDrafts(
+        SprintRequirementEntity requirement,
+        string? instruction,
+        int? taskCount)
+    {
         var description = NormalizeOptional(requirement.Description) ?? requirement.Title;
         var instructionLine = NormalizeOptional(instruction);
-        var baseDescription = instructionLine is null ? description : $"{description}\n\n拆解补充：{instructionLine}";
+        var baseDescription = instructionLine is null
+            ? description
+            : $"{description}\n\n拆解补充：{instructionLine}";
         var normalizedTaskCount = NormalizeTaskCount(taskCount);
-
         var blueprints = normalizedTaskCount == 1 ? SingleTaskBlueprints : MultiTaskBlueprints;
 
-        IReadOnlyList<SprintDevelopmentTaskEntity> tasks = Enumerable
+        return Enumerable
             .Range(0, normalizedTaskCount)
             .Select(index =>
             {
@@ -29,19 +69,12 @@ public sealed class RequirementDecompositionService : AgentSprintServiceBase, IR
                     ? blueprint.TitlePrefix
                     : $"扩展交付任务 {index + 1}";
 
-                return new SprintDevelopmentTaskEntity
-                {
-                    ProjectId = requirement.ProjectId,
-                    RequirementId = requirement.Id,
-                    Title = $"{titlePrefix} - {requirement.Title}",
-                    Description = $"{blueprint.DescriptionPrefix}\n\n{baseDescription}",
-                    Priority = Math.Max(1, requirement.Priority + blueprint.PriorityOffset + Math.Max(0, index - blueprints.Length + 1)),
-                    CreatedBy = userId
-                };
+                return new SprintDevelopmentTaskDraft(
+                    $"{titlePrefix} - {requirement.Title}",
+                    $"{blueprint.DescriptionPrefix}\n\n{baseDescription}",
+                    requirement.Priority);
             })
             .ToList();
-
-        return Task.FromResult(tasks);
     }
 
     private static int NormalizeTaskCount(int? taskCount)
@@ -64,5 +97,10 @@ public sealed class RequirementDecompositionService : AgentSprintServiceBase, IR
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string NormalizeRequired(string? value, string message)
+    {
+        return NormalizeOptional(value) ?? throw new InvalidOperationException(message);
     }
 }

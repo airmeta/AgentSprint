@@ -20,6 +20,9 @@ public sealed class SprintProjectEntity : EntityBase
     [MaxLength(64)]
     public string? GitAccountId { get; set; }
 
+    [MaxLength(64)]
+    public string AiPlatformCode { get; set; } = "openai";
+
     [MaxLength(512)]
     public string? TestEnvironmentUrl { get; set; }
 
@@ -455,6 +458,52 @@ public sealed class SprintDevelopmentTaskEntity : EntityBase
     public DateTime? CompletedAt { get; set; }
 }
 
+[Table("sprint_requirement_decomposition_preview")]
+public sealed class SprintRequirementDecompositionPreviewEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string RequirementId { get; set; } = string.Empty;
+
+    [MaxLength(32)]
+    public string Source { get; set; } = "local";
+
+    [MaxLength(32)]
+    public string Status { get; set; } = SprintRequirementDecompositionPreviewStatuses.Draft;
+
+    [Column(TypeName = "text")]
+    public string TaskJson { get; set; } = "[]";
+
+    [Column(TypeName = "text")]
+    public string? RawContent { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? Instruction { get; set; }
+
+    [MaxLength(64)]
+    public string? AiPlatformCode { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? ErrorMessage { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? ConfirmedBy { get; set; }
+
+    public DateTime? ConfirmedAt { get; set; }
+}
+
+public static class SprintRequirementDecompositionPreviewStatuses
+{
+    public const string Draft = "draft";
+
+    public const string Confirmed = "confirmed";
+}
+
 [Table("sprint_bug")]
 public sealed class SprintBugEntity : EntityBase
 {
@@ -632,6 +681,10 @@ public static class SprintRequirementStatuses
     public const string Rejected = "rejected";
 
     public const string Approved = "approved";
+
+    public const string AiDecomposing = "ai_decomposing";
+
+    public const string AiDecomposed = "ai_decomposed";
 
     public const string Decomposed = "decomposed";
 

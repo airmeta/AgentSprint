@@ -1,4 +1,5 @@
 using AgentSprint.Model.Modules.Agile;
+using AgentSprint.Model.Modules.Agile.Dtos;
 
 namespace AgentSprint.Service.Services.AgileServices;
 
@@ -33,4 +34,14 @@ public interface IRequirementDecompositionService
         string? instruction,
         string userId,
         int? taskCount = null);
+
+    Task<IReadOnlyList<SprintDevelopmentTaskDraft>> PreviewAsync(
+        SprintRequirementEntity requirement,
+        string? instruction,
+        int? taskCount = null);
+
+    Task<IReadOnlyList<SprintDevelopmentTaskEntity>> CreateFromDraftsAsync(
+        SprintRequirementEntity requirement,
+        IReadOnlyList<SprintDevelopmentTaskDraft> drafts,
+        string userId);
 }

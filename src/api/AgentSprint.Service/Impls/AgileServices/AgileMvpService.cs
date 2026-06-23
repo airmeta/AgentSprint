@@ -34,6 +34,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
     private readonly ISprintRequirementFeedbackDomain _feedbackDomain;
     private readonly ISprintRequirementReviewDomain _reviewDomain;
     private readonly ISprintDevelopmentTaskDomain _taskDomain;
+    private readonly ISprintRequirementDecompositionPreviewDomain _decompositionPreviewDomain;
     private readonly ISprintBugDomain _bugDomain;
     private readonly ISprintTaskLeaseDomain _leaseDomain;
     private readonly IRuntimeEnvironmentDomain _runtimeEnvironmentDomain;
@@ -89,6 +90,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         ISprintRequirementFeedbackDomain feedbackDomain,
         ISprintRequirementReviewDomain reviewDomain,
         ISprintDevelopmentTaskDomain taskDomain,
+        ISprintRequirementDecompositionPreviewDomain decompositionPreviewDomain,
         ISprintBugDomain bugDomain,
         ISprintTaskLeaseDomain leaseDomain,
         IRuntimeEnvironmentDomain runtimeEnvironmentDomain,
@@ -111,6 +113,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         _feedbackDomain = feedbackDomain;
         _reviewDomain = reviewDomain;
         _taskDomain = taskDomain;
+        _decompositionPreviewDomain = decompositionPreviewDomain;
         _bugDomain = bugDomain;
         _leaseDomain = leaseDomain;
         _runtimeEnvironmentDomain = runtimeEnvironmentDomain;
@@ -135,6 +138,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var gitSelection = await ResolveGitSelectionAsync(
             request.GitRepositoryId,
             request.GitAccountId);
+        var aiPlatformCode = await NormalizeAiPlatformCodeAsync(request.AiPlatformCode);
         var projectProfile = NormalizeProjectProfile(
             gitSelection.RepositoryId,
             gitSelection.AccountId,
@@ -159,6 +163,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             Name = request.Name.Trim(),
             GitRepositoryId = projectProfile.GitRepositoryId,
             GitAccountId = projectProfile.GitAccountId,
+            AiPlatformCode = aiPlatformCode,
             TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId),
             TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
                 request.TestEnvironmentId,
@@ -201,6 +206,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var gitSelection = await ResolveGitSelectionAsync(
             request.GitRepositoryId,
             request.GitAccountId);
+        var aiPlatformCode = await NormalizeAiPlatformCodeAsync(request.AiPlatformCode);
         var projectProfile = NormalizeProjectProfile(
             gitSelection.RepositoryId,
             gitSelection.AccountId,
@@ -216,6 +222,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         entity.Name = request.Name.Trim();
         entity.GitRepositoryId = projectProfile.GitRepositoryId;
         entity.GitAccountId = projectProfile.GitAccountId;
+        entity.AiPlatformCode = aiPlatformCode;
         entity.TestEnvironmentId = NormalizeOptional(request.TestEnvironmentId);
         entity.TestEnvironmentUrl = await ResolveProjectTestEnvironmentUrlAsync(
             request.TestEnvironmentId,
@@ -1043,8 +1050,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         EnsureRequirementStatus(
             requirement,
             SprintRequirementStatuses.Approved,
-            SprintRequirementStatuses.ReadyForDevelopment,
-            SprintRequirementStatuses.Decomposed);
+            SprintRequirementStatuses.AiDecomposed,
+            SprintRequirementStatuses.ReadyForDevelopment);
 
         await EnsureDevelopmentTasksAsync(
             requirement,
@@ -1054,6 +1061,62 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             request.AssigneeType,
             userId,
             request.TaskCount);
+
+        if (requirement.Status != SprintRequirementStatuses.Developing)
+        {
+            requirement.Status = SprintRequirementStatuses.Decomposed;
+        }
+
+        await _requirementDomain.UpdateAsync(requirement);
+
+        return await ListDevelopmentTasksAsync(requirement.ProjectId, requirement.Id, null);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SprintDevelopmentTaskResult>> ConfirmRequirementDecompositionAsync(
+        string id,
+        ConfirmSprintRequirementDecompositionRequest request,
+        string userId)
+    {
+        var requirement = await GetRequirementOrThrowAsync(id);
+        EnsureRequirementStatus(
+            requirement,
+            SprintRequirementStatuses.Approved,
+            SprintRequirementStatuses.AiDecomposed,
+            SprintRequirementStatuses.ReadyForDevelopment);
+
+        var drafts = NormalizeDrafts(request.Tasks);
+        SprintRequirementDecompositionPreviewEntity? preview = null;
+        if (!string.IsNullOrWhiteSpace(request.PreviewId))
+        {
+            preview = await _decompositionPreviewDomain.GetAsync(request.PreviewId.Trim())
+                ?? throw new InvalidOperationException("Decomposition preview does not exist.");
+            if (preview.RequirementId != requirement.Id)
+            {
+                throw new InvalidOperationException("Decomposition preview does not belong to this requirement.");
+            }
+
+            if (preview.Status == SprintRequirementDecompositionPreviewStatuses.Confirmed)
+            {
+                throw new InvalidOperationException("Decomposition preview is already confirmed.");
+            }
+
+            preview.TaskJson = JsonSerializer.Serialize(drafts);
+            preview.Instruction = NormalizeOptional(request.Instruction) ?? preview.Instruction;
+            preview.Status = SprintRequirementDecompositionPreviewStatuses.Confirmed;
+            preview.ConfirmedBy = userId;
+            preview.ConfirmedAt = DateTime.UtcNow;
+            preview.UpdateTime = DateTime.UtcNow;
+            await _decompositionPreviewDomain.UpdateAsync(preview);
+        }
+
+        await EnsureDevelopmentTasksAsync(
+            requirement,
+            drafts,
+            request.AssignmentMode,
+            request.AssigneeId,
+            request.AssigneeType,
+            userId);
 
         if (requirement.Status != SprintRequirementStatuses.Developing)
         {
@@ -1083,8 +1146,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             (string.IsNullOrWhiteSpace(status) || entity.Status == status));
 
         return await ToTaskResultsAsync(entities
-            .OrderBy(entity => entity.Priority)
-            .ThenByDescending(entity => entity.CreateTime));
+            .OrderByDescending(entity => entity.CreateTime)
+            .ThenBy(entity => entity.Title));
     }
 
     /// <inheritdoc />
@@ -1125,8 +1188,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         return await ToTaskResultsAsync(entities
-            .OrderBy(entity => entity.Priority)
-            .ThenByDescending(entity => entity.CreateTime));
+            .OrderByDescending(entity => entity.CreateTime)
+            .ThenBy(entity => entity.Title));
     }
 
     /// <inheritdoc />
@@ -1638,6 +1701,35 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         }
 
         var tasks = await _decompositionService.DecomposeAsync(requirement, instruction, userId, taskCount);
+        await CreateDevelopmentTasksAsync(requirement, tasks, assignmentMode, assigneeId, assigneeType, userId);
+    }
+
+    private async Task EnsureDevelopmentTasksAsync(
+        SprintRequirementEntity requirement,
+        IReadOnlyList<SprintDevelopmentTaskDraft> drafts,
+        string? assignmentMode,
+        string? assigneeId,
+        int? assigneeType,
+        string userId)
+    {
+        var existingTasks = await _taskDomain.ListAsync(entity => entity.RequirementId == requirement.Id);
+        if (existingTasks.Count > 0)
+        {
+            return;
+        }
+
+        var tasks = await _decompositionService.CreateFromDraftsAsync(requirement, drafts, userId);
+        await CreateDevelopmentTasksAsync(requirement, tasks, assignmentMode, assigneeId, assigneeType, userId);
+    }
+
+    private async Task CreateDevelopmentTasksAsync(
+        SprintRequirementEntity requirement,
+        IReadOnlyList<SprintDevelopmentTaskEntity> tasks,
+        string? assignmentMode,
+        string? assigneeId,
+        int? assigneeType,
+        string userId)
+    {
         var normalizedAssignmentMode = NormalizeAssignmentMode(assignmentMode);
         var normalizedAssigneeId = NormalizeOptional(assigneeId);
         var normalizedAssigneeType = NormalizeAssigneeType(assigneeType);
@@ -1696,6 +1788,23 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         {
             requirement.DeveloperId = normalizedAssigneeId;
         }
+    }
+
+    private static IReadOnlyList<SprintDevelopmentTaskDraft> NormalizeDrafts(
+        IReadOnlyList<SprintDevelopmentTaskDraft>? drafts)
+    {
+        if (drafts is null || drafts.Count == 0)
+        {
+            throw new InvalidOperationException("At least one decomposition task is required.");
+        }
+
+        return drafts
+            .Select(draft => new SprintDevelopmentTaskDraft(
+                NormalizeRequired(draft.Title, "Task title is required."),
+                NormalizeOptional(draft.Description),
+                Math.Clamp(draft.Priority, 1, 9)))
+            .Take(20)
+            .ToList();
     }
 
     private async Task<SprintTaskPromptResult> BuildTaskPromptAsync(SprintDevelopmentTaskEntity task)
@@ -1883,6 +1992,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var requirement = await GetRequirementOrThrowAsync(task.RequirementId);
         if (requirement.Status is
             SprintRequirementStatuses.Approved or
+            SprintRequirementStatuses.AiDecomposed or
             SprintRequirementStatuses.ReadyForDevelopment or
             SprintRequirementStatuses.Decomposed)
         {
@@ -2545,6 +2655,18 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             normalizedAccountId);
     }
 
+    private async Task<string> NormalizeAiPlatformCodeAsync(string? aiPlatformCode)
+    {
+        var normalizedCode = NormalizeRequired(aiPlatformCode, "AI platform is required.");
+        var platform = await _configurationService.GetAiPlatformRuntimeAsync(normalizedCode);
+        if (platform is null)
+        {
+            throw new InvalidOperationException("AI platform does not exist or is disabled.");
+        }
+
+        return normalizedCode;
+    }
+
     private static string NormalizeEndpointType(string? type)
     {
         var normalized = NormalizeOptional(type) ?? SprintProjectEndpointTypes.Other;
@@ -2714,7 +2836,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             DeserializeIds(entity.TesterIds),
             entity.TestEnvironmentId,
             entity.GitRepositoryId,
-            entity.GitAccountId);
+            entity.GitAccountId,
+            entity.AiPlatformCode);
     }
 
     private static SprintSkillResult ToResult(SprintSkillEntity entity)

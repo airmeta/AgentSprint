@@ -80,6 +80,9 @@ const userOptions = computed(() =>
   })),
 );
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+const digitalWorkerMap = computed(() =>
+  Object.fromEntries(digitalWorkers.value.map((item) => [item.agentUserId, item])),
+);
 const workerOptions = computed(() =>
   digitalWorkers.value
     .filter((worker) => worker.status === 'active')
@@ -91,6 +94,23 @@ const workerOptions = computed(() =>
 const assignAssigneeOptions = computed(() =>
   assignForm.assigneeType === 1 ? workerOptions.value : userOptions.value,
 );
+const relatedUserOptions = computed(() => {
+  const optionMap = new Map<string, { label: string; value: string }>();
+  for (const user of users.value) {
+    optionMap.set(user.id, {
+      label: `员工：${user.displayName} (${user.username})`,
+      value: user.id,
+    });
+  }
+  for (const worker of digitalWorkers.value) {
+    optionMap.set(worker.agentUserId, {
+      label: `数字员工：${worker.name} (${worker.code})`,
+      value: worker.agentUserId,
+    });
+  }
+
+  return [...optionMap.values()].sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
+});
 const canAssignTask = computed(() =>
   userStore.userRoles.some((role) =>
     ['architect', 'pm', 'project_manager', 'super'].includes(role),
@@ -101,11 +121,26 @@ const columns = [
   { colKey: 'title', title: '任务标题' },
   { colKey: 'requirementId', title: '需求', width: 200 },
   { colKey: 'status', title: '状态', width: 130 },
-  { colKey: 'relatedUser', title: '关联人员', width: 180 },
-  { colKey: 'priority', title: '优先级', width: 90 },
+  { colKey: 'createdBy', title: '创建人', width: 130 },
+  { colKey: 'executorType', title: '执行人类型', width: 120 },
+  { colKey: 'executor', title: '执行人', width: 150 },
   { colKey: 'actions', title: '操作', width: 160 },
 ];
 
+const priorityText: Record<number, string> = {
+  1: '加急',
+  2: '正常',
+  3: '可延后',
+  4: '低优先级',
+  5: '最低优先级',
+};
+const priorityTheme: Record<number, 'danger' | 'default' | 'primary' | 'success' | 'warning'> = {
+  1: 'danger',
+  2: 'primary',
+  3: 'success',
+  4: 'warning',
+  5: 'default',
+};
 const statusText: Record<string, string> = {
   assigned: '已指派',
   completed: '已完成',
@@ -204,6 +239,40 @@ function openDetail(task: SprintMvpApi.DevelopmentTask) {
   router.push(`/sprint/tasks/detail/${task.id}`);
 }
 
+function resolveUserName(userId?: string, emptyText = '-') {
+  if (!userId) return emptyText;
+  const user = userMap.value[userId];
+  return user?.displayName || user?.username || userId;
+}
+
+function resolveTaskExecutorName(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.assigneeId) return '-';
+  if (task.assigneeType === 1) {
+    const worker = digitalWorkerMap.value[task.assigneeId];
+    return worker?.name || task.assigneeId;
+  }
+
+  return resolveUserName(task.assigneeId, task.assigneeId);
+}
+
+function resolveTaskExecutorType(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.assigneeId) return '-';
+  return task.assigneeType === 1 ? '数字员工' : '员工';
+}
+
+function resolveTaskExecutorTypeTheme(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.assigneeId) return 'default';
+  return task.assigneeType === 1 ? 'primary' : 'success';
+}
+
+function resolvePriorityText(priority: number) {
+  return priorityText[priority] || `优先级 ${priority}`;
+}
+
+function resolvePriorityTheme(priority: number) {
+  return priorityTheme[priority] || 'default';
+}
+
 async function assignTask() {
   if (assigning.value) return;
   if (!canAssignTask.value) {
@@ -279,7 +348,7 @@ onActivated(async () => {
             v-model="filters.relatedUserId"
             clearable
             filterable
-            :options="userOptions"
+            :options="relatedUserOptions"
             placeholder="负责人 / 指派人"
           />
         </label>
@@ -335,17 +404,30 @@ onActivated(async () => {
         stripe
         @page-change="handlePageChange"
       >
+        <template #title="{ row }">
+          <div class="task-title-cell">
+            <TTag size="small" :theme="resolvePriorityTheme(row.priority)" variant="light">
+              {{ resolvePriorityText(row.priority) }}
+            </TTag>
+            <span>{{ row.title }}</span>
+          </div>
+        </template>
         <template #requirementId="{ row }">
           {{ requirementMap[row.requirementId]?.title || row.requirementId }}
         </template>
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
-        <template #relatedUser="{ row }">
-          <div class="task-related-users">
-            <span>负责人：{{ row.assigneeId ? userMap[row.assigneeId]?.displayName || row.assigneeId : '未指派' }}</span>
-            <span>指派人：{{ row.assignedBy ? userMap[row.assignedBy]?.displayName || row.assignedBy : '-' }}</span>
-          </div>
+        <template #createdBy="{ row }">
+          {{ resolveUserName(row.createdBy) }}
+        </template>
+        <template #executorType="{ row }">
+          <TTag size="small" :theme="resolveTaskExecutorTypeTheme(row)" variant="light">
+            {{ resolveTaskExecutorType(row) }}
+          </TTag>
+        </template>
+        <template #executor="{ row }">
+          {{ resolveTaskExecutorName(row) }}
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
@@ -394,11 +476,17 @@ onActivated(async () => {
 </template>
 
 <style scoped>
-.task-related-users {
-  display: grid;
-  gap: 2px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 18px;
+.task-title-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-title-cell span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

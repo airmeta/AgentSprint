@@ -13,6 +13,8 @@ namespace AgentSprint.Service.Impls.AgileServices;
 public sealed class GitManagementService : AgentSprintServiceBase, IGitManagementService
 {
     private const int PushRecordLimit = 50;
+    private const string GitAccountCodePrefix = "GIT-ACCOUNT";
+    private const string GitRepositoryCodePrefix = "GIT-REPO";
 
     private readonly IGitAccountDomain _accountDomain;
     private readonly IGitRepositoryDomain _repositoryDomain;
@@ -38,15 +40,9 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
     /// <inheritdoc />
     public async Task<GitAccountResult> CreateAccountAsync(SaveGitAccountRequest request, string userId)
     {
-        var code = NormalizeRequired(request.Code, "Git account code is required.");
-        if ((await _accountDomain.ListAsync(entity => entity.Code == code)).Count > 0)
-        {
-            throw new InvalidOperationException("Git account code already exists.");
-        }
-
         var entity = new GitAccountEntity
         {
-            Code = code,
+            Code = await GenerateUniqueAccountCodeAsync(),
             Name = NormalizeRequired(request.Name, "Git account name is required."),
             Username = NormalizeRequired(request.Username, "Git username is required."),
             AccessToken = NormalizeOptional(request.AccessToken),
@@ -67,7 +63,7 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
         var entity = await GetAccountOrThrowAsync(id);
         entity.Name = NormalizeRequired(request.Name, "Git account name is required.");
         entity.Username = NormalizeRequired(request.Username, "Git username is required.");
-        entity.AccessToken = NormalizeOptional(request.AccessToken);
+        entity.AccessToken = NormalizeOptional(request.AccessToken) ?? entity.AccessToken;
         entity.CommitAuthorName = ResolveCommitAuthorName(request);
         entity.CommitAuthorEmail = ResolveCommitAuthorEmail(request);
         entity.Description = NormalizeOptional(request.Description);
@@ -97,12 +93,6 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
     /// <inheritdoc />
     public async Task<GitRepositoryResult> CreateRepositoryAsync(SaveGitRepositoryRequest request, string userId)
     {
-        var code = NormalizeRequired(request.Code, "Git repository code is required.");
-        if ((await _repositoryDomain.ListAsync(entity => entity.Code == code)).Count > 0)
-        {
-            throw new InvalidOperationException("Git repository code already exists.");
-        }
-
         var accountId = NormalizeOptional(request.GitAccountId);
         if (accountId is not null)
         {
@@ -111,7 +101,7 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
 
         var entity = new GitRepositoryEntity
         {
-            Code = code,
+            Code = await GenerateUniqueRepositoryCodeAsync(),
             Name = NormalizeRequired(request.Name, "Git repository name is required."),
             RepositoryUrl = NormalizeRepositoryUrl(request.RepositoryUrl),
             DefaultBranch = NormalizeOptional(request.DefaultBranch) ?? "main",
@@ -374,6 +364,36 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
         return await _repositoryDomain.GetAsync(id) ?? throw new InvalidOperationException("Git repository does not exist.");
     }
 
+    private async Task<string> GenerateUniqueAccountCodeAsync()
+    {
+        return await GenerateUniqueCodeAsync<GitAccountEntity>(
+            GitAccountCodePrefix,
+            code => _accountDomain.ListAsync(entity => entity.Code == code));
+    }
+
+    private async Task<string> GenerateUniqueRepositoryCodeAsync()
+    {
+        return await GenerateUniqueCodeAsync<GitRepositoryEntity>(
+            GitRepositoryCodePrefix,
+            code => _repositoryDomain.ListAsync(entity => entity.Code == code));
+    }
+
+    private static async Task<string> GenerateUniqueCodeAsync<T>(
+        string prefix,
+        Func<string, Task<IList<T>>> findExisting)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var code = $"{prefix}-{DateTime.UtcNow:yyyyMMddHHmmss}-{RandomNumberGenerator.GetInt32(1000, 10_000)}";
+            if ((await findExisting(code)).Count == 0)
+            {
+                return code;
+            }
+        }
+
+        return $"{prefix}-{Guid.NewGuid():N}"[..Math.Min(64, prefix.Length + 33)];
+    }
+
     private static string NormalizeRepositoryUrl(string? repositoryUrl)
     {
         var normalized = NormalizeRequired(repositoryUrl, "Git repository URL is required.");
@@ -470,7 +490,7 @@ public sealed class GitManagementService : AgentSprintServiceBase, IGitManagemen
             entity.Code,
             entity.Name,
             entity.Username,
-            entity.AccessToken,
+            !string.IsNullOrWhiteSpace(entity.AccessToken),
             entity.CommitAuthorName,
             entity.CommitAuthorEmail,
             entity.Description,

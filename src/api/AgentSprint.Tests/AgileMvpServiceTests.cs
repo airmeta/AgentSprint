@@ -12,6 +12,7 @@ using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Service.Services.SecurityServices;
 
 using System.Linq.Expressions;
+using System.Net;
 
 namespace AgentSprint.Tests;
 
@@ -44,6 +45,19 @@ public sealed class AgileMvpServiceTests
         Assert.NotNull(requirement.ClosedAt);
         Assert.Equal("dev-1", lease.OwnerId);
         Assert.Empty(await service.ListActiveLeasesAsync());
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_RequiresAiPlatform()
+    {
+        var service = CreateService();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateProjectAsync(
+                CreateProjectRequest("MVP-AI-PLATFORM-REQUIRED", "AI platform required", aiPlatformCode: null),
+                "pm-1"));
+
+        Assert.Equal("AI platform is required.", exception.Message);
     }
 
     [Fact]
@@ -221,6 +235,7 @@ public sealed class AgileMvpServiceTests
             feedbackDomain,
             new InMemorySprintRequirementReviewDomain(),
             taskDomain,
+            new InMemorySprintRequirementDecompositionPreviewDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
@@ -509,7 +524,8 @@ public sealed class AgileMvpServiceTests
                 ["pm-2", "pm-1"],
                 ["dev-2"],
                 ["tester-2"],
-                "arch-2"));
+                "arch-2",
+                AiPlatformCode: "openai"));
 
         Assert.Equal("MVP-UPDATE", updated.Code);
         Assert.Equal("Updated", updated.Name);
@@ -888,6 +904,133 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task ConfirmRequirementDecompositionAsync_UsesPersistedPreviewAndMarksConfirmed()
+    {
+        var previewDomain = new InMemorySprintRequirementDecompositionPreviewDomain();
+        var service = CreateService(previewDomain: previewDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DECOMPOSE-PREVIEW", "Preview confirm"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Previewed task", "Confirm persisted preview", 2),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var preview = new SprintRequirementDecompositionPreviewEntity
+        {
+            ProjectId = project.Id,
+            RequirementId = requirement.Id,
+            Source = "ai",
+            Status = SprintRequirementDecompositionPreviewStatuses.Draft,
+            TaskJson = "[]",
+            CreatedBy = "po-1"
+        };
+        await previewDomain.CreateAsync(preview);
+
+        var tasks = await service.ConfirmRequirementDecompositionAsync(
+            requirement.Id,
+            new ConfirmSprintRequirementDecompositionRequest(
+                [new SprintDevelopmentTaskDraft("Implement preview task", "Use confirmed draft", 2)],
+                PreviewId: preview.Id),
+            "po-1");
+
+        var task = Assert.Single(tasks);
+        Assert.Equal("Implement preview task", task.Title);
+        var updatedPreview = await previewDomain.GetAsync(preview.Id);
+        Assert.NotNull(updatedPreview);
+        Assert.Equal(SprintRequirementDecompositionPreviewStatuses.Confirmed, updatedPreview.Status);
+        Assert.Equal("po-1", updatedPreview.ConfirmedBy);
+        Assert.NotNull(updatedPreview.ConfirmedAt);
+    }
+
+    [Fact]
+    public async Task ConfirmRequirementDecompositionAsync_AllowsAiDecomposedRequirement()
+    {
+        var requirementDomain = new InMemorySprintRequirementDomain();
+        var previewDomain = new InMemorySprintRequirementDecompositionPreviewDomain();
+        var service = CreateService(requirementDomain: requirementDomain, previewDomain: previewDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-AI-DECOMPOSED-CONFIRM", "AI decomposed confirm"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "AI decomposed task", "Confirm after preview", 2),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var preview = new SprintRequirementDecompositionPreviewEntity
+        {
+            ProjectId = project.Id,
+            RequirementId = requirement.Id,
+            Source = "ai",
+            Status = SprintRequirementDecompositionPreviewStatuses.Draft,
+            TaskJson = "[]",
+            CreatedBy = "po-1"
+        };
+        await previewDomain.CreateAsync(preview);
+        var requirementEntity = await requirementDomain.GetAsync(requirement.Id);
+        Assert.NotNull(requirementEntity);
+        requirementEntity.Status = SprintRequirementStatuses.AiDecomposed;
+        await requirementDomain.UpdateAsync(requirementEntity);
+
+        var tasks = await service.ConfirmRequirementDecompositionAsync(
+            requirement.Id,
+            new ConfirmSprintRequirementDecompositionRequest(
+                [new SprintDevelopmentTaskDraft("Confirm AI draft", "Create task from AI draft", 2)],
+                PreviewId: preview.Id),
+            "po-1");
+
+        var task = Assert.Single(tasks);
+        Assert.Equal("Confirm AI draft", task.Title);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_MarksRequirementAiDecomposedAfterDraftSaved()
+    {
+        var requirementDomain = new InMemorySprintRequirementDomain();
+        var projectDomain = new InMemorySprintProjectDomain();
+        var previewDomain = new InMemorySprintRequirementDecompositionPreviewDomain();
+        var project = new SprintProjectEntity
+        {
+            Code = "AI-PREVIEW-PROJECT",
+            Name = "AI preview project",
+            AiPlatformCode = "minimax",
+            CreatedBy = "pm-1"
+        };
+        await projectDomain.CreateAsync(project);
+        var requirement = new SprintRequirementEntity
+        {
+            ProjectId = project.Id,
+            Title = "AI preview status",
+            Description = "Generate a draft.",
+            Status = SprintRequirementStatuses.Approved,
+            Priority = 2,
+            CreatedBy = "po-1"
+        };
+        await requirementDomain.CreateAsync(requirement);
+        var service = new RequirementDecompositionPreviewService(
+            new StaticSystemConfigurationService(aiPlatform: new AiPlatformRuntimeResult(
+                "minimax",
+                "MiniMax",
+                "openai",
+                "MiniMax-M3",
+                "test-key",
+                "https://api.minimaxi.com/v1",
+                1)),
+            new CapturingRequirementDecompositionService(),
+            projectDomain,
+            new InMemoryAgilePromptTemplateDomain(),
+            requirementDomain,
+            previewDomain,
+            new HttpClient(new FailingHttpMessageHandler()));
+
+        var preview = await service.PreviewAsync(requirement.Id, "拆成前后端任务", null, null, "po-1");
+
+        Assert.Equal(SprintRequirementDecompositionPreviewStatuses.Draft, preview.Status);
+        Assert.Equal("minimax", preview.AiPlatformCode);
+        var updatedRequirement = await requirementDomain.GetAsync(requirement.Id);
+        Assert.NotNull(updatedRequirement);
+        Assert.Equal(SprintRequirementStatuses.AiDecomposed, updatedRequirement.Status);
+    }
+
+    [Fact]
     public async Task ApproveRequirementReviewAsync_AdvancesWhenReviewQueryReturnsPersistedSnapshot()
     {
         var reviewDomain = new SnapshotOnListSprintRequirementReviewDomain();
@@ -903,6 +1046,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintRequirementFeedbackDomain(),
             reviewDomain,
             taskDomain,
+            new InMemorySprintRequirementDecompositionPreviewDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
@@ -952,6 +1096,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintRequirementFeedbackDomain(),
             reviewDomain,
             taskDomain,
+            new InMemorySprintRequirementDecompositionPreviewDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
@@ -1867,6 +2012,7 @@ public sealed class AgileMvpServiceTests
             new InMemorySprintRequirementFeedbackDomain(),
             new InMemorySprintRequirementReviewDomain(),
             taskDomain,
+            new InMemorySprintRequirementDecompositionPreviewDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
@@ -2002,19 +2148,22 @@ public sealed class AgileMvpServiceTests
         InMemoryGitAccountDomain? gitAccountDomain = null,
         InMemoryAgileDigitalWorkerDomain? digitalWorkerDomain = null,
         InMemoryAgileWorkerCommandDomain? workerCommandDomain = null,
-        InMemorySprintRequirementReviewDomain? reviewDomain = null)
+        InMemorySprintRequirementReviewDomain? reviewDomain = null,
+        InMemorySprintRequirementDomain? requirementDomain = null,
+        InMemorySprintRequirementDecompositionPreviewDomain? previewDomain = null)
     {
         return new AgileMvpService(
             new InMemorySprintProjectDomain(),
             projectMemberDomain ?? new InMemorySprintProjectMemberDomain(),
             endpointDomain ?? new InMemorySprintProjectEndpointDomain(),
             new InMemorySprintFeatureModuleDomain(),
-            new InMemorySprintRequirementDomain(),
+            requirementDomain ?? new InMemorySprintRequirementDomain(),
             new InMemorySprintSkillDomain(),
             new InMemorySprintFeatureSuggestionDomain(),
             new InMemorySprintRequirementFeedbackDomain(),
             reviewDomain ?? new InMemorySprintRequirementReviewDomain(),
             new InMemorySprintDevelopmentTaskDomain(),
+            previewDomain ?? new InMemorySprintRequirementDecompositionPreviewDomain(),
             new InMemorySprintBugDomain(),
             new InMemorySprintTaskLeaseDomain(),
             new InMemoryAgileRuntimeEnvironmentDomain(),
@@ -2041,7 +2190,8 @@ public sealed class AgileMvpServiceTests
         IReadOnlyList<string>? testerIds = null,
         string architectId = "arch-1",
         string? gitRepositoryId = null,
-        string? gitAccountId = null)
+        string? gitAccountId = null,
+        string? aiPlatformCode = "openai")
     {
         return new CreateSprintProjectRequest(
             code,
@@ -2057,7 +2207,8 @@ public sealed class AgileMvpServiceTests
             architectId,
             null,
             gitRepositoryId,
-            gitAccountId);
+            gitAccountId,
+            aiPlatformCode);
     }
 
     private static async Task<SprintRequirementResult> SubmitAndApproveRequirementAsync(
@@ -2109,6 +2260,50 @@ internal sealed class CapturingRequirementDecompositionService : IRequirementDec
         ];
         return Task.FromResult(tasks);
     }
+
+    public Task<IReadOnlyList<SprintDevelopmentTaskDraft>> PreviewAsync(
+        SprintRequirementEntity requirement,
+        string? instruction,
+        int? taskCount = null)
+    {
+        IReadOnlyList<SprintDevelopmentTaskDraft> drafts =
+        [
+            new SprintDevelopmentTaskDraft("AI 鎷嗚В浠诲姟", requirement.Description, requirement.Priority)
+        ];
+        return Task.FromResult(drafts);
+    }
+
+    public Task<IReadOnlyList<SprintDevelopmentTaskEntity>> CreateFromDraftsAsync(
+        SprintRequirementEntity requirement,
+        IReadOnlyList<SprintDevelopmentTaskDraft> drafts,
+        string userId)
+    {
+        IReadOnlyList<SprintDevelopmentTaskEntity> tasks = drafts
+            .Select(draft => new SprintDevelopmentTaskEntity
+            {
+                ProjectId = requirement.ProjectId,
+                RequirementId = requirement.Id,
+                Title = draft.Title,
+                Description = draft.Description,
+                Priority = draft.Priority,
+                CreatedBy = userId
+            })
+            .ToList();
+        return Task.FromResult(tasks);
+    }
+}
+
+internal sealed class FailingHttpMessageHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("AI unavailable")
+        });
+    }
 }
 
 internal sealed class StaticSystemConfigurationService : ISystemConfigurationService
@@ -2124,7 +2319,14 @@ internal sealed class StaticSystemConfigurationService : ISystemConfigurationSer
     {
         _key = key;
         _value = value;
-        _aiPlatform = aiPlatform;
+        _aiPlatform = aiPlatform ?? new AiPlatformRuntimeResult(
+            "openai",
+            "OpenAI",
+            "openai",
+            "gpt-test",
+            "test-key",
+            null,
+            1);
     }
 
     public Task<IReadOnlyList<SystemConfigurationResult>> ListConfigurationsAsync(string? keyword = null, int? status = null)
@@ -2252,6 +2454,10 @@ internal sealed class InMemorySprintDevelopmentTaskDomain :
     InMemoryDomainBase<SprintDevelopmentTaskEntity>,
     ISprintDevelopmentTaskDomain;
 
+internal sealed class InMemorySprintRequirementDecompositionPreviewDomain :
+    InMemoryDomainBase<SprintRequirementDecompositionPreviewEntity>,
+    ISprintRequirementDecompositionPreviewDomain;
+
 internal sealed class SnapshotOnListSprintDevelopmentTaskDomain :
     InMemoryDomainBase<SprintDevelopmentTaskEntity>,
     ISprintDevelopmentTaskDomain
@@ -2339,6 +2545,22 @@ internal sealed class InMemoryAgilePromptTemplateDomain : InMemoryDomainBase<Pro
             Content = "Task {{projectCode}} {{taskId}} {{repositoryReference}} {{workspacePath}} stop-after-complete",
             Description = "日常推进",
             Sort = 2,
+            Status = 1
+        }).GetAwaiter().GetResult();
+        CreateAsync(new PromptTemplateEntity
+        {
+            AgentEnvironment = "codex",
+            Code = "requirement_decomposition",
+            Name = "AI任务拆解提示词",
+            Content = """
+                      {{taskCountInstruction}}
+
+                      需求标题：{{requirementTitle}}
+                      需求描述：{{requirementDescription}}
+                      拆解补充要求：{{instruction}}
+                      """,
+            Description = "AI任务拆解",
+            Sort = 3,
             Status = 1
         }).GetAwaiter().GetResult();
     }

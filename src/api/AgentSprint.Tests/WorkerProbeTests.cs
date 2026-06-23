@@ -1,4 +1,6 @@
 using AgentSprint.Worker;
+using AgentSprint.Entry.Actors;
+using AgentSprint.Service.Services.AgileServices;
 using AgentSprint.Worker.Actors;
 using AgentSprint.Worker.Models;
 using AgentSprint.Worker.Options;
@@ -103,7 +105,12 @@ public sealed class WorkerProbeTests
     [Fact]
     public void WorkerDocs_DescribeSharedAkkaClusterConfiguration()
     {
-        var docsPath = Path.Combine(FindRepositoryRoot(), "docs", "数字员工受控端探针服务说明.md");
+        var docsPath = Path.Combine(
+            FindRepositoryRoot(),
+            "docs",
+            "workers",
+            "codex-worker",
+            "数字员工受控端探针服务说明.md");
         var docs = File.ReadAllText(docsPath);
 
         Assert.Contains("\"SystemName\": \"agentsprint-cluster\"", docs);
@@ -178,6 +185,56 @@ public sealed class WorkerProbeTests
             var currentNode = cluster.GetCurrentNode();
 
             Assert.Contains(WorkerActorNames.Role, currentNode.Roles);
+            Assert.Contains("akka.tcp://", currentNode.Address);
+        }
+        finally
+        {
+            foreach (var hostedService in provider.GetServices<IHostedService>().Reverse())
+            {
+                await hostedService.StopAsync(CancellationToken.None);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task WorkerCommandLogReceiverActor_AutoRegistersWithAkkaRuntime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IDigitalWorkerRuntimeService, CapturingDigitalWorkerRuntimeService>();
+        services.AddHostedService<PlatformActorDependencyInitializer>();
+        services.AddAkkaCluster(options =>
+        {
+            options.SystemName = "agentsprint-platform-tests-" + Guid.NewGuid().ToString("N");
+            options.Host = "127.0.0.1";
+            options.Port = 0;
+            options.Roles.Add(WorkerPlatformActorNames.Role);
+            options.Domains[WorkerPlatformActorNames.Domain] = new AkkaDomainOptions
+            {
+                Role = WorkerPlatformActorNames.Role,
+                ActorNamePrefix = WorkerPlatformActorNames.ActorNamePrefix,
+                AllowCrossDomainMessages = true
+            };
+        });
+
+        await using var provider = services.BuildServiceProvider();
+        foreach (var hostedService in provider.GetServices<IHostedService>())
+        {
+            await hostedService.StartAsync(CancellationToken.None);
+        }
+
+        try
+        {
+            var registry = provider.GetRequiredService<IAkkaActorRegistry>();
+
+            Assert.Contains(
+                registry.GetDescriptors(),
+                descriptor => descriptor.ActorName == WorkerPlatformActorNames.WorkerCommandLogReceiverRegisteredName &&
+                    descriptor.ActorType == typeof(WorkerCommandLogReceiverActor));
+
+            var cluster = provider.GetRequiredService<IAkkaClusterService>();
+            var currentNode = cluster.GetCurrentNode();
+
+            Assert.Contains(WorkerPlatformActorNames.Role, currentNode.Roles);
             Assert.Contains("akka.tcp://", currentNode.Address);
         }
         finally

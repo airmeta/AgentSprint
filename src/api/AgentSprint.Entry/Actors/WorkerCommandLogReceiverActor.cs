@@ -1,9 +1,12 @@
 using AgentSprint.Model.Modules.Agile.Workers;
+using AgentSprint.Repository.DbContexts;
 using AgentSprint.Service.Services.AgileServices;
 
 using Air.Cloud.Core;
 using Air.Cloud.Modules.Akka.Actors;
 using Air.Cloud.Modules.Akka.Attributes;
+
+using Akka.Actor;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -26,8 +29,27 @@ public sealed class WorkerCommandLogReceiverActor : AirActorBase
 
     private async Task AppendAsync(WorkerCommandLogChunkMessage message)
     {
+        var sender = Sender;
         try
         {
+            AppRealization.TraceLog.Write(
+                AppRealization.JSON.Serialize(new
+                {
+                    level = "Information",
+                    message = "Received worker command log from Akka.",
+                    message.WorkerId,
+                    message.CommandId,
+                    message.RunId,
+                    message.Sequence,
+                    message.Completed
+                }),
+                new Dictionary<string, string>()
+                {
+                    { "workerId", message.WorkerId },
+                    { "commandId", message.CommandId },
+                    { "runId", message.RunId ?? "<null>" }
+                });
+
             await using var scope = _serviceProvider.CreateAsyncScope();
             var runtimeService = scope.ServiceProvider.GetRequiredService<IDigitalWorkerRuntimeService>();
             await runtimeService.AppendCommandLogAsync(
@@ -42,6 +64,15 @@ public sealed class WorkerCommandLogReceiverActor : AirActorBase
                     message.Completed,
                     message.StartedAt,
                     message.CompletedAt));
+            var dbContext = scope.ServiceProvider.GetRequiredService<DefaultDbContext>();
+            await dbContext.SaveChangesAsync();
+            sender.Tell(
+                new WorkerCommandLogAckMessage(
+                    message.CommandId,
+                    message.RunId,
+                    message.Sequence,
+                    message.Completed),
+                Self);
         }
         catch (Exception ex)
         {

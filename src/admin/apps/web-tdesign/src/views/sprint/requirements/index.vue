@@ -10,6 +10,10 @@ import { IconifyIcon } from '@vben/icons';
 
 import {
   Button as TButton,
+  Collapse as TCollapse,
+  CollapsePanel as TCollapsePanel,
+  Dialog as TDialog,
+  Divider as TDivider,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -18,6 +22,8 @@ import {
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
+  StepItem as TStepItem,
+  Steps as TSteps,
   Switch as TSwitch,
   Table as TTable,
   Tag as TTag,
@@ -27,6 +33,7 @@ import {
 import {
   closeRequirementApi,
   completeRequirementDevelopmentApi,
+  confirmRequirementDecompositionApi,
   convertRequirementFeedbackApi,
   convertRequirementSourcesApi,
   createRequirementFeedbackApi,
@@ -36,12 +43,15 @@ import {
   listDevelopmentTasksApi,
   listFeatureSuggestionsApi,
   listFeatureModulesApi,
+  listRequirementDecompositionPreviewsApi,
   listProjectEndpointsApi,
   listRequirementFeedbackApi,
   listRequirementReviewsApi,
   listRequirementsApi,
   listSkillsApi,
   listUserOptionsApi,
+  saveRequirementDecompositionPreviewApi,
+  streamRequirementDecompositionPreviewApi,
   submitRequirementReviewApi,
   updateRequirementApi,
   voidRequirementApi,
@@ -80,6 +90,7 @@ const detailVisible = ref(false);
 const reviewVisible = ref(false);
 const reviewFormRef = ref<FormInstanceFunctions>();
 const decomposeVisible = ref(false);
+const assignVisible = ref(false);
 const feedbackVisible = ref(false);
 const feedbackFormRef = ref<FormInstanceFunctions>();
 const convertFeedbackVisible = ref(false);
@@ -99,6 +110,7 @@ const requirementReviews = ref<SprintMvpApi.RequirementReview[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const selectedFeedback = ref<SprintMvpApi.RequirementFeedback>();
 const selectedFeedbackTaskId = ref('');
+const assigningRequirement = ref<SprintMvpApi.Requirement>();
 const expandedRequirementIds = ref<Array<number | string>>([]);
 const pendingRequirementActionIds = ref(new Set<string>());
 
@@ -122,11 +134,20 @@ const reviewForm = reactive({
   reviewerIds: [] as string[],
 });
 const decomposeForm = reactive({
+  instruction: '',
+});
+const assignForm = reactive({
   assigneeId: '',
   assigneeType: 0 as 0 | 1,
   assignmentMode: 'auto' as 'auto' | 'manual',
-  instruction: '',
 });
+const decompositionPreviews = ref<SprintMvpApi.RequirementDecompositionPreview[]>([]);
+const decompositionDrafts = ref<SprintMvpApi.DevelopmentTaskDraft[]>([]);
+const editingDecompositionDraftTitles = ref<Record<number, boolean>>({});
+const selectedPreview = ref<SprintMvpApi.RequirementDecompositionPreview>();
+const decompositionPreviewMessage = ref('');
+const decompositionPhase = ref<'assign' | 'confirm' | 'decompose'>('decompose');
+let decompositionSseBuffer = '';
 const feedbackForm = reactive({
   content: '',
   title: '',
@@ -167,21 +188,10 @@ const userOptions = computed(() =>
     value: user.id,
   })),
 );
-const decomposeAssigneeOptions = computed(() => {
-  if (decomposeForm.assigneeType === 1) {
-    return digitalWorkers.value
-      .filter((worker) => worker.status === 'active')
-      .map((worker) => ({
-        label: `${worker.name} (${worker.code})`,
-        value: worker.agentUserId,
-      }));
-  }
-
-  const developerIds = selectedRequirement.value
-    ? resolveRequirementDeveloperIds(selectedRequirement.value)
-    : [];
-  const optionIds = developerIds.length > 0 ? developerIds : users.value.map((user) => user.id);
-
+const assignEmployeeOptions = computed(() => {
+  const requirement = assigningRequirement.value || selectedRequirement.value || selectedRequirementForAction.value;
+  const preferredIds = requirement ? resolveRequirementDeveloperIds(requirement) : [];
+  const optionIds = preferredIds.length > 0 ? preferredIds : users.value.map((user) => user.id);
   return optionIds.map((id) => ({
     label: userMap.value[id]
       ? `${userMap.value[id].displayName} (${userMap.value[id].username})`
@@ -189,6 +199,52 @@ const decomposeAssigneeOptions = computed(() => {
     value: id,
   }));
 });
+const assignDigitalWorkerOptions = computed(() =>
+  digitalWorkers.value
+    .filter((worker) => worker.status === 'active')
+    .map((worker) => ({
+      label: `${worker.name} (${worker.code})`,
+      value: worker.agentUserId,
+    })),
+);
+const assignAssigneeOptions = computed(() =>
+  assignForm.assigneeType === 1 ? assignDigitalWorkerOptions.value : assignEmployeeOptions.value,
+);
+const autoAssignmentDescription = computed(() => {
+  const requirement = assigningRequirement.value || selectedRequirement.value || selectedRequirementForAction.value;
+  if (!requirement) return '请选择一条需求后再指派。';
+  const developerIds = resolveRequirementDeveloperIds(requirement);
+  if (developerIds.length === 0) {
+    return '自动指派：当前需求未配置模块、端或项目研发人员，将创建待指派任务。';
+  }
+
+  return `自动指派：按模块、端、项目研发人员配置轮询分配，候选人：${developerIds
+    .map((id) => resolveUserName(id))
+    .join('、')}`;
+});
+const decompositionStepCurrent = computed(() => {
+  if (decompositionPhase.value === 'assign') return 2;
+  if (decompositionPhase.value === 'confirm') return 1;
+  return 0;
+});
+const isRequirementAiDecomposing = computed(
+  () => selectedRequirement.value?.status === 'ai_decomposing',
+);
+const isDecompositionInputLocked = computed(() => decomposing.value || isRequirementAiDecomposing.value);
+const isDecompositionDecomposeStep = computed(() => decompositionPhase.value === 'decompose');
+const isDecompositionConfirmStep = computed(() => decompositionPhase.value === 'confirm');
+const isDecompositionAssignStep = computed(() => decompositionPhase.value === 'assign');
+const isAiDecompositionReady = computed(
+  () =>
+    isDecompositionConfirmStep.value &&
+    (selectedRequirement.value?.status === 'ai_decomposed' || selectedPreview.value?.source === 'ai'),
+);
+const showDecompositionActionButtons = computed(() =>
+  isDecompositionDecomposeStep.value && !isAiDecompositionReady.value,
+);
+const decompositionDraftTitle = computed(() =>
+  selectedPreview.value?.source === 'local' ? '预拆解草案' : 'AI预拆解草案',
+);
 const skillOptions = computed(() =>
   skills.value.map((skill) => ({
     label: `${skill.code} - ${skill.name}`,
@@ -321,6 +377,8 @@ const visibleRequirementIds = computed(() =>
 
 const statusText: Record<string, string> = {
   approved: '待拆解',
+  ai_decomposed: 'AI拆解完成',
+  ai_decomposing: 'AI拆解中',
   completed: '已完成',
   decomposed: '待推进',
   developing: '已推进',
@@ -351,7 +409,12 @@ const taskStatusText: Record<string, string> = {
   in_progress: '推进中',
   pending_assign: '待指派',
 };
-const decomposeAllowedStatuses = new Set(['approved', 'ready_development', 'decomposed']);
+const decomposeAllowedStatuses = new Set([
+  'approved',
+  'ready_development',
+  'ai_decomposing',
+  'ai_decomposed',
+]);
 const feedbackAllowedStatuses = new Set(['tested', 'completed']);
 const editAllowedStatuses = new Set(['draft']);
 const reviewAllowedStatuses = new Set(['draft', 'rejected']);
@@ -363,6 +426,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'status', title: '状态', width: 120 },
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'createdBy', title: '产品经理', width: 130 },
+  { colKey: 'createTime', title: '创建时间', width: 170 },
   { colKey: 'stakeholders', title: '干系人', width: 160 },
   { colKey: 'actions', title: '操作', width: 100 },
 ];
@@ -379,6 +443,12 @@ const canDecomposeSelectedRequirement = computed(() =>
   Boolean(
     selectedRequirementForAction.value &&
       decomposeAllowedStatuses.has(selectedRequirementForAction.value.status),
+  ),
+);
+const canAssignSelectedRequirement = computed(() =>
+  Boolean(
+    selectedRequirementForAction.value &&
+      ['approved', 'ready_development'].includes(selectedRequirementForAction.value.status),
   ),
 );
 const canDeleteDraftSelectedRequirement = computed(() =>
@@ -436,7 +506,7 @@ function getRequirementTasks(requirementId: string) {
   return developmentTasksByRequirement.value[requirementId] || [];
 }
 
-function resolveRequirementDeveloperIds(requirement: SprintMvpApi.Requirement) {
+function resolveRequirementDeveloperIds(requirement: SprintMvpApi.Requirement): string[] {
   const moduleDevelopers = modules.value.find((module) => module.id === requirement.moduleId)?.developerIds || [];
   if (moduleDevelopers.length > 0) return [...new Set(moduleDevelopers)];
 
@@ -627,21 +697,84 @@ function openReview(requirement: SprintMvpApi.Requirement) {
   reviewVisible.value = true;
 }
 
-function openDecompose(requirement: SprintMvpApi.Requirement) {
+async function openDecompose(requirement: SprintMvpApi.Requirement) {
   if (!decomposeAllowedStatuses.has(requirement.status)) {
     MessagePlugin.warning('需求评审通过后才能拆解任务');
     return;
   }
   selectedRequirement.value = requirement;
-  decomposeForm.assigneeId = '';
-  decomposeForm.assigneeType = 0;
-  decomposeForm.assignmentMode = 'auto';
   decomposeForm.instruction = '';
+  decompositionDrafts.value = [];
+  editingDecompositionDraftTitles.value = {};
+  selectedPreview.value = undefined;
+  decompositionPreviewMessage.value = '';
+  decompositionPhase.value = 'decompose';
+  assignForm.assignmentMode = 'auto';
+  assignForm.assigneeType = 0;
+  assignForm.assigneeId = '';
   decomposeVisible.value = true;
+  await loadDecompositionPreviews(requirement.id);
 }
 
-function handleDecomposeAssigneeTypeChange() {
-  decomposeForm.assigneeId = '';
+async function loadDecompositionPreviews(requirementId: string) {
+  decompositionPreviews.value = await listRequirementDecompositionPreviewsApi(requirementId);
+  const latestDraft = decompositionPreviews.value.find((item) => item.status === 'draft');
+  if (latestDraft) {
+    applyDecompositionPreview(latestDraft);
+  } else if (selectedRequirement.value?.status === 'ai_decomposed') {
+    decompositionPreviewMessage.value = 'AI拆解已完成，但未找到可确认的任务草案';
+    decompositionPhase.value = 'confirm';
+  } else if (decompositionDrafts.value.length === 0) {
+    decompositionPhase.value = 'decompose';
+  }
+}
+
+function applyDecompositionPreview(preview: SprintMvpApi.RequirementDecompositionPreview) {
+  const requirementPriority = selectedRequirement.value?.priority || 3;
+  selectedPreview.value = preview;
+  decompositionDrafts.value = preview.tasks.map((task) => ({
+    description: task.description || '',
+    id: task.id,
+    priority: requirementPriority,
+    title: task.title,
+  }));
+  editingDecompositionDraftTitles.value = {};
+  decomposeForm.instruction = preview.instruction || decomposeForm.instruction;
+  decompositionPreviewMessage.value = preview.errorMessage || '';
+  decompositionPhase.value = 'confirm';
+}
+
+function toggleDecompositionDraftTitleEdit(index: number, editing: boolean) {
+  editingDecompositionDraftTitles.value = {
+    ...editingDecompositionDraftTitles.value,
+    [index]: editing,
+  };
+}
+
+function addDecompositionDraft() {
+  decompositionDrafts.value = [
+    ...decompositionDrafts.value,
+    {
+      description: '',
+      id: undefined,
+      priority: selectedRequirement.value?.priority || 3,
+      title: '',
+    },
+  ];
+  toggleDecompositionDraftTitleEdit(decompositionDrafts.value.length - 1, true);
+}
+
+function removeDecompositionDraft(index: number) {
+  decompositionDrafts.value = decompositionDrafts.value.filter((_, currentIndex) => currentIndex !== index);
+  editingDecompositionDraftTitles.value = Object.fromEntries(
+    Object.entries(editingDecompositionDraftTitles.value)
+      .map(([key, value]) => {
+        const currentIndex = Number(key);
+        if (currentIndex === index) return undefined;
+        return [String(currentIndex > index ? currentIndex - 1 : currentIndex), value] as const;
+      })
+      .filter((item): item is readonly [string, boolean] => Boolean(item)),
+  );
 }
 
 function openFeedback(requirement: SprintMvpApi.Requirement, task?: SprintMvpApi.DevelopmentTask) {
@@ -715,6 +848,7 @@ async function loadRequirements() {
     const visibleRequirements = endpointId
       ? nextRequirements.filter((requirement) => requirement.endpointId === endpointId)
       : nextRequirements;
+    visibleRequirements.sort((left, right) => right.createTime.localeCompare(left.createTime));
     const visibleRequirementIdSet = new Set(
       visibleRequirements.map((requirement) => requirement.id),
     );
@@ -806,6 +940,46 @@ function openSelectedDecompose() {
   const requirement = getSelectedRequirementOrWarn();
   if (!requirement || !canDecomposeSelectedRequirement.value) return;
   openDecompose(requirement);
+}
+
+function openSelectedAssignDialog() {
+  const requirement = getSelectedRequirementOrWarn();
+  if (!requirement || !canAssignSelectedRequirement.value) return;
+  assigningRequirement.value = requirement;
+  assignForm.assignmentMode = 'auto';
+  assignForm.assigneeType = 0;
+  assignForm.assigneeId = '';
+  assignVisible.value = true;
+}
+
+function handleAssignAssigneeTypeChange() {
+  assignForm.assigneeId = '';
+}
+
+async function submitAssignRequirement() {
+  const requirement = assigningRequirement.value;
+  if (!requirement || !canAssignSelectedRequirement.value) return;
+  if (assignForm.assignmentMode === 'manual' && !assignForm.assigneeId) {
+    MessagePlugin.warning(assignForm.assigneeType === 1 ? '请选择数字员工' : '请选择员工');
+    return;
+  }
+  if (decomposing.value || isRequirementActionPending(requirement.id)) return;
+  setRequirementActionPending(requirement.id, true);
+  decomposing.value = true;
+  try {
+    await decomposeRequirementApi(requirement.id, {
+      assignmentMode: assignForm.assignmentMode,
+      assigneeId: assignForm.assignmentMode === 'manual' ? assignForm.assigneeId : undefined,
+      assigneeType: assignForm.assignmentMode === 'manual' ? assignForm.assigneeType : undefined,
+    });
+    MessagePlugin.success('任务已指派');
+    assignVisible.value = false;
+    assigningRequirement.value = undefined;
+    await loadRequirements();
+  } finally {
+    decomposing.value = false;
+    setRequirementActionPending(requirement.id, false);
+  }
 }
 
 function openSelectedFeedback() {
@@ -910,29 +1084,163 @@ async function submitReview() {
     reviewSubmitting.value = false;
   }
 }
-async function decomposeRequirement() {
+async function streamPreviewDecomposition() {
   if (decomposing.value) return;
   if (!selectedRequirement.value) return;
-  const manualAssigneeId = decomposeForm.assigneeId.trim();
-  if (decomposeForm.assignmentMode === 'manual' && !manualAssigneeId) {
-    MessagePlugin.warning('请选择指派人员');
+  decomposing.value = true;
+  selectedRequirement.value.status = 'ai_decomposing';
+  decompositionPhase.value = 'decompose';
+  decompositionSseBuffer = '';
+  decompositionPreviewMessage.value = '';
+  try {
+    await streamRequirementDecompositionPreviewApi(selectedRequirement.value.id, {
+      instruction: decomposeForm.instruction,
+    }, {
+      onEnd: flushDecompositionPreviewBuffer,
+      onMessage: handleDecompositionPreviewChunk,
+    });
+    await loadDecompositionPreviews(selectedRequirement.value.id);
+    selectedRequirement.value.status = 'ai_decomposed';
+    await loadRequirements();
+  } finally {
+    decomposing.value = false;
+  }
+}
+
+async function saveDecompositionDraftsAndContinue() {
+  if (decomposing.value) return;
+  if (!selectedRequirement.value) return;
+  const requirementPriority = selectedRequirement.value.priority || 3;
+  const drafts = decompositionDrafts.value
+    .map((task) => ({
+      description: task.description?.trim() || '',
+      id: task.id,
+      priority: requirementPriority,
+      title: task.title?.trim() || '',
+    }));
+  if (drafts.length === 0) {
+    MessagePlugin.warning('请至少保留一条任务草案');
     return;
   }
+  if (drafts.some((task) => !task.title || !task.description)) {
+    MessagePlugin.warning('任务标题与任务内容不允许为空');
+    return;
+  }
+
   decomposing.value = true;
   try {
-    await decomposeRequirementApi(selectedRequirement.value.id, {
-      assignmentMode: decomposeForm.assignmentMode,
-      assigneeId: decomposeForm.assignmentMode === 'manual' ? manualAssigneeId : undefined,
-      assigneeType: decomposeForm.assignmentMode === 'manual' ? decomposeForm.assigneeType : undefined,
+    const preview = await saveRequirementDecompositionPreviewApi(selectedRequirement.value.id, {
       instruction: decomposeForm.instruction,
+      previewId: selectedPreview.value?.id,
+      tasks: drafts,
     });
-    MessagePlugin.success('任务拆解已生成');
+    MessagePlugin.success('任务草案已保存');
+    selectedPreview.value = preview;
+    decompositionPreviews.value = [
+      preview,
+      ...decompositionPreviews.value.filter((item) => item.id !== preview.id),
+    ];
+    decompositionDrafts.value = preview.tasks.map((task) => ({
+      description: task.description || '',
+      id: task.id,
+      priority: requirementPriority,
+      title: task.title,
+    }));
+    selectedRequirement.value.status = 'ai_decomposed';
+    decompositionPhase.value = 'assign';
+  } finally {
+    decomposing.value = false;
+  }
+}
+
+async function confirmDecompositionDrafts() {
+  if (decomposing.value) return;
+  if (!selectedRequirement.value) return;
+  const requirementPriority = selectedRequirement.value.priority || 3;
+  const drafts = decompositionDrafts.value
+    .map((task) => ({
+      description: task.description?.trim() || '',
+      id: task.id,
+      priority: requirementPriority,
+      title: task.title?.trim() || '',
+    }));
+  if (drafts.length === 0) {
+    MessagePlugin.warning('请至少保留一条任务草案');
+    return;
+  }
+  if (drafts.some((task) => !task.title || !task.description)) {
+    MessagePlugin.warning('任务标题与任务内容不允许为空');
+    return;
+  }
+  if (assignForm.assignmentMode === 'manual' && !assignForm.assigneeId) {
+    MessagePlugin.warning(assignForm.assigneeType === 1 ? '请选择数字员工' : '请选择员工');
+    return;
+  }
+
+  decomposing.value = true;
+  try {
+    await confirmRequirementDecompositionApi(selectedRequirement.value.id, {
+      assigneeId: assignForm.assignmentMode === 'manual' ? assignForm.assigneeId : undefined,
+      assigneeType: assignForm.assignmentMode === 'manual' ? assignForm.assigneeType : undefined,
+      assignmentMode: assignForm.assignmentMode,
+      instruction: decomposeForm.instruction,
+      previewId: selectedPreview.value?.id,
+      tasks: drafts,
+    });
+    MessagePlugin.success('任务已创建');
     decomposeVisible.value = false;
     await loadRequirements();
   } finally {
     decomposing.value = false;
   }
 }
+
+function handleDecompositionPreviewChunk(chunk: string) {
+  decompositionSseBuffer += chunk;
+  const completeBlocks = decompositionSseBuffer.split(/\n\n+/);
+  decompositionSseBuffer = completeBlocks.pop() || '';
+  parseSseBlocks(completeBlocks).forEach(({ event, data }) => {
+    if (event === 'preview') {
+      const preview = JSON.parse(data) as SprintMvpApi.RequirementDecompositionPreview;
+      decompositionPreviews.value = [preview, ...decompositionPreviews.value.filter((item) => item.id !== preview.id)];
+      applyDecompositionPreview(preview);
+    } else if (event === 'phase') {
+      decompositionPreviewMessage.value = '';
+      decompositionPhase.value = 'decompose';
+    } else if (event === 'error') {
+      const payload = JSON.parse(data) as { message?: string };
+      decompositionPreviewMessage.value = payload.message || '预拆解失败';
+      MessagePlugin.error(decompositionPreviewMessage.value);
+    }
+  });
+}
+
+function flushDecompositionPreviewBuffer() {
+  if (!decompositionSseBuffer.trim()) return;
+  parseSseBlocks([decompositionSseBuffer]).forEach(({ event, data }) => {
+    if (event === 'preview') {
+      const preview = JSON.parse(data) as SprintMvpApi.RequirementDecompositionPreview;
+      decompositionPreviews.value = [preview, ...decompositionPreviews.value.filter((item) => item.id !== preview.id)];
+      applyDecompositionPreview(preview);
+    }
+  });
+  decompositionSseBuffer = '';
+}
+
+function parseSseBlocks(blocks: string[]) {
+  return blocks
+    .map((block) => {
+      const event = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() || 'message';
+      const data = block
+        .split(/\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+      return { data, event };
+    })
+    .filter((item) => item.data);
+}
+
 async function voidRequirement(requirement: SprintMvpApi.Requirement) {
   if (isRequirementActionPending(requirement.id)) return;
   setRequirementActionPending(requirement.id, true);
@@ -1238,6 +1546,17 @@ onActivated(async () => {
           </TButton>
           <TButton
             theme="success"
+            :disabled="!canAssignSelectedRequirement || isRequirementActionPending(selectedRequirementForAction?.id || '')"
+            :loading="isRequirementActionPending(selectedRequirementForAction?.id || '')"
+            @click="openSelectedAssignDialog"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:user-check" />
+            </template>
+            指派
+          </TButton>
+          <TButton
+            theme="success"
             :disabled="!canCloseSelectedRequirement"
             @click="closeSelectedRequirement"
           >
@@ -1247,8 +1566,7 @@ onActivated(async () => {
             验收关闭
           </TButton>
           <TButton
-            theme="primary"
-            variant="outline"
+            theme="warning"
             :disabled="!canCreateSelectedFeedback"
             @click="openSelectedFeedback"
           >
@@ -1320,7 +1638,7 @@ onActivated(async () => {
                 <TTag variant="light">{{ taskStatusText[task.status] || task.status }}</TTag>
                 <strong>{{ task.title }}</strong>
                 <span>指派人: {{ resolveTaskAssigneeName(task) }}</span>
-                <span>优先级 {{ task.priority }}</span>
+                <span>{{ resolvePriorityText(task.priority) }}</span>
                 <TSpace class="sprint-row-actions expanded-actions">
                   <TLink v-if="task.status !== 'completed'" theme="primary" @click="goTaskAdvance(task)">
                     <IconifyIcon icon="lucide:play" />
@@ -1420,6 +1738,9 @@ onActivated(async () => {
         <template #createdBy="{ row }">
           {{ resolveUserName(row.createdBy) }}
         </template>
+        <template #createTime="{ row }">
+          {{ formatDateTime(row.createTime) }}
+        </template>
         <template #stakeholders="{ row }">
           {{ resolveStakeholderNames(row.stakeholders) }}
         </template>
@@ -1440,7 +1761,7 @@ onActivated(async () => {
 
     <TDrawer
       v-model:visible="editorVisible"
-      :size="'60%'"
+      :size="'72%'"
       :header="selectedRequirement ? '编辑需求' : '新增需求'"
       :confirm-btn="{ content: '保存', loading: requirementSaving }"
       @confirm="saveRequirement"
@@ -1504,7 +1825,7 @@ onActivated(async () => {
           <MarkdownEditor
             v-model="requirementForm.description"
             :height="560"
-            placeholder="使用 Markdown 编写需求背景、目标、验收标准。"
+            placeholder="填写需求背景、功能范围、验收标准和约束。"
           />
         </TFormItem>
       </TForm>
@@ -1512,7 +1833,6 @@ onActivated(async () => {
 
     <TDrawer
       v-model:visible="detailVisible"
-      :footer="false"
       :size="'60%'"
       :header="selectedRequirement?.title || '需求详情'"
     >
@@ -1588,16 +1908,6 @@ onActivated(async () => {
               编辑
             </TButton>
             <TButton
-              v-if="decomposeAllowedStatuses.has(selectedRequirement.status)"
-              theme="primary"
-              @click="openDecompose(selectedRequirement)"
-            >
-              <template #icon>
-                <IconifyIcon icon="lucide:list-tree" />
-              </template>
-              任务拆解
-            </TButton>
-            <TButton
               v-if="canSubmitReview(selectedRequirement)"
               theme="primary"
               @click="openReview(selectedRequirement)"
@@ -1658,6 +1968,11 @@ onActivated(async () => {
           </TSpace>
         </div>
       </article>
+      <template #footer>
+        <TButton theme="default" @click="detailVisible = false">
+          关闭
+        </TButton>
+      </template>
     </TDrawer>
 
     <TDrawer
@@ -1681,51 +1996,238 @@ onActivated(async () => {
 
     <TDrawer
       v-model:visible="decomposeVisible"
-      :size="'60%'"
-      header="AI 任务拆解"
-      :confirm-btn="{ content: '生成任务', loading: decomposing }"
-      @confirm="decomposeRequirement"
+      :size="'40%'"
+      header="AI 任务预拆解"
     >
-      <TForm :data="decomposeForm" label-width="110px">
-        <TFormItem label="任务分派">
+      <TSteps class="decomposition-steps" :current="decompositionStepCurrent" readonly>
+        <TStepItem title="拆解" content="查看需求并生成预拆解草案" />
+        <TStepItem title="确认" content="检查并调整任务草案" />
+        <TStepItem title="任务分派" content="确认指派方式并写入开发任务" />
+      </TSteps>
+      <section v-if="isDecompositionDecomposeStep" class="decomposition-requirement">
+        <TDivider align="left">需求内容</TDivider>
+        <MarkdownEditor
+          class="decomposition-requirement-preview"
+          :model-value="selectedRequirement?.description || '暂无需求内容'"
+          height="260px"
+          preview
+          preview-only
+          read-only
+          placeholder="暂无需求内容"
+        />
+      </section>
+      <section class="decomposition-workspace">
+        <div v-if="isDecompositionDecomposeStep" class="decomposition-workspace__settings">
+          <TDivider align="left">拆解补充要求</TDivider>
+          <MarkdownEditor
+            class="decomposition-instruction-editor"
+            v-model="decomposeForm.instruction"
+            :height="380"
+            placeholder="填写拆解补充要求，留空则按需求内容生成预拆解草案。"
+            :read-only="isDecompositionInputLocked"
+          />
+          <div v-if="decompositionPreviewMessage" class="decomposition-preview-toolbar">
+            {{ decompositionPreviewMessage }}
+          </div>
+        </div>
+        <div v-if="isDecompositionConfirmStep" class="decomposition-drafts">
+          <TDivider align="left">{{ decompositionDraftTitle }}</TDivider>
+          <TCollapse class="decomposition-draft-collapse" expand-mutex>
+            <TCollapsePanel
+              v-for="(task, index) in decompositionDrafts"
+              :key="index"
+              :value="String(index)"
+            >
+              <template #header>
+                <div class="decomposition-draft-header">
+                  <div class="decomposition-draft-title">
+                    <TInput
+                      v-if="editingDecompositionDraftTitles[index]"
+                      v-model="task.title"
+                      placeholder="任务标题"
+                      @blur="toggleDecompositionDraftTitleEdit(index, false)"
+                      @click.stop
+                    />
+                    <template v-else>
+                      <span class="decomposition-draft-title__text">{{ task.title || '未命名任务' }}</span>
+                      <TButton
+                        shape="circle"
+                        size="small"
+                        theme="default"
+                        variant="text"
+                        @click.stop="toggleDecompositionDraftTitleEdit(index, true)"
+                      >
+                        <IconifyIcon icon="lucide:pencil" />
+                      </TButton>
+                    </template>
+                  </div>
+                  <div class="decomposition-draft-priority" @click.stop>
+                    <TButton
+                      shape="circle"
+                      size="small"
+                      theme="danger"
+                      variant="text"
+                      @click.stop="removeDecompositionDraft(index)"
+                    >
+                      <IconifyIcon icon="lucide:trash-2" />
+                    </TButton>
+                  </div>
+                </div>
+              </template>
+              <div class="decomposition-draft-editor">
+                <MarkdownEditor
+                  v-model="task.description"
+                  :height="260"
+                  placeholder="使用 Markdown 编写任务描述、验收点和补充说明。"
+                />
+              </div>
+            </TCollapsePanel>
+          </TCollapse>
+          <TButton
+            block
+            class="decomposition-draft-add"
+            theme="default"
+            variant="dashed"
+            @click="addDecompositionDraft"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:plus" />
+            </template>
+            添加
+          </TButton>
+        </div>
+        <section v-if="isDecompositionAssignStep" class="decomposition-assignment">
+          <TDivider align="left">任务分派</TDivider>
+          <TForm :data="assignForm" label-width="90px">
+            <TFormItem label="指派方式">
+              <TSelect
+                v-model="assignForm.assignmentMode"
+                :options="[
+                  { label: '自动指派', value: 'auto' },
+                  { label: '手动指派', value: 'manual' },
+                ]"
+              />
+            </TFormItem>
+            <div v-if="assignForm.assignmentMode === 'auto'" class="assignment-auto-summary">
+              {{ autoAssignmentDescription }}
+            </div>
+            <template v-else>
+              <TFormItem label="指派对象">
+                <TSelect
+                  v-model="assignForm.assigneeType"
+                  :options="[
+                    { label: '员工', value: 0 },
+                    { label: '数字员工', value: 1 },
+                  ]"
+                  @change="handleAssignAssigneeTypeChange"
+                />
+              </TFormItem>
+              <TFormItem :label="assignForm.assigneeType === 1 ? '数字员工' : '员工'">
+                <TSelect
+                  v-model="assignForm.assigneeId"
+                  filterable
+                  :options="assignAssigneeOptions"
+                  :placeholder="assignForm.assigneeType === 1 ? '选择数字员工' : '选择员工'"
+                />
+              </TFormItem>
+            </template>
+          </TForm>
+        </section>
+      </section>
+      <template #footer>
+        <TSpace class="decomposition-footer" :size="8">
+          <TButton
+            v-if="isDecompositionConfirmStep && decompositionDrafts.length > 0"
+            theme="primary"
+            :loading="decomposing"
+            @click="saveDecompositionDraftsAndContinue"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:play" />
+            </template>
+            开始创建
+          </TButton>
+          <TButton
+            v-if="isDecompositionAssignStep"
+            theme="primary"
+            :loading="decomposing"
+            @click="confirmDecompositionDrafts"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:check" />
+            </template>
+            确认创建任务
+          </TButton>
+          <TButton
+            v-if="isDecompositionAssignStep"
+            theme="default"
+            :disabled="decomposing"
+            @click="decompositionPhase = 'confirm'"
+          >
+            上一步
+          </TButton>
+          <TButton
+            v-if="showDecompositionActionButtons"
+            theme="primary"
+            variant="outline"
+            :disabled="isDecompositionInputLocked"
+            :loading="decomposing"
+            @click="streamPreviewDecomposition"
+          >
+            <template #icon>
+              <IconifyIcon icon="lucide:sparkles" />
+            </template>
+            AI预拆解
+          </TButton>
+          <TButton theme="default" :disabled="decomposing" @click="decomposeVisible = false">
+            取消
+          </TButton>
+        </TSpace>
+      </template>
+    </TDrawer>
+
+    <TDialog
+      v-model:visible="assignVisible"
+      header="任务指派"
+      width="560px"
+      :confirm-btn="{ content: '确认指派', loading: decomposing }"
+      @confirm="submitAssignRequirement"
+    >
+      <TForm :data="assignForm" label-width="90px">
+        <TFormItem label="指派方式">
           <TSelect
-            v-model="decomposeForm.assignmentMode"
+            v-model="assignForm.assignmentMode"
             :options="[
-              { label: '自动分派', value: 'auto' },
+              { label: '自动指派', value: 'auto' },
               { label: '手动指派', value: 'manual' },
             ]"
           />
         </TFormItem>
-        <TFormItem v-if="decomposeForm.assignmentMode === 'manual'" label="指派类型">
-          <TSelect
-            v-model="decomposeForm.assigneeType"
-            :options="[
-              { label: '员工', value: 0 },
-              { label: '数字员工', value: 1 },
-            ]"
-            @change="handleDecomposeAssigneeTypeChange"
-          />
-        </TFormItem>
-        <TFormItem
-          v-if="decomposeForm.assignmentMode === 'manual'"
-          :label="decomposeForm.assigneeType === 1 ? '数字员工' : '研发人员'"
-        >
-          <TSelect
-            v-model="decomposeForm.assigneeId"
-            filterable
-            :options="decomposeAssigneeOptions"
-            :placeholder="decomposeForm.assigneeType === 1 ? '选择数字员工' : '选择研发人员'"
-          />
-        </TFormItem>
-        <TFormItem label="拆解补充要求" class="markdown-form-item">
-          <MarkdownEditor
-            v-model="decomposeForm.instruction"
-            :height="420"
-            placeholder="填写拆解补充要求，留空则按需求内容生成默认任务。"
-          />
-        </TFormItem>
+        <div v-if="assignForm.assignmentMode === 'auto'" class="assignment-auto-summary">
+          {{ autoAssignmentDescription }}
+        </div>
+        <template v-else>
+          <TFormItem label="指派对象">
+            <TSelect
+              v-model="assignForm.assigneeType"
+              :options="[
+                { label: '员工', value: 0 },
+                { label: '数字员工', value: 1 },
+              ]"
+              @change="handleAssignAssigneeTypeChange"
+            />
+          </TFormItem>
+          <TFormItem :label="assignForm.assigneeType === 1 ? '数字员工' : '员工'">
+            <TSelect
+              v-model="assignForm.assigneeId"
+              filterable
+              :options="assignAssigneeOptions"
+              :placeholder="assignForm.assigneeType === 1 ? '选择数字员工' : '选择员工'"
+            />
+          </TFormItem>
+        </template>
       </TForm>
-    </TDrawer>
+    </TDialog>
 
     <TDrawer
       v-model:visible="feedbackVisible"
@@ -2020,6 +2522,186 @@ onActivated(async () => {
   margin-top: 20px;
 }
 
+.decomposition-steps {
+  max-width: 860px;
+  margin: 0 auto 24px;
+}
+
+.decomposition-requirement,
+.decomposition-assignment {
+  margin-bottom: 18px;
+}
+
+.decomposition-requirement-preview {
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.decomposition-instruction-editor {
+  width: 100%;
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.decomposition-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.decomposition-workspace__settings {
+  min-width: 0;
+}
+
+.decomposition-preview-toolbar {
+  color: var(--td-error-color);
+  font-size: 13px;
+  margin-top: 16px;
+}
+
+.decomposition-drafts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  min-width: 0;
+}
+
+.decomposition-drafts :deep(.t-divider) {
+  margin: 0 0 2px;
+}
+
+.decomposition-draft-collapse {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.decomposition-draft-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.decomposition-draft-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.decomposition-draft-title__text {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decomposition-draft-priority {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  width: 150px;
+  min-width: 150px;
+}
+
+.decomposition-draft-priority :deep(.t-select) {
+  width: 108px;
+}
+
+.decomposition-draft-priority :deep(.t-button) {
+  flex: 0 0 auto;
+}
+
+.decomposition-draft-add {
+  width: 100%;
+}
+
+.decomposition-draft-collapse :deep(.t-collapse-panel),
+.decomposition-draft-collapse :deep(.t-collapse-panel__wrapper),
+.decomposition-draft-collapse :deep(.t-collapse-panel__body),
+.decomposition-draft-collapse :deep(.t-collapse-panel__content) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.decomposition-draft-collapse :deep(.t-collapse-panel__content) {
+  padding: 12px 16px 16px;
+}
+
+.decomposition-draft-editor {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.decomposition-draft-editor :deep(.sprint-markdown-editor),
+.decomposition-draft-editor :deep(.md-editor) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.decomposition-draft-editor :deep(.md-editor-content),
+.decomposition-draft-editor :deep(.md-editor-content-wrapper),
+.decomposition-draft-editor :deep(.md-editor-input-wrapper),
+.decomposition-draft-editor :deep(.md-editor-toolbar),
+.decomposition-draft-editor :deep(.md-editor-toolbar-left),
+.decomposition-draft-editor :deep(.md-editor-toolbar-right),
+.decomposition-draft-editor :deep(.cm-editor) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.decomposition-draft-editor :deep(.md-editor-toolbar) {
+  overflow: hidden;
+}
+
+.decomposition-draft-editor :deep(.md-editor-toolbar-wrapper) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.decomposition-draft-editor :deep(.cm-scroller) {
+  overflow-x: auto;
+}
+
+.decomposition-footer {
+  gap: 8px;
+  justify-content: flex-end;
+  width: auto;
+  margin-left: auto;
+}
+
+.assignment-auto-summary {
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  color: var(--td-text-color-secondary);
+  background: var(--td-bg-color-container-hover);
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
 .feedback-history,
 .review-history {
   margin-top: 20px;
@@ -2074,6 +2756,14 @@ onActivated(async () => {
 
   .expanded-actions {
     justify-content: flex-start;
+  }
+
+  .decomposition-drafts {
+    grid-template-columns: 1fr;
+  }
+
+  .decomposition-workspace {
+    grid-template-columns: 1fr;
   }
 }
 </style>

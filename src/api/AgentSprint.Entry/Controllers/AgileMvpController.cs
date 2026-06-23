@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Service.Services.AgileServices;
@@ -14,6 +15,7 @@ namespace AgentSprint.Entry.Controllers;
 public sealed class AgileMvpController : ControllerBase
 {
     private readonly IAgileMvpService _agileMvpService;
+    private readonly IRequirementDecompositionPreviewService _decompositionPreviewService;
 
     /// <summary>
     /// zh-cn: 创建敏捷 MVP 控制器，暴露项目、需求、租约、Bug 和闭环统计接口。
@@ -23,9 +25,12 @@ public sealed class AgileMvpController : ControllerBase
     /// zh-cn: 敏捷 MVP 服务。
     /// en-us: Agile MVP service.
     /// </param>
-    public AgileMvpController(IAgileMvpService agileMvpService)
+    public AgileMvpController(
+        IAgileMvpService agileMvpService,
+        IRequirementDecompositionPreviewService decompositionPreviewService)
     {
         _agileMvpService = agileMvpService;
+        _decompositionPreviewService = decompositionPreviewService;
     }
 
     /// <summary>
@@ -764,6 +769,75 @@ public sealed class AgileMvpController : ControllerBase
         }
     }
 
+    [HttpGet("requirements/{id}/decomposition-previews")]
+    public async Task<ApiResponse<IReadOnlyList<SprintRequirementDecompositionPreviewResult>>> ListRequirementDecompositionPreviews(
+        string id)
+    {
+        return ApiResponse<IReadOnlyList<SprintRequirementDecompositionPreviewResult>>.Ok(
+            await _decompositionPreviewService.ListAsync(id));
+    }
+
+    [HttpPost("requirements/{id}/decomposition-previews/stream")]
+    public async Task StreamRequirementDecompositionPreview(
+        string id,
+        PreviewSprintRequirementDecompositionRequest request,
+        CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.Connection = "keep-alive";
+        Response.ContentType = "text/event-stream";
+
+        try
+        {
+            await WriteSseAsync("phase", new { message = "preparing" }, cancellationToken);
+            var preview = await _decompositionPreviewService.PreviewAsync(
+                id,
+                request.Instruction,
+                request.TaskCount,
+                request.AiPlatformCode,
+                GetUserId(),
+                cancellationToken);
+            await WriteSseAsync("preview", preview, cancellationToken);
+            await WriteSseAsync("done", new { previewId = preview.Id }, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await WriteSseAsync("error", new { message = ex.Message }, cancellationToken);
+        }
+    }
+
+    [HttpPost("requirements/{id}/decomposition-previews/confirm")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>> ConfirmRequirementDecomposition(
+        string id,
+        ConfirmSprintRequirementDecompositionRequest request)
+    {
+        try
+        {
+            return ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>.Ok(
+                await _agileMvpService.ConfirmRequirementDecompositionAsync(id, request, GetUserId()));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>.Error(ex.Message, 400));
+        }
+    }
+
+    [HttpPost("requirements/{id}/decomposition-previews/save")]
+    public async Task<ActionResult<ApiResponse<SprintRequirementDecompositionPreviewResult>>> SaveRequirementDecompositionPreview(
+        string id,
+        SaveSprintRequirementDecompositionPreviewRequest request)
+    {
+        try
+        {
+            return ApiResponse<SprintRequirementDecompositionPreviewResult>.Ok(
+                await _decompositionPreviewService.SaveDraftAsync(id, request, GetUserId()));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<SprintRequirementDecompositionPreviewResult>.Error(ex.Message, 400));
+        }
+    }
+
     /// <summary>
     /// zh-cn: 查询任务大厅任务；超级管理员可查看全部任务，架构师、产品经理和项目经理仅查看自己参与项目内的任务，其他角色只能查看指派给自己的任务。
     /// en-us: Lists development tasks for the task hall; super administrators can view all tasks, architects, product managers, and project managers are scoped to participating projects, while other roles are restricted to their own assigned tasks.
@@ -1288,6 +1362,13 @@ public sealed class AgileMvpController : ControllerBase
     private string GetUserId()
     {
         return User.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException();
+    }
+
+    private async Task WriteSseAsync(string eventName, object payload, CancellationToken cancellationToken)
+    {
+        await Response.WriteAsync($"event: {eventName}\n", cancellationToken);
+        await Response.WriteAsync($"data: {JsonSerializer.Serialize(payload)}\n\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
     }
 
     private void EnsureTaskAssignmentRole()

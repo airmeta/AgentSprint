@@ -126,7 +126,13 @@ require_command() {
 }
 
 compose() {
-  docker compose "$@"
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    fail "Required command not found: docker compose or docker-compose"
+  fi
 }
 
 wait_for_http() {

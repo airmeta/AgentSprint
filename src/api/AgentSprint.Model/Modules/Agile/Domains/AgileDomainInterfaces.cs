@@ -29,6 +29,8 @@ public interface ISprintRequirementReviewDomain : IEntityDomainBase<SprintRequir
 
 public interface ISprintDevelopmentTaskDomain : IEntityDomainBase<SprintDevelopmentTaskEntity>;
 
+public interface ISprintRequirementDecompositionPreviewDomain : IEntityDomainBase<SprintRequirementDecompositionPreviewEntity>;
+
 public interface ISprintBugDomain : IEntityDomainBase<SprintBugEntity>;
 
 public interface ISprintTaskLeaseDomain : IEntityDomainBase<SprintTaskLeaseEntity>;

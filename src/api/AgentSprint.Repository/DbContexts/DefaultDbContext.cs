@@ -88,6 +88,8 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<SprintDevelopmentTaskEntity> SprintDevelopmentTasks => Set<SprintDevelopmentTaskEntity>();
 
+    public DbSet<SprintRequirementDecompositionPreviewEntity> SprintRequirementDecompositionPreviews => Set<SprintRequirementDecompositionPreviewEntity>();
+
     public DbSet<SprintBugEntity> SprintBugs => Set<SprintBugEntity>();
 
     public DbSet<SprintTaskLeaseEntity> SprintTaskLeases => Set<SprintTaskLeaseEntity>();
@@ -167,6 +169,7 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<SprintRequirementFeedbackEntity>().HasIndex(entity => new { entity.RequirementId, entity.Status });
         modelBuilder.Entity<SprintRequirementReviewEntity>().HasIndex(entity => new { entity.RequirementId, entity.ReviewerId }).IsUnique();
         modelBuilder.Entity<SprintDevelopmentTaskEntity>().HasIndex(entity => new { entity.ProjectId, entity.RequirementId, entity.AssigneeId });
+        modelBuilder.Entity<SprintRequirementDecompositionPreviewEntity>().HasIndex(entity => new { entity.RequirementId, entity.Status, entity.CreateTime });
         modelBuilder.Entity<SprintBugEntity>().HasIndex(entity => new { entity.ProjectId, entity.RequirementId });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => new { entity.ProjectId, entity.OwnerId, entity.Status });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.LeaseToken).IsUnique();

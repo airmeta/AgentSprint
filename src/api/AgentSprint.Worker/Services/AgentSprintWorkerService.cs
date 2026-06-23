@@ -9,9 +9,12 @@ using AgentSprint.Worker.Options;
 using Air.Cloud.Core;
 using Air.Cloud.Modules.Akka.Abstractions;
 
+using Akka.Actor;
+
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
+using WorkerCommandLogAckMessage = AgentSprint.Model.Modules.Agile.Workers.WorkerCommandLogAckMessage;
 using WorkerCommandLogChunkMessage = AgentSprint.Model.Modules.Agile.Workers.WorkerCommandLogChunkMessage;
 using WorkerPlatformActorNames = AgentSprint.Model.Modules.Agile.Workers.WorkerPlatformActorNames;
 
@@ -1647,7 +1650,7 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
                 completed,
                 _startedAt,
                 completed ? DateTime.UtcNow : null);
-            if (TryTellAkka(request))
+            if (await TryAppendViaAkkaAsync(request, cancellationToken))
             {
                 return;
             }
@@ -1660,32 +1663,55 @@ internal sealed class WorkerCommandLogStreamer : IAsyncDisposable
         }
     }
 
-    private bool TryTellAkka(AppendWorkerCommandLogRequest request)
+    private async Task<bool> TryAppendViaAkkaAsync(AppendWorkerCommandLogRequest request, CancellationToken cancellationToken)
     {
+        var receiverPath = BuildPlatformCommandLogReceiverPath();
+        var message = new WorkerCommandLogChunkMessage(
+            _workerId,
+            request.SessionId ?? _sessionId,
+            request.InstanceId ?? _instanceId,
+            request.CommandId,
+            request.RunId,
+            request.Sequence,
+            request.Chunk,
+            request.Completed,
+            request.StartedAt,
+            request.CompletedAt);
+
         try
         {
-            _akkaClusterService.Tell(
-                WorkerPlatformActorNames.WorkerCommandLogReceiverRegisteredName,
-                new WorkerCommandLogChunkMessage(
-                    _workerId,
-                    _sessionId,
-                    _instanceId,
-                    _commandId,
-                    _runId,
-                    request.Sequence,
-                    request.Chunk,
-                    request.Completed,
-                    request.StartedAt,
-                    request.CompletedAt));
-            return true;
+            var selection = _akkaClusterService.ActorSystem.ActorSelection(receiverPath);
+            var ack = await selection.Ask<WorkerCommandLogAckMessage>(
+                message,
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+
+            if (ack.CommandId == request.CommandId &&
+                ack.RunId == request.RunId &&
+                ack.Sequence == message.Sequence &&
+                ack.Completed == message.Completed)
+            {
+                return true;
+            }
+
+            WorkerDiagnostics.Warn(
+                "Worker命令日志Akka确认不匹配，回退HTTP",
+                $"commandId={request.CommandId}, runId={request.RunId ?? string.Empty}, sequence={message.Sequence}, completed={message.Completed}, ackCommandId={ack.CommandId}, ackRunId={ack.RunId ?? string.Empty}, ackSequence={ack.Sequence}, ackCompleted={ack.Completed}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             WorkerDiagnostics.Warn(
-                "Worker命令日志Akka投递失败",
-                $"commandId={_commandId}, runId={_runId ?? string.Empty}, error={ex.Message}");
-            return false;
+                "Worker命令日志Akka推送未确认，回退HTTP",
+                $"commandId={request.CommandId}, runId={request.RunId ?? string.Empty}, sequence={message.Sequence}, completed={message.Completed}, actorPath={receiverPath}, error={ex.GetType().Name}: {ex.Message}");
         }
+
+        return false;
+    }
+
+    private static string BuildPlatformCommandLogReceiverPath()
+    {
+        return "akka.tcp://agentsprint-cluster@api:25520/user/" +
+            WorkerPlatformActorNames.WorkerCommandLogReceiverRegisteredName;
     }
 
     private async Task FlushTimerAsync()

@@ -80,6 +80,7 @@ public sealed class Startup : AppStartup
         services.AddSingleton<IWorkerCommandLogBuffer, RedisWorkerCommandLogBuffer>();
         services.AddSingleton<ICaptchaService, CaptchaService>();
         services.AddHttpClient<IAiConversationService, AiConversationService>();
+        services.AddHttpClient<IRequirementDecompositionPreviewService, RequirementDecompositionPreviewService>();
 
         services.Configure<JwtOptions>(AppCore.Configuration.GetSection("Jwt"));
         var jwtOptions = AppCore.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
@@ -150,6 +151,7 @@ public sealed class Startup : AppStartup
         services.AddTransient<ISprintRequirementFeedbackDomain, SprintRequirementFeedbackDomain>();
         services.AddTransient<ISprintRequirementReviewDomain, SprintRequirementReviewDomain>();
         services.AddTransient<ISprintDevelopmentTaskDomain, SprintDevelopmentTaskDomain>();
+        services.AddTransient<ISprintRequirementDecompositionPreviewDomain, SprintRequirementDecompositionPreviewDomain>();
         services.AddTransient<ISprintBugDomain, SprintBugDomain>();
         services.AddTransient<ISprintTaskLeaseDomain, SprintTaskLeaseDomain>();
         services.AddTransient<IDigitalWorkerDomain, DigitalWorkerDomain>();
@@ -162,7 +164,6 @@ public sealed class Startup : AppStartup
         services.AddTransient<ITestPlanDomain, TestPlanDomain>();
         services.AddTransient<ITestExecutionDomain, TestExecutionDomain>();
 
-        services.AddHostedService<DatabaseInitializer>();
     }
 
     /// <summary>

@@ -27,4 +27,8 @@
     <ProjectReference Include="..\AgentSprint.Service\AgentSprint.Service.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="*.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

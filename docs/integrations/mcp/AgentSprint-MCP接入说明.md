@@ -12,10 +12,11 @@ API 必须先运行：
 
 ```powershell
 $env:ConnectionStrings__AgentSprintConnectionString='server=192.168.80.101;port=3306;database=agentsprint;user=root;password=<DB_PASSWORD>;Allow User Variables=True;UseAffectedRows=False;CharSet=utf8mb4;'
-$env:Database__AutoInitialize='true'
 $env:Database__UseInMemorySecurity='true'
 dotnet run --project F:\AI\AgentSprint\src\api\AgentSprint.Entry\AgentSprint.Entry.csproj --urls http://localhost:5000
 ```
+
+数据库结构初始化和后续迁移不再由 API 启动执行；每次建库或结构调整后，手动执行 `src/api/AgentSprint.Entry/DatabaseInitializer.sql`，业务初始化数据通过独立 SQL 文件追加。
 
 ## Codex MCP 配置
 

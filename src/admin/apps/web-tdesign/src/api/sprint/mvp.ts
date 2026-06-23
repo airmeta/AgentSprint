@@ -3,6 +3,7 @@ import { requestClient } from '#/api/request';
 export namespace SprintMvpApi {
   export interface CreateProjectRequest {
     architectId: string;
+    aiPlatformCode: string;
     backendTechStack: string;
     code: string;
     description?: string;
@@ -20,6 +21,7 @@ export namespace SprintMvpApi {
 
   export interface UpdateProjectRequest {
     architectId: string;
+    aiPlatformCode: string;
     backendTechStack: string;
     description?: string;
     developerIds: string[];
@@ -36,6 +38,7 @@ export namespace SprintMvpApi {
 
   export interface Project {
     architectId?: string;
+    aiPlatformCode?: string;
     backendTechStack?: string;
     id: string;
     code: string;
@@ -117,6 +120,52 @@ export namespace SprintMvpApi {
     assigneeType?: 0 | 1;
     instruction?: string;
     taskCount?: number;
+  }
+
+  export interface PreviewRequirementDecompositionRequest {
+    aiPlatformCode?: string;
+    instruction?: string;
+    taskCount?: number;
+  }
+
+  export interface DevelopmentTaskDraft {
+    description?: string;
+    id?: string;
+    priority: number;
+    title: string;
+  }
+
+  export interface ConfirmRequirementDecompositionRequest {
+    assignmentMode?: 'auto' | 'manual';
+    assigneeId?: string;
+    assigneeType?: 0 | 1;
+    instruction?: string;
+    previewId?: string;
+    tasks: DevelopmentTaskDraft[];
+  }
+
+  export interface SaveRequirementDecompositionPreviewRequest {
+    instruction?: string;
+    previewId?: string;
+    tasks: DevelopmentTaskDraft[];
+  }
+
+  export interface RequirementDecompositionPreview {
+    aiPlatformCode?: string;
+    confirmedAt?: string;
+    confirmedBy?: string;
+    createTime: string;
+    createdBy?: string;
+    errorMessage?: string;
+    id: string;
+    instruction?: string;
+    projectId: string;
+    rawContent?: string;
+    requirementId: string;
+    source: 'ai' | 'local' | string;
+    status: 'draft' | 'confirmed' | string;
+    tasks: DevelopmentTaskDraft[];
+    updateTime?: string;
   }
 
   export interface ProjectEndpoint {
@@ -715,6 +764,47 @@ export function decomposeRequirementApi(
 ) {
   return requestClient.post<SprintMvpApi.DevelopmentTask[]>(
     `/mvp/requirements/${id}/decompose`,
+    data,
+  );
+}
+
+export function listRequirementDecompositionPreviewsApi(id: string) {
+  return requestClient.get<SprintMvpApi.RequirementDecompositionPreview[]>(
+    `/mvp/requirements/${id}/decomposition-previews`,
+  );
+}
+
+export function streamRequirementDecompositionPreviewApi(
+  id: string,
+  data: SprintMvpApi.PreviewRequirementDecompositionRequest,
+  options: {
+    onMessage?: (chunk: string) => void;
+    onEnd?: () => void;
+  },
+) {
+  return requestClient.postSSE(
+    `/mvp/requirements/${id}/decomposition-previews/stream`,
+    data,
+    options,
+  );
+}
+
+export function confirmRequirementDecompositionApi(
+  id: string,
+  data: SprintMvpApi.ConfirmRequirementDecompositionRequest,
+) {
+  return requestClient.post<SprintMvpApi.DevelopmentTask[]>(
+    `/mvp/requirements/${id}/decomposition-previews/confirm`,
+    data,
+  );
+}
+
+export function saveRequirementDecompositionPreviewApi(
+  id: string,
+  data: SprintMvpApi.SaveRequirementDecompositionPreviewRequest,
+) {
+  return requestClient.post<SprintMvpApi.RequirementDecompositionPreview>(
+    `/mvp/requirements/${id}/decomposition-previews/save`,
     data,
   );
 }

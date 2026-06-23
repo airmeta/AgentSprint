@@ -33,6 +33,7 @@ import {
 import {
   listDictionaryItemsApi,
   listDictionaryTypesApi,
+  listAiPlatformsApi,
   listRuntimeEnvironmentsApi,
   type SystemApi,
 } from '#/api/system/management';
@@ -58,11 +59,13 @@ const users = ref<SprintUserApi.UserOption[]>([]);
 const runtimeEnvironments = ref<SystemApi.RuntimeEnvironment[]>([]);
 const gitAccounts = ref<SprintGitApi.GitAccount[]>([]);
 const gitRepositories = ref<SprintGitApi.GitRepository[]>([]);
+const aiPlatforms = ref<SystemApi.AiPlatform[]>([]);
 const frontendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
 const backendTechOptions = ref<SystemApi.DictionaryItem[]>([]);
 
 const form = reactive({
   architectId: '',
+  aiPlatformCode: '',
   backendTechStack: [] as string[],
   code: '',
   description: '',
@@ -78,6 +81,7 @@ const form = reactive({
 });
 const editForm = reactive({
   architectId: '',
+  aiPlatformCode: '',
   backendTechStack: [] as string[],
   description: '',
   developerIds: [] as string[],
@@ -92,6 +96,7 @@ const editForm = reactive({
 });
 const projectRules: FormRules<typeof form> = {
   architectId: requiredRule('请选择架构师', 'change'),
+  aiPlatformCode: requiredRule('请选择AI平台', 'change'),
   backendTechStack: requiredArrayRule('请选择后端技术栈'),
   developerIds: requiredArrayRule('请选择至少一名研发人员'),
   frontendTechStack: requiredArrayRule('请选择前端技术栈'),
@@ -136,10 +141,20 @@ const gitRepositoryOptions = computed(() =>
 );
 const frontendTechSelectOptions = computed(() => dictionaryOptions(frontendTechOptions.value));
 const backendTechSelectOptions = computed(() => dictionaryOptions(backendTechOptions.value));
+const aiPlatformOptions = computed(() =>
+  aiPlatforms.value
+    .filter((platform) => platform.status === 1)
+    .sort((left, right) => left.sort - right.sort || left.code.localeCompare(right.code))
+    .map((platform) => ({
+      label: `${platform.name} (${platform.code} / ${platform.model})`,
+      value: platform.code,
+    })),
+);
 
 function resetCreateForm() {
   Object.assign(form, {
     architectId: '',
+    aiPlatformCode: '',
     backendTechStack: [],
     code: '',
     description: '',
@@ -167,6 +182,7 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
   if (mode === 'edit') {
     Object.assign(editForm, {
       architectId: project.architectId || '',
+      aiPlatformCode: project.aiPlatformCode || '',
       backendTechStack: deserializeValues(project.backendTechStack),
       description: project.description || '',
       developerIds: [...(project.developerIds || [])],
@@ -186,12 +202,20 @@ function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value
 async function loadProjects() {
   loading.value = true;
   try {
-    [projects.value, users.value, runtimeEnvironments.value, gitAccounts.value, gitRepositories.value] = await Promise.all([
+    [
+      projects.value,
+      users.value,
+      runtimeEnvironments.value,
+      gitAccounts.value,
+      gitRepositories.value,
+      aiPlatforms.value,
+    ] = await Promise.all([
       listProjectsApi(),
       listUserOptionsApi(),
       listRuntimeEnvironmentsApi(),
       listGitAccountsApi(),
       listGitRepositoriesApi(),
+      listAiPlatformsApi({ status: 1 }),
     ]);
   } finally {
     loading.value = false;
@@ -234,6 +258,12 @@ function resolveGitRepositoryName(id?: string) {
   if (!id) return '未配置';
   const repository = gitRepositories.value.find((item) => item.id === id);
   return repository ? `${repository.name} (${repository.code})` : id;
+}
+
+function resolveAiPlatformName(code?: string) {
+  if (!code) return '未配置';
+  const platform = aiPlatforms.value.find((item) => item.code === code);
+  return platform ? `${platform.name} (${platform.code} / ${platform.model})` : code;
 }
 
 function dictionaryOptions(items: SystemApi.DictionaryItem[]) {
@@ -283,17 +313,19 @@ function normalizeProjectPayload(source: typeof form | typeof editForm) {
     source.frontendTechStack.length === 0 ||
     source.backendTechStack.length === 0 ||
     !source.projectManagerId ||
+    !source.aiPlatformCode ||
     source.productManagerIds.length === 0 ||
     source.developerIds.length === 0 ||
     source.testerIds.length === 0 ||
     !source.architectId
   ) {
-    MessagePlugin.warning('项目名称、技术栈和项目团队均为必填');
+    MessagePlugin.warning('项目名称、AI平台、技术栈和项目团队均为必填');
     return;
   }
 
   return {
     architectId: source.architectId,
+    aiPlatformCode: source.aiPlatformCode,
     backendTechStack: serializeValues(source.backendTechStack),
     description: source.description.trim() || undefined,
     developerIds: [...source.developerIds],
@@ -471,6 +503,13 @@ onMounted(async () => {
                 :options="gitAccountOptions"
               />
             </TFormItem>
+            <TFormItem label="AI平台" name="aiPlatformCode">
+              <TSelect
+                v-model="editForm.aiPlatformCode"
+                filterable
+                :options="aiPlatformOptions"
+              />
+            </TFormItem>
             <TFormItem label="测试环境" name="testEnvironmentId">
               <TSelect
                 v-model="editForm.testEnvironmentId"
@@ -529,6 +568,8 @@ onMounted(async () => {
                 / {{ selectedProject.testEnvironmentUrl }}
               </span>
             </dd>
+            <dt>AI平台</dt>
+            <dd>{{ resolveAiPlatformName(selectedProject.aiPlatformCode) }}</dd>
             <dt>前端技术栈</dt>
             <dd>{{ resolveDictionaryNames(selectedProject.frontendTechStack, frontendTechOptions) }}</dd>
             <dt>后端技术栈</dt>
@@ -581,6 +622,13 @@ onMounted(async () => {
             clearable
             filterable
             :options="gitAccountOptions"
+          />
+        </TFormItem>
+        <TFormItem label="AI平台" name="aiPlatformCode">
+          <TSelect
+            v-model="form.aiPlatformCode"
+            filterable
+            :options="aiPlatformOptions"
           />
         </TFormItem>
         <TFormItem label="测试环境" name="testEnvironmentId">

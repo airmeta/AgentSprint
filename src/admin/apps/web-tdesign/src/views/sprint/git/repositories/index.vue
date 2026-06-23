@@ -1,26 +1,10 @@
 <script lang="ts" setup>
 import type { SprintGitApi } from '#/api/sprint/git';
-import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-vue-next';
+import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
-import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
 
-import {
-  Button as TButton,
-  Dialog as TDialog,
-  Drawer as TDrawer,
-  Form as TForm,
-  FormItem as TFormItem,
-  Input as TInput,
-  Link as TLink,
-  MessagePlugin,
-  Pagination as TPagination,
-  Select as TSelect,
-  Table as TTable,
-  Tag as TTag,
-  Textarea as TTextarea,
-} from 'tdesign-vue-next';
-
+import AdminListPage from '#/components/admin-list-page/admin-list-page.vue';
 import {
   createGitBranchApi,
   createGitRepositoryApi,
@@ -32,6 +16,21 @@ import {
 } from '#/api/sprint/git';
 import { formatDateTime } from '#/views/_shared/date-format';
 import { requiredHttpUrlRule, requiredRule, validateForm } from '#/views/_shared/form-rules';
+import RowAction from '#/views/system/_shared/row-action.vue';
+import {
+  Button as TButton,
+  Dialog as TDialog,
+  Drawer as TDrawer,
+  Form as TForm,
+  FormItem as TFormItem,
+  Input as TInput,
+  MessagePlugin,
+  Select as TSelect,
+  Space as TSpace,
+  Table as TTable,
+  Tag as TTag,
+  Textarea as TTextarea,
+} from 'tdesign-vue-next';
 
 defineOptions({ name: 'SprintGitRepositories' });
 
@@ -50,6 +49,11 @@ const branchFormRef = ref<FormInstanceFunctions>();
 const repositories = ref<SprintGitApi.GitRepository[]>([]);
 const accounts = ref<SprintGitApi.GitAccount[]>([]);
 const records = ref<SprintGitApi.BranchOperation[]>([]);
+const filters = reactive({
+  gitAccountId: '',
+  keyword: '',
+  status: '',
+});
 const query = reactive({
   gitAccountId: '',
   keyword: '',
@@ -57,10 +61,9 @@ const query = reactive({
 });
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 30,
 });
 const form = reactive<SprintGitApi.SaveGitRepositoryRequest>({
-  code: '',
   defaultBranch: 'main',
   description: '',
   gitAccountId: '',
@@ -78,7 +81,6 @@ const recordQuery = reactive({
   branch: '',
 });
 const rules: FormRules<typeof form> = {
-  code: requiredRule('请输入仓库编码'),
   name: requiredRule('请输入仓库名称'),
   repositoryUrl: requiredHttpUrlRule('请输入http或https仓库地址'),
 };
@@ -95,17 +97,22 @@ const accountOptions = computed(() =>
     .map((item) => ({ label: `${item.name} (${item.username})`, value: item.id })),
 );
 const accountMap = computed(() => Object.fromEntries(accounts.value.map((item) => [item.id, item])));
-const columns: PrimaryTableCol[] = [
-  { colKey: 'serial-number', title: '序号', width: 70 },
-  { colKey: 'code', title: '仓库编码', width: 140, ellipsis: true },
+const tablePagination = computed(() => ({
+  current: pagination.current,
+  pageSize: pagination.pageSize,
+  pageSizeOptions: [30, 50, 100, 200],
+  total: repositories.value.length,
+}));
+const columns = [
+  { colKey: 'code', title: '仓库编码', width: 180, ellipsis: true },
   { colKey: 'name', title: '仓库名称', minWidth: 150, ellipsis: true },
   { colKey: 'repositoryUrl', title: '仓库地址', minWidth: 260, ellipsis: true },
   { colKey: 'defaultBranch', title: '默认分支', width: 120, ellipsis: true },
-  { colKey: 'gitAccountId', title: 'Git账户', width: 160, cell: 'gitAccountId' },
-  { colKey: 'status', title: '状态', width: 90, cell: 'status' },
-  { colKey: 'operation', title: '操作', width: 330, fixed: 'right', cell: 'operation' },
+  { colKey: 'gitAccountId', title: 'Git账户', width: 160 },
+  { colKey: 'status', title: '状态', width: 90 },
+  { colKey: 'actions', title: '操作', width: 360, fixed: 'right' as const },
 ];
-const recordColumns: PrimaryTableCol[] = [
+const recordColumns = [
   { colKey: 'serial-number', title: '序号', width: 70 },
   { colKey: 'branchName', title: '分支', width: 140, ellipsis: true },
   { colKey: 'commitHash', title: '提交', width: 120, ellipsis: true },
@@ -113,19 +120,19 @@ const recordColumns: PrimaryTableCol[] = [
   { colKey: 'pushedAt', title: '推送时间', width: 180, cell: 'pushedAt' },
   { colKey: 'status', title: '状态', width: 90, cell: 'status' },
 ];
-const pageData = computed(() => {
-  const start = (pagination.current - 1) * pagination.pageSize;
-  return repositories.value.slice(start, start + pagination.pageSize);
-});
 
 function resolveAccountName(id?: string) {
   return id ? accountMap.value[id]?.name || id : '未绑定';
 }
 
+function handlePageChange(pageInfo: { current: number; pageSize: number }) {
+  pagination.current = pageInfo.current;
+  pagination.pageSize = pageInfo.pageSize;
+}
+
 function resetForm(row?: SprintGitApi.GitRepository) {
   editingId.value = row?.id || '';
   Object.assign(form, {
-    code: row?.code || '',
     defaultBranch: row?.defaultBranch || 'main',
     description: row?.description || '',
     gitAccountId: row?.gitAccountId || '',
@@ -165,6 +172,17 @@ async function openRecords(row: SprintGitApi.GitRepository) {
   await loadRecords();
 }
 
+async function search() {
+  Object.assign(query, filters);
+  pagination.current = 1;
+  await loadRepositories();
+}
+
+async function reset() {
+  Object.assign(filters, { gitAccountId: '', keyword: '', status: '' });
+  await search();
+}
+
 async function loadRepositories() {
   loading.value = true;
   try {
@@ -176,30 +194,25 @@ async function loadRepositories() {
       }),
       listGitAccountsApi(),
     ]);
-    pagination.current = 1;
   } finally {
     loading.value = false;
   }
 }
 
-function resetQuery() {
-  query.gitAccountId = '';
-  query.keyword = '';
-  query.status = '';
-  void loadRepositories();
-}
-
 async function saveRepository() {
   if (saving.value) return;
   if (!(await validateForm(formRef.value))) return;
+
   saving.value = true;
   try {
-    const payload = {
-      ...form,
+    const payload: SprintGitApi.SaveGitRepositoryRequest = {
       defaultBranch: form.defaultBranch?.trim() || undefined,
       description: form.description?.trim() || undefined,
       gitAccountId: form.gitAccountId || undefined,
       localPath: form.localPath?.trim() || undefined,
+      name: form.name.trim(),
+      repositoryUrl: form.repositoryUrl.trim(),
+      status: form.status,
     };
     if (editingId.value) {
       await updateGitRepositoryApi(editingId.value, payload);
@@ -262,85 +275,53 @@ onMounted(loadRepositories);
 </script>
 
 <template>
-  <div class="git-page">
-    <section class="page-header">
-      <div>
-        <h2>Git仓库管理</h2>
-        <p>维护可选仓库数据源，并执行新增分支、备份删除分支和读取推送记录。</p>
-      </div>
-    </section>
-
-    <section class="query-panel">
-      <TForm :data="query" layout="inline">
-        <TFormItem label="关键字">
-          <TInput v-model="query.keyword" clearable placeholder="编码 / 名称 / 地址" />
-        </TFormItem>
-        <TFormItem label="Git账户">
-          <TSelect v-model="query.gitAccountId" clearable filterable :options="accountOptions" />
-        </TFormItem>
-        <TFormItem label="状态">
-          <TSelect v-model="query.status" clearable :options="statusOptions" />
-        </TFormItem>
-        <TFormItem>
-          <TButton theme="primary" @click="loadRepositories">查询</TButton>
-          <TButton variant="outline" @click="resetQuery">重置</TButton>
-        </TFormItem>
-      </TForm>
-    </section>
-
-    <section class="table-panel">
-      <div class="table-toolbar">
-        <h3>Git仓库列表</h3>
-        <div>
-          <TButton theme="primary" @click="openCreate">
-            <template #icon><IconifyIcon icon="lucide:plus" /></template>
-            新增
-          </TButton>
-          <TButton variant="outline" :loading="loading" @click="loadRepositories">
-            <template #icon><IconifyIcon icon="lucide:refresh-cw" /></template>
-          </TButton>
-        </div>
-      </div>
-      <TTable row-key="id" :columns="columns" :data="pageData" :loading="loading" hover>
-        <template #gitAccountId="{ row }">
-          {{ resolveAccountName(row.gitAccountId) }}
-        </template>
-        <template #status="{ row }">
-          <TTag :theme="row.status === 'active' ? 'success' : 'default'" variant="light">
-            {{ row.status === 'active' ? '启用' : '停用' }}
-          </TTag>
-        </template>
-        <template #operation="{ row }">
-          <div class="row-actions">
-            <TLink theme="primary" @click="openEdit(row)">
-              <IconifyIcon icon="lucide:pencil" />
-              编辑
-            </TLink>
-            <TLink theme="primary" @click="openBranch(row, 'create')">
-              <IconifyIcon icon="lucide:git-branch-plus" />
-              新增分支
-            </TLink>
-            <TLink theme="danger" @click="openBranch(row, 'delete')">
-              <IconifyIcon icon="lucide:trash-2" />
-              删除分支
-            </TLink>
-            <TLink theme="primary" @click="openRecords(row)">
-              <IconifyIcon icon="lucide:list-tree" />
-              推送记录
-            </TLink>
-          </div>
-        </template>
-      </TTable>
-      <div class="pagination-bar">
-        <span>共计 {{ repositories.length }} 条数据</span>
-        <TPagination
-          v-model="pagination.current"
-          v-model:page-size="pagination.pageSize"
-          :total="repositories.length"
-          show-jumper
-        />
-      </div>
-    </section>
+  <div>
+    <AdminListPage
+      title="Git仓库管理"
+      description="维护可选仓库数据源，并执行新增分支、备份删除分支和读取推送记录。仓库编码由后台自动生成。"
+      table-title="Git仓库列表"
+      add-button-text="新增仓库"
+      :columns="columns"
+      :data="repositories"
+      :loading="loading"
+      :pagination="tablePagination"
+      @add="openCreate"
+      @page-change="handlePageChange"
+      @refresh="loadRepositories"
+      @reset="reset"
+      @search="search"
+    >
+      <template #filters>
+        <label class="filter-field">
+          <span>仓库信息</span>
+          <TInput v-model="filters.keyword" clearable placeholder="编码 / 名称 / 地址" />
+        </label>
+        <label class="filter-field">
+          <span>Git账户</span>
+          <TSelect v-model="filters.gitAccountId" clearable filterable placeholder="全部账户" :options="accountOptions" />
+        </label>
+        <label class="filter-field">
+          <span>状态</span>
+          <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+        </label>
+      </template>
+      <template #gitAccountId="{ row }">
+        {{ resolveAccountName(row?.gitAccountId) }}
+      </template>
+      <template #status="{ row }">
+        <TTag :theme="row?.status === 'active' ? 'success' : 'default'" variant="light">
+          {{ row?.status === 'active' ? '启用' : '停用' }}
+        </TTag>
+      </template>
+      <template #actions="{ row }">
+        <TSpace break-line>
+          <RowAction icon="lucide:pencil" label="编辑" theme="primary" @click="openEdit(row)" />
+          <RowAction icon="lucide:git-branch-plus" label="新增分支" theme="primary" @click="openBranch(row, 'create')" />
+          <RowAction icon="lucide:trash-2" label="删除分支" theme="danger" @click="openBranch(row, 'delete')" />
+          <RowAction icon="lucide:list-tree" label="推送记录" theme="primary" @click="openRecords(row)" />
+        </TSpace>
+      </template>
+    </AdminListPage>
 
     <TDrawer
       v-model:visible="drawerVisible"
@@ -350,9 +331,6 @@ onMounted(loadRepositories);
       @confirm="saveRepository"
     >
       <TForm ref="formRef" :data="form" :rules="rules" label-width="100px">
-        <TFormItem label="仓库编码" name="code">
-          <TInput v-model="form.code" :disabled="!!editingId" placeholder="AGENTSPRINT" />
-        </TFormItem>
         <TFormItem label="仓库名称" name="name">
           <TInput v-model="form.name" placeholder="AgentSprint主仓库" />
         </TFormItem>
@@ -426,62 +404,31 @@ onMounted(loadRepositories);
 </template>
 
 <style scoped>
-.git-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-}
-
-.page-header,
-.query-panel,
-.table-panel {
-  padding: 16px 20px;
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.page-header h2,
-.page-header p,
-.table-toolbar h3 {
-  margin: 0;
-}
-
-.page-header p {
-  margin-top: 6px;
+.filter-field {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 260px);
+  gap: 8px;
+  align-items: center;
   color: var(--td-text-color-secondary);
 }
 
-.table-toolbar,
-.pagination-bar,
 .records-query {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-}
-
-.table-toolbar {
   margin-bottom: 12px;
 }
 
-.table-toolbar > div,
-.row-actions {
-  display: flex;
-  gap: 8px;
-}
+@media (max-width: 760px) {
+  .filter-field {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 
-.row-actions {
-  flex-wrap: wrap;
-}
-
-.pagination-bar {
-  margin-top: 12px;
-  color: var(--td-text-color-secondary);
-}
-
-.records-query {
-  margin-bottom: 12px;
+  .records-query {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>
