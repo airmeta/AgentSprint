@@ -6,15 +6,16 @@ import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 
 import {
   Button as TButton,
+  Divider as TDivider,
   Drawer as TDrawer,
-  Form as TForm,
-  FormItem as TFormItem,
   Input as TInput,
   Link as TLink,
   MessagePlugin,
   Select as TSelect,
   Space as TSpace,
   Table as TTable,
+  Tabs as TTabs,
+  TabPanel as TTabPanel,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next';
@@ -63,6 +64,7 @@ const filters = reactive({
 const reviewForm = reactive({
   comment: '',
 });
+const activeReviewTab = ref<string>('content');
 const pagination = reactive({
   current: 1,
   pageSize: 30,
@@ -387,8 +389,11 @@ onActivated(loadReviews);
       drawer-class-name="review-drawer"
     >
       <section v-if="current" class="review-preview compact">
-        <div class="review-preview__body">
-          <div class="review-preview__header">
+        <div class="review-preview__body review-content-area">
+          <TTabs v-model="activeReviewTab" class="review-tabs" theme="card" :destroy-on-hide="false">
+            <TTabPanel value="content" label="评审内容">
+              <div class="review-tab-panel">
+                <div class="review-preview__header">
             <TTag :theme="reviewStatusTheme[resolveCurrentReviewStatus(current)]" variant="light">
               {{ reviewStatusText[resolveCurrentReviewStatus(current)] }}
             </TTag>
@@ -416,36 +421,47 @@ onActivated(loadReviews);
               placeholder="暂无需求内容"
             />
           </div>
-          <TForm :data="reviewForm" class="review-decision-form" label-width="80px">
-            <TFormItem label="意见">
-              <TTextarea v-model="reviewForm.comment" placeholder="填写评审意见" />
-            </TFormItem>
-          </TForm>
-          <div class="dialog-actions">
-            <TButton theme="danger" @click="reject">
-              <template #icon>
-                <IconifyIcon icon="lucide:x" />
-              </template>
-              驳回
-            </TButton>
-            <TButton theme="primary" @click="approve">
-              <template #icon>
-                <IconifyIcon icon="lucide:check" />
-              </template>
-              通过
-            </TButton>
-          </div>
+              </div>
+            </TTabPanel>
+            <TTabPanel value="progress" label="评审进度">
+              <div class="review-tab-panel">
+                <h4 class="review-tab-panel__title">评审进度</h4>
+                <div class="review-list">
+                  <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
+                    <TTag :theme="reviewStatusTheme[review.status]" variant="light">
+                      {{ reviewStatusText[review.status] || review.status }}
+                    </TTag>
+                    <strong>{{ review.reviewerId }}</strong>
+                    <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
+                    <p>{{ review.comment || '暂无意见' }}</p>
+                  </div>
+                </div>
+              </div>
+            </TTabPanel>
+          </TTabs>
         </div>
-        <section class="review-progress">
-          <h4>评审进度</h4>
-          <div class="review-list">
-            <div v-for="review in current.reviews" :key="review.id" class="review-list__item">
-              <TTag :theme="reviewStatusTheme[review.status]" variant="light">
-                {{ reviewStatusText[review.status] || review.status }}
-              </TTag>
-              <strong>{{ review.reviewerId }}</strong>
-              <span>{{ formatDateTime(review.reviewedAt || review.createTime) }}</span>
-              <p>{{ review.comment || '暂无意见' }}</p>
+        <TDivider class="review-divider" />
+        <section class="review-audit-area">
+          <div class="review-audit-card">
+            <TTextarea
+              v-model="reviewForm.comment"
+              class="review-audit-card__input"
+              placeholder="填写评审意见"
+              :autosize="{ minRows: 2, maxRows: 6 }"
+            />
+            <div class="review-audit-card__actions">
+              <TButton theme="danger" :loading="rejecting" @click="reject">
+                <template #icon>
+                  <IconifyIcon icon="lucide:x" />
+                </template>
+                驳回
+              </TButton>
+              <TButton theme="primary" :loading="approving" @click="approve">
+                <template #icon>
+                  <IconifyIcon icon="lucide:check" />
+                </template>
+                通过
+              </TButton>
             </div>
           </div>
         </section>
@@ -474,7 +490,7 @@ onActivated(loadReviews);
 
 .review-preview__body {
   display: flex;
-  height: calc(100% - 200px);
+  height: 100%;
   min-height: 0;
   flex-direction: column;
   overflow: auto;
@@ -515,10 +531,6 @@ onActivated(loadReviews);
   flex: 1;
 }
 
-.review-decision-form {
-  margin-top: 16px;
-}
-
 .review-progress {
   height: 200px;
   min-height: 0;
@@ -553,5 +565,89 @@ onActivated(loadReviews);
 .dialog-actions {
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.review-content-area {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.review-tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.review-tabs :deep(.t-tabs__nav) {
+  flex-shrink: 0;
+}
+
+.review-tabs :deep(.t-tabs__content) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding-top: 8px;
+}
+
+.review-tabs :deep(.t-tab-panel) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.review-tab-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.review-tab-panel__title {
+  margin-bottom: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-divider {
+  flex-shrink: 0;
+  margin: 8px 0;
+}
+
+.review-audit-area {
+  flex-shrink: 0;
+  padding: 12px 0 4px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.review-audit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--td-bg-color-container, #fff);
+  border: 1px solid var(--td-component-stroke, var(--td-component-border));
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.review-audit-card__input :deep(.t-textarea),
+.review-audit-card__input :deep(textarea),
+.review-audit-card__input :deep(.t-textarea__inner) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.review-audit-card__actions {
+  display: flex;
+  gap: 12px;
+  align-self: flex-end;
+  justify-content: flex-end;
 }
 </style>
