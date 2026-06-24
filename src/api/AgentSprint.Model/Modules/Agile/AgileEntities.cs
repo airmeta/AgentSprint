@@ -414,6 +414,9 @@ public sealed class SprintRequirementReviewEntity : EntityBase
     [MaxLength(512)]
     public string? Comment { get; set; }
 
+    [MaxLength(1024)]
+    public string? SubmitReason { get; set; }
+
     public DateTime? ReviewedAt { get; set; }
 }
 

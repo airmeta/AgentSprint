@@ -131,6 +131,7 @@ const requirementForm = reactive({
   title: '',
 });
 const reviewForm = reactive({
+  reason: '',
   reviewerIds: [] as string[],
 });
 const decomposeForm = reactive({
@@ -168,6 +169,7 @@ const requirementRules: FormRules<typeof requirementForm> = {
   title: requiredRule('请输入需求标题'),
 };
 const reviewRules: FormRules<typeof reviewForm> = {
+  reason: requiredRule('请输入提交缘由'),
   reviewerIds: requiredArrayRule('请选择评审人'),
 };
 const feedbackRules: FormRules<typeof feedbackForm> = {
@@ -691,6 +693,7 @@ async function openDetail(requirement: SprintMvpApi.Requirement) {
 
 function openReview(requirement: SprintMvpApi.Requirement) {
   selectedRequirement.value = requirement;
+  reviewForm.reason = '';
   reviewForm.reviewerIds = users.value
     .filter((user) => requirement.stakeholders?.includes(user.username) || user.username === 'admin')
     .map((user) => user.id);
@@ -1076,7 +1079,10 @@ async function submitReview() {
 
   reviewSubmitting.value = true;
   try {
-    await submitRequirementReviewApi(selectedRequirement.value.id, { reviewerIds });
+    await submitRequirementReviewApi(selectedRequirement.value.id, {
+      reason: reviewForm.reason,
+      reviewerIds,
+    });
     MessagePlugin.success('已提交需求评审');
     reviewVisible.value = false;
     await loadRequirements();
@@ -1975,9 +1981,8 @@ onActivated(async () => {
       </template>
     </TDrawer>
 
-    <TDrawer
+    <TDialog
       v-model:visible="reviewVisible"
-      :size="'40%'"
       header="提交需求评审"
       :confirm-btn="{ content: '提交', loading: reviewSubmitting }"
       @confirm="submitReview"
@@ -1991,8 +1996,15 @@ onActivated(async () => {
             placeholder="选择评审人"
           />
         </TFormItem>
+        <TFormItem label="提交缘由" name="reason">
+          <TTextarea
+            v-model="reviewForm.reason"
+            placeholder="填写本次提交评审的背景、变更点或需要重点关注的问题"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+          />
+        </TFormItem>
       </TForm>
-    </TDrawer>
+    </TDialog>
 
     <TDrawer
       v-model:visible="decomposeVisible"

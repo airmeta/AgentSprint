@@ -157,7 +157,7 @@ public sealed record CreateSprintRequirementRequest(
 
 public sealed record RejectSprintRequirementRequest(string? Reason);
 
-public sealed record SubmitSprintRequirementReviewRequest(IReadOnlyList<string> ReviewerIds);
+public sealed record SubmitSprintRequirementReviewRequest(IReadOnlyList<string> ReviewerIds, string? Reason = null);
 
 public sealed record DecideSprintRequirementReviewRequest(string? Comment);
 
@@ -390,6 +390,7 @@ public sealed record SprintRequirementReviewResult(
     string ReviewerId,
     string Status,
     string? Comment,
+    string? SubmitReason,
     DateTime? ReviewedAt,
     DateTime CreateTime);
 

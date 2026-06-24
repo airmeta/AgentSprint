@@ -1080,6 +1080,51 @@ public sealed class AgileMvpServiceTests
     }
 
     [Fact]
+    public async Task ListMyPendingReviewsAsync_ReturnsHistoricalReviewsByStatus()
+    {
+        var service = CreateService();
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-REVIEW-HISTORY", "Review history"),
+            "pm-1");
+        var approvedRequirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Approved review history", "Approved item", 1),
+            "po-1");
+        var rejectedRequirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Rejected review history", "Rejected item", 1),
+            "po-1");
+        await service.SubmitRequirementReviewAsync(
+            approvedRequirement.Id,
+            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            "po-1");
+        await service.SubmitRequirementReviewAsync(
+            rejectedRequirement.Id,
+            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            "po-1");
+        await service.ApproveRequirementReviewAsync(
+            approvedRequirement.Id,
+            "arch-1",
+            new DecideSprintRequirementReviewRequest("ok"));
+        await service.RejectRequirementReviewAsync(
+            rejectedRequirement.Id,
+            "arch-1",
+            new DecideSprintRequirementReviewRequest("missing acceptance criteria"));
+
+        var approvedReviews = await service.ListMyPendingReviewsAsync(
+            "arch-1",
+            project.Id,
+            SprintRequirementReviewStatuses.Approved);
+        var rejectedReviews = await service.ListMyPendingReviewsAsync(
+            "arch-1",
+            project.Id,
+            SprintRequirementReviewStatuses.Rejected);
+        var pendingReviews = await service.ListMyPendingReviewsAsync("arch-1", project.Id);
+
+        Assert.Single(approvedReviews, item => item.Requirement.Id == approvedRequirement.Id);
+        Assert.Single(rejectedReviews, item => item.Requirement.Id == rejectedRequirement.Id);
+        Assert.Empty(pendingReviews);
+    }
+
+    [Fact]
     public async Task ListDevelopmentTasksAsync_DoesNotRepairApprovedReviewIntoGeneratedTasks()
     {
         var requirementDomain = new InMemorySprintRequirementDomain();
@@ -1666,7 +1711,7 @@ public sealed class AgileMvpServiceTests
 
         requirement = await service.SubmitRequirementReviewAsync(
             requirement.Id,
-            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            new SubmitSprintRequirementReviewRequest(["arch-1"], "Initial review request."),
             "po-1");
         await service.RejectRequirementReviewAsync(
             requirement.Id,
@@ -1678,6 +1723,7 @@ public sealed class AgileMvpServiceTests
         var review = Assert.Single(reviews);
         Assert.Equal(SprintRequirementReviewStatuses.Rejected, review.Status);
         Assert.Equal("Acceptance criteria are incomplete.", review.Comment);
+        Assert.Equal("Initial review request.", review.SubmitReason);
         Assert.Equal("arch-1", review.ReviewerId);
     }
 
@@ -1694,7 +1740,7 @@ public sealed class AgileMvpServiceTests
             "po-1");
         await service.SubmitRequirementReviewAsync(
             requirement.Id,
-            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            new SubmitSprintRequirementReviewRequest(["arch-1"], "First submission."),
             "po-1");
         await service.RejectRequirementReviewAsync(
             requirement.Id,
@@ -1703,7 +1749,7 @@ public sealed class AgileMvpServiceTests
 
         var resubmitted = await service.SubmitRequirementReviewAsync(
             requirement.Id,
-            new SubmitSprintRequirementReviewRequest(["arch-1"]),
+            new SubmitSprintRequirementReviewRequest(["arch-1"], "Updated submission reason."),
             "po-1");
 
         Assert.Equal(SprintRequirementStatuses.PendingReview, resubmitted.Status);
@@ -1712,6 +1758,7 @@ public sealed class AgileMvpServiceTests
         Assert.Equal("arch-1", review.ReviewerId);
         Assert.Equal(SprintRequirementReviewStatuses.Pending, review.Status);
         Assert.Null(review.Comment);
+        Assert.Equal("Updated submission reason.", review.SubmitReason);
         Assert.Null(review.ReviewedAt);
         Assert.Equal(0, review.IsDelete);
     }

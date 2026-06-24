@@ -885,6 +885,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             throw new InvalidOperationException("At least one reviewer is required.");
         }
 
+        var submitReason = NormalizeOptional(request.Reason);
         var reviewerIdSet = reviewerIds.ToHashSet(StringComparer.Ordinal);
         var existing = await _reviewDomain.ListIncludingDeletedAsync(review => review.RequirementId == id);
         foreach (var review in existing.Where(review => review.IsDelete == 0 && !reviewerIdSet.Contains(review.ReviewerId)))
@@ -901,7 +902,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 {
                     ProjectId = entity.ProjectId,
                     RequirementId = entity.Id,
-                    ReviewerId = reviewerId
+                    ReviewerId = reviewerId,
+                    SubmitReason = submitReason
                 });
             }
             else
@@ -911,6 +913,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 review.ReviewerId = reviewerId;
                 review.Status = SprintRequirementReviewStatuses.Pending;
                 review.Comment = null;
+                review.SubmitReason = submitReason;
                 review.ReviewedAt = null;
                 review.IsDelete = 0;
                 await _reviewDomain.UpdateAsync(review);
@@ -935,16 +938,23 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var normalizedProjectId = NormalizeOptional(projectId);
         var normalizedStatus = NormalizeOptional(status);
         var normalizedKeyword = NormalizeOptional(keyword);
+        var reviewStatus = normalizedStatus ?? SprintRequirementReviewStatuses.Pending;
         var reviews = await _reviewDomain.ListAsync(entity =>
             entity.ReviewerId == reviewerId &&
-            entity.Status == SprintRequirementReviewStatuses.Pending &&
+            entity.Status == reviewStatus &&
             (string.IsNullOrWhiteSpace(normalizedProjectId) || entity.ProjectId == normalizedProjectId));
         var results = new List<SprintRequirementReviewItemResult>();
 
         foreach (var group in reviews.GroupBy(entity => entity.RequirementId))
         {
             var requirement = await _requirementDomain.GetAsync(group.Key);
-            if (requirement is null || requirement.Status != SprintRequirementStatuses.PendingReview)
+            if (requirement is null)
+            {
+                continue;
+            }
+
+            if (reviewStatus == SprintRequirementReviewStatuses.Pending &&
+                requirement.Status != SprintRequirementStatuses.PendingReview)
             {
                 continue;
             }
@@ -960,9 +970,10 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
                 await ToRequirementResultAsync(requirement),
                 ToResult(project),
                 allReviews.OrderBy(entity => entity.CreateTime).Select(ToResult).ToList());
-            var currentStatus = ResolveCurrentReviewStatus(result);
             if (!string.IsNullOrWhiteSpace(normalizedStatus) &&
-                !string.Equals(currentStatus, normalizedStatus, StringComparison.OrdinalIgnoreCase))
+                !result.Reviews.Any(review =>
+                    string.Equals(review.ReviewerId, reviewerId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(review.Status, normalizedStatus, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -3016,6 +3027,7 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             entity.ReviewerId,
             entity.Status,
             entity.Comment,
+            entity.SubmitReason,
             entity.ReviewedAt,
             entity.CreateTime);
     }

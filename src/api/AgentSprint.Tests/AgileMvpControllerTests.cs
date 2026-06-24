@@ -737,6 +737,7 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
                 "arch-1",
                 SprintRequirementReviewStatuses.Rejected,
                 "Need clearer acceptance criteria.",
+                "Initial submission.",
                 DateTime.UtcNow,
                 DateTime.UtcNow)
         ];

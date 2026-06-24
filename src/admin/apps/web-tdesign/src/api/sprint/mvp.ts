@@ -107,6 +107,7 @@ export namespace SprintMvpApi {
   }
 
   export interface SubmitReviewRequest {
+    reason: string;
     reviewerIds: string[];
   }
 
@@ -286,6 +287,7 @@ export namespace SprintMvpApi {
     reviewedAt?: string;
     reviewerId: string;
     status: string;
+    submitReason?: string;
   }
 
   export interface RequirementReviewItem {
