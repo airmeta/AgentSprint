@@ -220,6 +220,70 @@ public sealed class AgentSprintApiClient
             cancellationToken);
     }
 
+    public Task<CodeAuditTaskDetailResult> GetCodeAuditTaskAsync(
+        string taskId,
+        CancellationToken cancellationToken)
+    {
+        return GetAsync<CodeAuditTaskDetailResult>(
+            $"worker-runtime/code-audit/{Uri.EscapeDataString(taskId)}",
+            cancellationToken);
+    }
+
+    public Task<CodeAuditExecutionContextResult> GetCodeAuditExecutionContextAsync(
+        string taskId,
+        CancellationToken cancellationToken)
+    {
+        return GetAsync<CodeAuditExecutionContextResult>(
+            $"worker-runtime/code-audit/{Uri.EscapeDataString(taskId)}/context",
+            cancellationToken);
+    }
+
+    public Task<CodeAuditTaskResult> MarkCodeAuditTaskRunningAsync(
+        string taskId,
+        string? workerRunId,
+        CancellationToken cancellationToken)
+    {
+        var suffix = string.IsNullOrWhiteSpace(workerRunId)
+            ? string.Empty
+            : $"?workerRunId={Uri.EscapeDataString(workerRunId)}";
+        return PostAsync<object, CodeAuditTaskResult>(
+            $"worker-runtime/code-audit/{Uri.EscapeDataString(taskId)}/running{suffix}",
+            new { },
+            cancellationToken);
+    }
+
+    public Task<CodeAuditExecutionContextResult> PrepareCodeAuditExecutionContextAsync(
+        string taskId,
+        PrepareCodeAuditContextRequest request,
+        CancellationToken cancellationToken)
+    {
+        return PostAsync<PrepareCodeAuditContextRequest, CodeAuditExecutionContextResult>(
+            $"worker-runtime/code-audit/{Uri.EscapeDataString(taskId)}/prepared",
+            request,
+            cancellationToken);
+    }
+
+    public Task<CodeAuditFileIndexSyncResult> SyncCodeAuditFileIndexAsync(
+        SyncCodeAuditFileIndexRequest request,
+        CancellationToken cancellationToken)
+    {
+        return PostAsync<SyncCodeAuditFileIndexRequest, CodeAuditFileIndexSyncResult>(
+            "worker-runtime/code-audit/file-index/sync",
+            request,
+            cancellationToken);
+    }
+
+    public Task<CodeAuditTaskDetailResult> CompleteCodeAuditTaskAsync(
+        string taskId,
+        CompleteCodeAuditTaskRequest request,
+        CancellationToken cancellationToken)
+    {
+        return PostAsync<CompleteCodeAuditTaskRequest, CodeAuditTaskDetailResult>(
+            $"worker-runtime/code-audit/{Uri.EscapeDataString(taskId)}/complete",
+            request,
+            cancellationToken);
+    }
+
     private async Task<TResponse> PostAsync<TRequest, TResponse>(
         string path,
         TRequest request,

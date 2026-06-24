@@ -17,6 +17,7 @@ export namespace AutomationApi {
     | 'cancel_current_run'
     | 'reload_config'
     | 'smoke'
+    | 'code_audit_index_sync'
     | 'start_bug'
     | 'start_task'
     | 'stop_after_current';

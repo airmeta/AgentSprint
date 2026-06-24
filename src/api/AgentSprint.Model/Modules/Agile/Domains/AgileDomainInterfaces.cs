@@ -35,6 +35,12 @@ public interface ISprintBugDomain : IEntityDomainBase<SprintBugEntity>;
 
 public interface ISprintTaskLeaseDomain : IEntityDomainBase<SprintTaskLeaseEntity>;
 
+public interface ICodeAuditTaskDomain : IEntityDomainBase<CodeAuditTaskEntity>;
+
+public interface ICodeAuditResultDomain : IEntityDomainBase<CodeAuditResultEntity>;
+
+public interface ICodeAuditFileDomain : IEntityDomainBase<CodeAuditFileEntity>;
+
 public interface IDigitalWorkerDomain : IEntityDomainBase<DigitalWorkerEntity>;
 
 public interface IWorkerSessionDomain : IEntityDomainBase<WorkerSessionEntity>;

@@ -248,6 +248,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
             return await HandleControlCommandAsync(command, sessionId, stoppingToken);
         }
 
+        if (command.CommandType == WorkerPlatformCommandTypes.CodeAuditIndexSync)
+        {
+            await RunCodeAuditIndexSyncAsync(command, sessionId, stoppingToken);
+            return !_stopAfterCurrent;
+        }
+
         if (!snapshot.CanEnterWorkLoop || !snapshot.IsCodexAuthenticated)
         {
             WorkerDiagnostics.Warn(
@@ -277,6 +283,12 @@ public sealed class AgentSprintWorkerService : BackgroundService
         if (command.CommandType is WorkerPlatformCommandTypes.StartTask or WorkerPlatformCommandTypes.StartBug)
         {
             await RunAssignedWorkAsync(command, sessionId, snapshot, stoppingToken);
+            return !_stopAfterCurrent;
+        }
+
+        if (command.CommandType == WorkerPlatformCommandTypes.CodeAudit)
+        {
+            await RunCodeAuditAsync(command, sessionId, stoppingToken);
             return !_stopAfterCurrent;
         }
 
@@ -311,6 +323,111 @@ public sealed class AgentSprintWorkerService : BackgroundService
             $"Unsupported worker command type: {command.CommandType}.",
             stoppingToken);
         return true;
+    }
+
+    private async Task RunCodeAuditIndexSyncAsync(
+        WorkerCommandResult command,
+        string sessionId,
+        CancellationToken stoppingToken)
+    {
+        var payload = ParsePayload(command.PayloadJson);
+        var projectId = ReadPayloadString(payload, "projectId", "project_id");
+        var projectCode = ReadPayloadString(payload, "projectCode", "project_code");
+        var gitRepositoryId = ReadPayloadString(payload, "gitRepositoryId", "git_repository_id");
+        var repositoryUrl = ReadPayloadString(payload, "repositoryUrl", "repository_url");
+        var branch = ReadPayloadString(payload, "branch") ?? "main";
+        var gitUsername = ReadPayloadString(payload, "gitUsername", "git_username");
+        var gitAccessToken = ReadPayloadString(payload, "gitAccessToken", "git_access_token");
+
+        if (string.IsNullOrWhiteSpace(projectId) ||
+            string.IsNullOrWhiteSpace(gitRepositoryId) ||
+            string.IsNullOrWhiteSpace(projectCode) ||
+            string.IsNullOrWhiteSpace(repositoryUrl))
+        {
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "code_audit_index_sync",
+                null,
+                projectId,
+                null,
+                "Code audit index sync payload requires projectId, projectCode, gitRepositoryId, and repositoryUrl.",
+                stoppingToken);
+            return;
+        }
+
+        await _apiClient.StartCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
+        var workspaceResult = await _gitWorkspaceManager.PrepareAsync(
+            _options.WorkspaceRoot,
+            projectCode,
+            repositoryUrl,
+            branch,
+            gitUsername,
+            gitAccessToken,
+            null,
+            null,
+            stoppingToken);
+        if (!workspaceResult.Succeeded || !workspaceResult.RepositoryAvailable || workspaceResult.Dirty)
+        {
+            var reason = workspaceResult.Error ?? "Workspace preparation failed for code audit index sync.";
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "code_audit_index_sync",
+                null,
+                projectId,
+                workspaceResult.WorkspacePath,
+                reason,
+                stoppingToken);
+            return;
+        }
+
+        var platformRun = await _apiClient.StartRunAsync(
+            new StartWorkerRunRequest(
+                _options.WorkerId,
+                sessionId,
+                "code_audit_index_sync",
+                WorkerPlatformStatuses.Running,
+                command.Id,
+                "project",
+                projectId,
+                workspaceResult.WorkspacePath,
+                null,
+                null,
+                null,
+                null,
+                null),
+            stoppingToken);
+        try
+        {
+            var files = await BuildRepositoryFileIndexAsync(workspaceResult.WorkspacePath, stoppingToken);
+            var syncResult = await _apiClient.SyncCodeAuditFileIndexAsync(
+                new SyncCodeAuditFileIndexRequest(
+                    projectId,
+                    gitRepositoryId,
+                    workspaceResult.Branch ?? branch,
+                    workspaceResult.Commit,
+                    files),
+                stoppingToken);
+            await _apiClient.FinishRunAsync(
+                platformRun.Id,
+                new FinishWorkerRunRequest(
+                    WorkerPlatformStatuses.Success,
+                    0,
+                    TimedOut: false,
+                    Error: null,
+                    ResultJson: JsonSerializer.Serialize(syncResult, JsonOptions)),
+                CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await _apiClient.FinishRunAsync(
+                platformRun.Id,
+                new FinishWorkerRunRequest(WorkerPlatformStatuses.CodexFailed, null, false, ex.Message, null),
+                CancellationToken.None);
+        }
     }
 
     private async Task<bool> HandleControlCommandAsync(
@@ -365,6 +482,276 @@ public sealed class AgentSprintWorkerService : BackgroundService
                 ResultJson: JsonSerializer.Serialize(new { message }, JsonOptions)),
             CancellationToken.None);
         return shouldContinue;
+    }
+
+    private async Task RunCodeAuditAsync(
+        WorkerCommandResult command,
+        string sessionId,
+        CancellationToken stoppingToken)
+    {
+        var payload = ParsePayload(command.PayloadJson);
+        var auditTaskId = ReadPayloadString(payload, "auditTaskId", "audit_task_id");
+        if (string.IsNullOrWhiteSpace(auditTaskId))
+        {
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "code_audit",
+                null,
+                null,
+                null,
+                "Code audit command payload is missing auditTaskId.",
+                stoppingToken);
+            return;
+        }
+
+        await using var logStreamer = new WorkerCommandLogStreamer(
+            _apiClient,
+            _akkaClusterService,
+            _options.WorkerId,
+            command.Id,
+            sessionId,
+            _options.WorkerName,
+            DateTime.UtcNow);
+        logStreamer.Append("worker", $"Command {command.Id} accepted. RunType=code_audit, TargetId={auditTaskId}");
+        await _apiClient.StartCommandAsync(command.Id, new AckWorkerCommandRequest(sessionId), stoppingToken);
+        logStreamer.Append("worker", "Platform command marked as running.");
+
+        CodeAuditExecutionContextResult context;
+        try
+        {
+            context = await _apiClient.GetCodeAuditExecutionContextAsync(auditTaskId, stoppingToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "code_audit",
+                "code_audit",
+                auditTaskId,
+                null,
+                ex.Message,
+                stoppingToken);
+            await logStreamer.CompleteAsync(null, CancellationToken.None);
+            return;
+        }
+
+        var runId = $"code-audit-{auditTaskId}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+        var workspaceResult = await _gitWorkspaceManager.PrepareAsync(
+            _options.WorkspaceRoot,
+            context.ProjectCode,
+            context.RepositoryUrl,
+            context.Task.Branch ?? context.RepositoryDefaultBranch,
+            context.GitUsername,
+            context.GitAccessToken,
+            context.GitCommitAuthorName,
+            context.GitCommitAuthorEmail,
+            stoppingToken);
+        logStreamer.Append("worker", $"Workspace prepared. Succeeded={workspaceResult.Succeeded}, Path={workspaceResult.WorkspacePath}, Dirty={workspaceResult.Dirty}");
+
+        if (!workspaceResult.Succeeded || !workspaceResult.RepositoryAvailable || workspaceResult.Dirty)
+        {
+            var reason = !workspaceResult.Succeeded
+                ? workspaceResult.Error ?? "Workspace preparation failed."
+                : !workspaceResult.RepositoryAvailable
+                    ? "Project repository is not configured."
+                    : "Workspace is dirty before code audit.";
+            var failedRun = await FinishFailedRunWithoutCodexAsync(
+                command,
+                sessionId,
+                WorkerPlatformStatuses.Blocked,
+                "code_audit",
+                "code_audit",
+                auditTaskId,
+                workspaceResult.WorkspacePath,
+                reason,
+                stoppingToken);
+            await ReportWorkspacePreparedAsync(sessionId, failedRun.Id, workspaceResult, CancellationToken.None);
+            await CompleteBlockedCodeAuditAsync(auditTaskId, failedRun.Id, context, workspaceResult, reason);
+            await logStreamer.CompleteAsync(failedRun.Id, CancellationToken.None);
+            return;
+        }
+
+        var gitContext = await GitWorkspaceManager.BuildCodeAuditContextAsync(
+            workspaceResult.WorkspacePath,
+            context.SourceCommitId,
+            context.ChangedFilesJson,
+            stoppingToken);
+        logStreamer.Append(
+            "worker",
+            $"Git audit context prepared. Base={gitContext.BaseCommitId}, Head={gitContext.HeadCommitId}, CurrentHead={gitContext.CurrentBranchHeadCommitId}, Warning={gitContext.Warning ?? string.Empty}");
+        context = await _apiClient.PrepareCodeAuditExecutionContextAsync(
+            auditTaskId,
+            new PrepareCodeAuditContextRequest(
+                WorkerRunId: null,
+                Branch: gitContext.Branch ?? workspaceResult.Branch,
+                BaseCommitId: gitContext.BaseCommitId,
+                HeadCommitId: gitContext.HeadCommitId,
+                CurrentBranchHeadCommitId: gitContext.CurrentBranchHeadCommitId,
+                ChangedFilesJson: gitContext.ChangedFilesJson,
+                Diff: gitContext.Diff,
+                CodeContext: gitContext.CodeContext,
+                SourceCommitReachable: gitContext.SourceCommitReachable,
+                SourceCommitBehindHead: gitContext.SourceCommitBehindHead,
+                Warning: gitContext.Warning),
+            stoppingToken);
+
+        var paths = _runLogger.ResolvePaths(runId);
+        WorkerRunResult? platformRun = null;
+        CancellationTokenSource? runCancellation = null;
+        Task? heartbeatTask = null;
+        try
+        {
+            platformRun = await _apiClient.StartRunAsync(
+                new StartWorkerRunRequest(
+                    _options.WorkerId,
+                    sessionId,
+                    "code_audit",
+                    WorkerPlatformStatuses.Running,
+                    command.Id,
+                    "code_audit",
+                    auditTaskId,
+                    workspaceResult.WorkspacePath,
+                    paths.PromptPath,
+                    paths.StdoutPath,
+                    paths.StderrPath,
+                    paths.FinalPath,
+                    paths.ManifestPath),
+                stoppingToken);
+            logStreamer.SetRun(platformRun.Id);
+            await _apiClient.MarkCodeAuditTaskRunningAsync(auditTaskId, platformRun.Id, stoppingToken);
+            context = await _apiClient.PrepareCodeAuditExecutionContextAsync(
+                auditTaskId,
+                new PrepareCodeAuditContextRequest(
+                    WorkerRunId: platformRun.Id,
+                    Branch: gitContext.Branch ?? workspaceResult.Branch,
+                    BaseCommitId: gitContext.BaseCommitId,
+                    HeadCommitId: gitContext.HeadCommitId,
+                    CurrentBranchHeadCommitId: gitContext.CurrentBranchHeadCommitId,
+                    ChangedFilesJson: gitContext.ChangedFilesJson,
+                    Diff: gitContext.Diff,
+                    CodeContext: gitContext.CodeContext,
+                    SourceCommitReachable: gitContext.SourceCommitReachable,
+                    SourceCommitBehindHead: gitContext.SourceCommitBehindHead,
+                    Warning: gitContext.Warning),
+                stoppingToken);
+            await ReportWorkspacePreparedAsync(sessionId, platformRun.Id, workspaceResult, stoppingToken);
+            await ReportEventAsync(sessionId, platformRun.Id, "codex_started", "info", "Code audit run started.", stoppingToken);
+
+            var executionPrompt = BuildCodeAuditExecutionPrompt(context, _options, runId, workspaceResult.WorkspacePath, paths, workspaceResult);
+            var request = new CodexRunRequest(
+                runId,
+                workspaceResult.WorkspacePath,
+                executionPrompt,
+                _options.SandboxMode,
+                SkipGitRepoCheck: false,
+                TimeSpan.FromMinutes(_options.MaxRunMinutes),
+                TimeSpan.FromSeconds(_options.CodexIdleTimeoutSeconds),
+                _options.CodexExecutable);
+            runCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            heartbeatTask = MaintainBusyHeartbeatAsync(sessionId, platformRun.Id, runCancellation, stoppingToken);
+            request = request with
+            {
+                ProgressReporter = (progress, token) => ReportCodexProgressAsync(sessionId, platformRun.Id, runId, progress, token),
+                OutputReporter = (streamName, line, _) =>
+                {
+                    logStreamer.Append(streamName, line);
+                    return Task.CompletedTask;
+                }
+            };
+
+            var result = await _codexProcessRunner.RunAsync(request, runCancellation.Token);
+            var finalText = await ReadFinalTextAsync(result.FinalPath, CancellationToken.None);
+            var postAuditStatus = await ReadGitPorcelainAsync(workspaceResult.WorkspacePath, CancellationToken.None);
+            var dirtyReason = string.IsNullOrWhiteSpace(postAuditStatus)
+                ? null
+                : "Code audit modified the workspace unexpectedly: " + WorkerDiagnostics.Trim(postAuditStatus, 800);
+            var auditStatus = result.Status == WorkerPlatformStatuses.Success
+                ? ResolveCodeAuditTaskStatus(finalText, dirtyReason)
+                : ResolveFailedCodeAuditTaskStatus(result.Status);
+            var conclusion = ResolveCodeAuditConclusion(auditStatus);
+            if (!string.IsNullOrWhiteSpace(dirtyReason))
+            {
+                result = result with
+                {
+                    Status = WorkerPlatformStatuses.Blocked,
+                    Error = dirtyReason
+                };
+            }
+
+            var structuredResultJson = BuildCodeAuditStructuredResultJson(finalText, auditStatus, result, dirtyReason);
+            await _apiClient.CompleteCodeAuditTaskAsync(
+                auditTaskId,
+                new CompleteCodeAuditTaskRequest(
+                    auditStatus,
+                    conclusion,
+                    platformRun.Id,
+                    workspaceResult.Commit ?? context.SourceCommitId,
+                    workspaceResult.Branch ?? context.Task.Branch,
+                    context.ChangedFilesJson,
+                    context.PromptSnapshot,
+                    context.SkillContextSnapshot,
+                    finalText,
+                    structuredResultJson,
+                    null,
+                    null,
+                    null,
+                    dirtyReason),
+                CancellationToken.None);
+
+            await _apiClient.FinishRunAsync(
+                platformRun.Id,
+                new FinishWorkerRunRequest(
+                    result.Status,
+                    result.ExitCode,
+                    result.TimedOut,
+                    result.Error,
+                    ResultJson: BuildRunResultJson(result)),
+                CancellationToken.None);
+            await ReportEventAsync(sessionId, platformRun.Id, "codex_finished", ResolveEventLevel(result.Status), "Code audit run finished.", CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerDiagnostics.Error("代码审计运行异常", $"commandId={command.Id}, auditTaskId={auditTaskId}, error={ex}");
+            if (platformRun is not null)
+            {
+                await _apiClient.CompleteCodeAuditTaskAsync(
+                    auditTaskId,
+                    new CompleteCodeAuditTaskRequest(
+                        "failed",
+                        null,
+                        platformRun.Id,
+                        workspaceResult.Commit ?? context.SourceCommitId,
+                        workspaceResult.Branch ?? context.Task.Branch,
+                        context.ChangedFilesJson,
+                        context.PromptSnapshot,
+                        context.SkillContextSnapshot,
+                        ex.Message,
+                        BuildCodeAuditStructuredResultJson(ex.Message, "failed", null, ex.Message),
+                        null,
+                        null,
+                        null,
+                        ex.Message),
+                    CancellationToken.None);
+                await _apiClient.FinishRunAsync(
+                    platformRun.Id,
+                    new FinishWorkerRunRequest(WorkerPlatformStatuses.CodexFailed, null, false, ex.Message, null),
+                    CancellationToken.None);
+            }
+        }
+        finally
+        {
+            if (runCancellation is not null && heartbeatTask is not null)
+            {
+                await StopBusyHeartbeatAsync(runCancellation, heartbeatTask);
+                runCancellation.Dispose();
+            }
+
+            await logStreamer.CompleteAsync(platformRun?.Id, CancellationToken.None);
+        }
     }
 
     private async Task RunPlatformSmokeAsync(
@@ -807,6 +1194,208 @@ public sealed class AgentSprintWorkerService : BackgroundService
             platformRun.Id,
             new FinishWorkerRunRequest(status, null, false, error, null),
             CancellationToken.None);
+    }
+
+    private Task CompleteBlockedCodeAuditAsync(
+        string auditTaskId,
+        string workerRunId,
+        CodeAuditExecutionContextResult context,
+        WorkspacePreparationResult workspaceResult,
+        string reason)
+    {
+        return _apiClient.CompleteCodeAuditTaskAsync(
+            auditTaskId,
+            new CompleteCodeAuditTaskRequest(
+                "blocked",
+                "blocked",
+                workerRunId,
+                workspaceResult.Commit ?? context.SourceCommitId,
+                workspaceResult.Branch ?? context.Task.Branch,
+                context.ChangedFilesJson,
+                context.PromptSnapshot,
+                context.SkillContextSnapshot,
+                reason,
+                BuildCodeAuditStructuredResultJson(reason, "blocked", null, reason),
+                null,
+                null,
+                null,
+                reason),
+            CancellationToken.None);
+    }
+
+    private static string BuildCodeAuditExecutionPrompt(
+        CodeAuditExecutionContextResult context,
+        WorkerOptions options,
+        string runId,
+        string workingDirectory,
+        RunPaths paths,
+        WorkspacePreparationResult workspaceResult)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("AgentSprint.Worker code audit execution context:");
+        builder.AppendLine($"- Worker ID: {options.WorkerId}");
+        builder.AppendLine($"- Worker name: {options.WorkerName}");
+        builder.AppendLine($"- Audit task ID: {context.Task.Id}");
+        builder.AppendLine($"- Run ID: {runId}");
+        builder.AppendLine($"- Project code: {context.ProjectCode}");
+        builder.AppendLine($"- Project name: {context.ProjectName}");
+        builder.AppendLine($"- Current workspace path: {workingDirectory}");
+        builder.AppendLine($"- Current branch: {workspaceResult.Branch ?? string.Empty}");
+        builder.AppendLine($"- Current commit: {workspaceResult.Commit ?? string.Empty}");
+        builder.AppendLine($"- Source commit: {context.SourceCommitId ?? string.Empty}");
+        builder.AppendLine($"- Prompt path: {paths.PromptPath}");
+        builder.AppendLine($"- Stdout log path: {paths.StdoutPath}");
+        builder.AppendLine($"- Stderr log path: {paths.StderrPath}");
+        builder.AppendLine($"- Final response path: {paths.FinalPath}");
+        builder.AppendLine($"- Run manifest path: {paths.ManifestPath}");
+        builder.AppendLine("- Read-only enforcement: do not edit files, stage files, commit, push, or call platform completion APIs.");
+        builder.AppendLine();
+        builder.AppendLine(context.Prompt.Trim());
+        return builder.ToString().Trim();
+    }
+
+    private static async Task<string> ReadFinalTextAsync(string finalPath, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(finalPath))
+        {
+            return string.Empty;
+        }
+
+        return (await File.ReadAllTextAsync(finalPath, cancellationToken)).Trim();
+    }
+
+    private static async Task<string?> ReadGitPorcelainAsync(
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            "status --porcelain",
+            workspacePath,
+            TimeSpan.FromMinutes(1),
+            cancellationToken);
+        if (!result.Succeeded)
+        {
+            return result.Error ?? result.Stderr ?? result.Stdout ?? "git status failed.";
+        }
+
+        return string.IsNullOrWhiteSpace(result.Stdout) ? null : result.Stdout.Trim();
+    }
+
+    private static async Task<IReadOnlyList<CodeAuditFileIndexItem>> BuildRepositoryFileIndexAsync(
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            "ls-files -z",
+            workspacePath,
+            TimeSpan.FromMinutes(2),
+            cancellationToken);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(result.Error ?? result.Stderr ?? "git ls-files failed.");
+        }
+
+        var files = new List<CodeAuditFileIndexItem>();
+        foreach (var relativePath in result.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var normalizedPath = relativePath.Replace('\\', '/');
+            var fullPath = Path.GetFullPath(Path.Combine(workspacePath, normalizedPath));
+            var root = Path.GetFullPath(workspacePath);
+            var relative = Path.GetRelativePath(root, fullPath);
+            if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative) || !File.Exists(fullPath))
+            {
+                continue;
+            }
+
+            files.Add(new CodeAuditFileIndexItem(
+                normalizedPath,
+                await HashFileAsync(fullPath, cancellationToken),
+                ResolveFileType(normalizedPath)));
+        }
+
+        return files;
+    }
+
+    private static async Task<string> HashFileAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await System.Security.Cryptography.SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ResolveFileType(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return string.IsNullOrWhiteSpace(extension) ? "unknown" : extension.TrimStart('.').ToLowerInvariant();
+    }
+
+    private static string ResolveCodeAuditTaskStatus(string rawResult, string? dirtyReason)
+    {
+        if (!string.IsNullOrWhiteSpace(dirtyReason))
+        {
+            return "blocked";
+        }
+
+        if (rawResult.Contains("结论：阻断", StringComparison.OrdinalIgnoreCase) ||
+            rawResult.Contains("conclusion: blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "blocked";
+        }
+
+        if (rawResult.Contains("结论：需修改", StringComparison.OrdinalIgnoreCase) ||
+            rawResult.Contains("needs_changes", StringComparison.OrdinalIgnoreCase) ||
+            rawResult.Contains("needs changes", StringComparison.OrdinalIgnoreCase))
+        {
+            return "needs_changes";
+        }
+
+        return "passed";
+    }
+
+    private static string ResolveFailedCodeAuditTaskStatus(string runStatus)
+    {
+        return runStatus == WorkerPlatformStatuses.Cancelled ? "cancelled" : "failed";
+    }
+
+    private static string? ResolveCodeAuditConclusion(string auditStatus)
+    {
+        return auditStatus switch
+        {
+            "passed" => "passed",
+            "needs_changes" => "needs_changes",
+            "blocked" => "blocked",
+            _ => null
+        };
+    }
+
+    private static string BuildCodeAuditStructuredResultJson(
+        string rawResult,
+        string auditStatus,
+        CodexRunResult? runResult,
+        string? workspaceDirtyReason)
+    {
+        return JsonSerializer.Serialize(
+            new
+            {
+                status = auditStatus,
+                conclusion = ResolveCodeAuditConclusion(auditStatus),
+                rawResult,
+                workspaceDirtyReason,
+                run = runResult is null
+                    ? null
+                    : new
+                    {
+                        runResult.RunId,
+                        runResult.Status,
+                        runResult.ExitCode,
+                        runResult.TimedOut,
+                        runResult.FinalPath,
+                        runResult.Error
+                    }
+            },
+            JsonOptions);
     }
 
     private async Task MaintainBusyHeartbeatAsync(

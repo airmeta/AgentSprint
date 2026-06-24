@@ -1,3 +1,4 @@
+using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Model.Modules.Agile.Workers;
 using AgentSprint.Service.Services.AgileServices;
 
@@ -10,6 +11,7 @@ namespace AgentSprint.Entry.Controllers;
 public sealed class DigitalWorkerRuntimeController : ControllerBase
 {
     private readonly IDigitalWorkerRuntimeService _service;
+    private readonly ICodeAuditService _codeAuditService;
 
     /// <summary>
     /// zh-cn: 创建数字员工运行时控制器，向 AgentSprint.Worker 暴露注册、心跳、命令 ACK、运行记录和事件上报接口。
@@ -19,9 +21,12 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
     /// zh-cn: 数字员工运行时服务。
     /// en-us: Digital-worker runtime service.
     /// </param>
-    public DigitalWorkerRuntimeController(IDigitalWorkerRuntimeService service)
+    public DigitalWorkerRuntimeController(
+        IDigitalWorkerRuntimeService service,
+        ICodeAuditService? codeAuditService = null)
     {
         _service = service;
+        _codeAuditService = codeAuditService ?? new RuntimeCodeAuditServiceUnavailable();
     }
 
     [HttpGet("config/{workerId}")]
@@ -138,6 +143,57 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
         });
     }
 
+    [HttpGet("code-audit/{taskId}")]
+    public Task<ActionResult<ApiResponse<CodeAuditTaskDetailResult>>> GetCodeAuditTask(string taskId)
+    {
+        return Execute(() => _codeAuditService.GetTaskAsync(taskId));
+    }
+
+    [HttpGet("code-audit/{taskId}/context")]
+    public async Task<ActionResult<ApiResponse<CodeAuditExecutionContextResult>>> GetCodeAuditExecutionContext(string taskId)
+    {
+        return await Execute(async () =>
+        {
+            var workerId = await ReadWorkerIdFromBearerAsync();
+            return await _codeAuditService.GetExecutionContextAsync(taskId, workerId);
+        });
+    }
+
+    [HttpPost("code-audit/{taskId}/running")]
+    public Task<ActionResult<ApiResponse<CodeAuditTaskResult>>> MarkCodeAuditTaskRunning(
+        string taskId,
+        [FromQuery] string? workerRunId = null)
+    {
+        return Execute(() => _codeAuditService.MarkTaskRunningAsync(taskId, workerRunId));
+    }
+
+    [HttpPost("code-audit/{taskId}/prepared")]
+    public async Task<ActionResult<ApiResponse<CodeAuditExecutionContextResult>>> PrepareCodeAuditExecutionContext(
+        string taskId,
+        PrepareCodeAuditContextRequest request)
+    {
+        return await Execute(async () =>
+        {
+            var workerId = await ReadWorkerIdFromBearerAsync();
+            return await _codeAuditService.PrepareExecutionContextAsync(taskId, workerId, request);
+        });
+    }
+
+    [HttpPost("code-audit/file-index/sync")]
+    public Task<ActionResult<ApiResponse<CodeAuditFileIndexSyncResult>>> SyncCodeAuditFileIndex(
+        SyncCodeAuditFileIndexRequest request)
+    {
+        return Execute(() => _codeAuditService.SyncFileIndexAsync(request));
+    }
+
+    [HttpPost("code-audit/{taskId}/complete")]
+    public Task<ActionResult<ApiResponse<CodeAuditTaskDetailResult>>> CompleteCodeAuditTask(
+        string taskId,
+        CompleteCodeAuditTaskRequest request)
+    {
+        return Execute(() => _codeAuditService.CompleteTaskAsync(taskId, request));
+    }
+
     private async Task<ActionResult<ApiResponse<T>>> Execute<T>(Func<Task<T>> action)
     {
         try
@@ -165,5 +221,98 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
     private async Task<string> ReadWorkerIdFromBearerAsync()
     {
         return (await _service.GetRuntimeConfigByAgentTokenAsync(ReadBearerToken())).WorkerId;
+    }
+
+    private sealed class RuntimeCodeAuditServiceUnavailable : ICodeAuditService
+    {
+        public Task<CodeAuditTaskResult> CreateTaskAsync(CreateCodeAuditTaskRequest request, string userId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<IReadOnlyList<CodeAuditTaskResult>> ListTasksAsync(
+            string? projectId = null,
+            string? status = null,
+            string? auditTargetType = null,
+            string? keyword = null)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<IReadOnlyList<CodeAuditResultListItem>> ListResultsAsync(
+            string? projectId = null,
+            string? status = null,
+            string? keyword = null)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<IReadOnlyList<CodeAuditFileResult>> ListFilesAsync(
+            string? projectId = null,
+            string? branch = null,
+            string? auditStatus = null,
+            string? fileType = null,
+            string? keyword = null)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditTaskDetailResult> GetTaskAsync(string id)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditReleaseReportResult> GetReleaseReportAsync(string id)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditTaskResult> CancelTaskAsync(string id, string userId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditTaskResult> RetryTaskAsync(string id, string userId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<WorkerCommandResult> CreateIndexSyncCommandAsync(CreateCodeAuditIndexSyncCommandRequest request, string userId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditExecutionContextResult> GetExecutionContextAsync(string id, string workerId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditExecutionContextResult> PrepareExecutionContextAsync(
+            string id,
+            string workerId,
+            PrepareCodeAuditContextRequest request)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditFileIndexSyncResult> SyncFileIndexAsync(SyncCodeAuditFileIndexRequest request)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditResultResult?> GetResultAsync(string taskId)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditTaskResult> MarkTaskRunningAsync(string taskId, string? workerRunId = null)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
+
+        public Task<CodeAuditTaskDetailResult> CompleteTaskAsync(string taskId, CompleteCodeAuditTaskRequest request)
+        {
+            throw new InvalidOperationException("Code audit service is not configured.");
+        }
     }
 }

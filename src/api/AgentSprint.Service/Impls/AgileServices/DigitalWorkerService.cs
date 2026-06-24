@@ -600,7 +600,9 @@ public sealed class DigitalWorkerManagementService :
             WorkerCommandTypes.StartBug or
             WorkerCommandTypes.CancelCurrentRun or
             WorkerCommandTypes.StopAfterCurrent or
-            WorkerCommandTypes.ReloadConfig => normalized,
+            WorkerCommandTypes.ReloadConfig or
+            WorkerCommandTypes.CodeAudit or
+            WorkerCommandTypes.CodeAuditIndexSync => normalized,
             _ => WorkerCommandTypes.Smoke
         };
     }
@@ -673,6 +675,8 @@ public sealed class DigitalWorkerManagementService :
             WorkerCommandTypes.CancelCurrentRun => "Cancel current run",
             WorkerCommandTypes.StopAfterCurrent => "Stop after current",
             WorkerCommandTypes.ReloadConfig => "Reload config",
+            WorkerCommandTypes.CodeAudit => "Code audit",
+            WorkerCommandTypes.CodeAuditIndexSync => "Code audit index sync",
             WorkerCommandTypes.Smoke => "Smoke",
             _ => commandType
         };
@@ -735,7 +739,7 @@ public sealed class DigitalWorkerManagementService :
         var normalized = NormalizeOptional(value) ?? WorkerRunTypes.Command;
         return normalized switch
         {
-            WorkerRunTypes.Smoke or WorkerRunTypes.Task or WorkerRunTypes.Bug or WorkerRunTypes.Command => normalized,
+            WorkerRunTypes.Smoke or WorkerRunTypes.Task or WorkerRunTypes.Bug or WorkerRunTypes.Command or WorkerRunTypes.CodeAudit => normalized,
             _ => WorkerRunTypes.Command
         };
     }

@@ -876,11 +876,107 @@ CREATE TABLE IF NOT EXISTS worker_event (
   INDEX IX_worker_event_WorkerId_CreateTime (WorkerId, CreateTime)
 ) CHARACTER SET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS code_audit_task (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  GitRepositoryId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Branch varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  AuditTargetType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  TargetId varchar(64) CHARACTER SET utf8mb4 NULL,
+  SourceTaskId varchar(64) CHARACTER SET utf8mb4 NULL,
+  SourceCommandId varchar(64) CHARACTER SET utf8mb4 NULL,
+  AuditCommandId varchar(64) CHARACTER SET utf8mb4 NULL,
+  SourceRunId varchar(64) CHARACTER SET utf8mb4 NULL,
+  SourceGitCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  BaseCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  HeadCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  CurrentBranchHeadCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  RequirementId varchar(64) CHARACTER SET utf8mb4 NULL,
+  ModuleId varchar(64) CHARACTER SET utf8mb4 NULL,
+  ScopeJson text CHARACTER SET utf8mb4 NULL,
+  SelectedSkillIds varchar(1024) CHARACTER SET utf8mb4 NULL,
+  Instruction varchar(2048) CHARACTER SET utf8mb4 NULL,
+  Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  Conclusion varchar(32) CHARACTER SET utf8mb4 NULL,
+  WorkspaceDirtyReason varchar(1024) CHARACTER SET utf8mb4 NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  StartedAt datetime(6) NULL,
+  CompletedAt datetime(6) NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_code_audit_task_Project_Status (ProjectId, Status),
+  INDEX IX_code_audit_task_Worker_Status (WorkerId, Status),
+  INDEX IX_code_audit_task_AuditCommandId (AuditCommandId),
+  INDEX IX_code_audit_task_Target (AuditTargetType, TargetId)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS code_audit_result (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  AuditTaskId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  WorkerCommandId varchar(64) CHARACTER SET utf8mb4 NULL,
+  WorkerRunId varchar(64) CHARACTER SET utf8mb4 NULL,
+  GitCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  Branch varchar(128) CHARACTER SET utf8mb4 NULL,
+  ChangedFilesJson text CHARACTER SET utf8mb4 NULL,
+  PromptSnapshot longtext CHARACTER SET utf8mb4 NULL,
+  SkillContextSnapshot longtext CHARACTER SET utf8mb4 NULL,
+  RawResult longtext CHARACTER SET utf8mb4 NULL,
+  StructuredResultJson longtext CHARACTER SET utf8mb4 NULL,
+  Conclusion varchar(32) CHARACTER SET utf8mb4 NULL,
+  IssuesJson longtext CHARACTER SET utf8mb4 NULL,
+  AnnotationIssuesJson longtext CHARACTER SET utf8mb4 NULL,
+  ManualCheckItemsJson longtext CHARACTER SET utf8mb4 NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_code_audit_result_AuditTaskId (AuditTaskId),
+  INDEX IX_code_audit_result_WorkerCommandId (WorkerCommandId)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS code_audit_file (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  GitRepositoryId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Branch varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  FileType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  FilePath varchar(1024) CHARACTER SET utf8mb4 NOT NULL,
+  FilePathHash varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  FileContentHash varchar(64) CHARACTER SET utf8mb4 NULL,
+  AuditStatus varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  LastAuditTaskId varchar(64) CHARACTER SET utf8mb4 NULL,
+  LastAuditResultId varchar(64) CHARACTER SET utf8mb4 NULL,
+  LastAuditAt datetime(6) NULL,
+  LastCommitId varchar(64) CHARACTER SET utf8mb4 NULL,
+  IssueCount int NOT NULL,
+  BlockingIssueCount int NOT NULL,
+  HighIssueCount int NOT NULL,
+  MediumIssueCount int NOT NULL,
+  LowIssueCount int NOT NULL,
+  Summary varchar(1024) CHARACTER SET utf8mb4 NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  UNIQUE INDEX IX_code_audit_file_Project_Repo_Branch_PathHash (ProjectId, GitRepositoryId, Branch, FilePathHash),
+  INDEX IX_code_audit_file_Project_Status (ProjectId, AuditStatus),
+  INDEX IX_code_audit_file_Project_FileType (ProjectId, FileType),
+  INDEX IX_code_audit_file_Repo_Branch (GitRepositoryId, Branch),
+  INDEX IX_code_audit_file_LastAuditAt (LastAuditAt)
+) CHARACTER SET=utf8mb4;
+
 CALL agentsprint_add_column_if_not_exists('worker_command', 'Title', 'ALTER TABLE worker_command ADD COLUMN Title varchar(256) CHARACTER SET utf8mb4 NOT NULL DEFAULT '''' AFTER CommandType;');
 
 CALL agentsprint_add_column_if_not_exists('worker_command', 'ChangedFilesJson', 'ALTER TABLE worker_command ADD COLUMN ChangedFilesJson text CHARACTER SET utf8mb4 NULL AFTER ResultJson;');
 
 CALL agentsprint_add_column_if_not_exists('worker_command', 'GitCommitId', 'ALTER TABLE worker_command ADD COLUMN GitCommitId varchar(64) CHARACTER SET utf8mb4 NULL AFTER ChangedFilesJson;');
+
+CALL agentsprint_add_column_if_not_exists('code_audit_task', 'AuditCommandId', 'ALTER TABLE code_audit_task ADD COLUMN AuditCommandId varchar(64) CHARACTER SET utf8mb4 NULL AFTER SourceCommandId;');
+
+CALL agentsprint_create_index_if_not_exists('code_audit_task', 'IX_code_audit_task_AuditCommandId', 'CREATE INDEX IX_code_audit_task_AuditCommandId ON code_audit_task (AuditCommandId);');
 
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'EmployeeType', 'ALTER TABLE digital_worker ADD COLUMN EmployeeType varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT ''development'' AFTER SkillIds;');
 

@@ -9,6 +9,7 @@ public sealed class GitWorkspaceManager
     private static readonly TimeSpan GitCommandTimeout = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const int CloneMaxAttempts = 3;
+    private const int AuditDiffMaxChars = 60000;
 
     /// <summary>
     /// <para>zh-cn:创建 Worker 侧 Git 工作区管理器。该管理器在 Codex 启动前以确定性命令准备项目仓库，负责 clone、fetch、checkout、pull 以及状态采集，避免把拉取最新代码这类基础动作交给模型自行决定。</para>
@@ -303,6 +304,95 @@ public sealed class GitWorkspaceManager
         }
     }
 
+    public static async Task<CodeAuditGitContextResult> BuildCodeAuditContextAsync(
+        string workspacePath,
+        string? sourceCommitId,
+        string? fallbackChangedFilesJson,
+        CancellationToken cancellationToken)
+    {
+        var warnings = new List<string>();
+        var currentBranch = await TryReadGitOutputAsync("rev-parse --abbrev-ref HEAD", workspacePath, cancellationToken);
+        var currentHead = await TryReadGitOutputAsync("rev-parse HEAD", workspacePath, cancellationToken);
+        var normalizedSourceCommit = NormalizeOptional(sourceCommitId);
+        var headCommit = normalizedSourceCommit ?? currentHead;
+        string? baseCommit = null;
+        bool? sourceCommitReachable = null;
+        bool? sourceCommitBehindHead = null;
+
+        if (!string.IsNullOrWhiteSpace(normalizedSourceCommit))
+        {
+            if (!string.IsNullOrWhiteSpace(currentBranch) && !string.Equals(currentBranch, "HEAD", StringComparison.OrdinalIgnoreCase))
+            {
+                await TryRunGitAsync($"fetch --deepen=50 origin {Quote(currentBranch)}", workspacePath, cancellationToken);
+            }
+
+            var resolvedSource = await TryReadGitOutputAsync($"rev-parse {Quote(normalizedSourceCommit)}", workspacePath, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(resolvedSource))
+            {
+                headCommit = resolvedSource;
+                baseCommit = await TryReadGitOutputAsync($"rev-parse {Quote(resolvedSource + "^")}", workspacePath, cancellationToken);
+                if (string.IsNullOrWhiteSpace(baseCommit))
+                {
+                    warnings.Add("Unable to resolve the parent commit for the source commit; diff boundary is incomplete.");
+                }
+
+                sourceCommitReachable = !string.IsNullOrWhiteSpace(currentHead)
+                    ? await IsGitCommandSuccessfulAsync($"merge-base --is-ancestor {Quote(resolvedSource)} {Quote(currentHead)}", workspacePath, cancellationToken)
+                    : null;
+                sourceCommitBehindHead = !string.IsNullOrWhiteSpace(currentHead) &&
+                    !string.Equals(resolvedSource, currentHead, StringComparison.Ordinal);
+            }
+            else
+            {
+                warnings.Add("Source commit could not be resolved in the prepared workspace; falling back to current branch head context.");
+                headCommit = currentHead;
+            }
+        }
+        else
+        {
+            warnings.Add("Source commit is not available; changed file coverage must be confirmed manually.");
+        }
+
+        string? nameStatus = null;
+        string? diffStat = null;
+        string? diff = null;
+        if (!string.IsNullOrWhiteSpace(baseCommit) && !string.IsNullOrWhiteSpace(headCommit))
+        {
+            var range = $"{Quote(baseCommit)}..{Quote(headCommit)}";
+            nameStatus = await TryReadGitOutputAsync($"diff --name-status {range}", workspacePath, cancellationToken);
+            diffStat = await TryReadGitOutputAsync($"diff --stat {range}", workspacePath, cancellationToken);
+            diff = await TryReadGitOutputAsync($"diff --no-ext-diff --unified=80 {range}", workspacePath, cancellationToken);
+        }
+
+        var changedFilesJson = !string.IsNullOrWhiteSpace(nameStatus)
+            ? BuildChangedFilesJsonFromNameStatus(nameStatus)
+            : NormalizeOptional(fallbackChangedFilesJson);
+        if (string.IsNullOrWhiteSpace(changedFilesJson))
+        {
+            changedFilesJson = "[]";
+        }
+
+        if (string.Equals(changedFilesJson, "[]", StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(fallbackChangedFilesJson))
+        {
+            changedFilesJson = fallbackChangedFilesJson;
+        }
+
+        var codeContext = BuildAuditCodeContext(currentBranch, baseCommit, headCommit, currentHead, nameStatus, diffStat);
+        var limitedDiff = LimitText(diff, AuditDiffMaxChars, warnings);
+        return new CodeAuditGitContextResult(
+            currentBranch,
+            baseCommit,
+            headCommit,
+            currentHead,
+            changedFilesJson,
+            limitedDiff,
+            codeContext,
+            sourceCommitReachable,
+            sourceCommitBehindHead,
+            warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings.Distinct(StringComparer.Ordinal)));
+    }
+
     internal static string ResolveWorkspacePath(string workspaceRoot, string? projectCode)
     {
         projectCode = string.IsNullOrWhiteSpace(projectCode) ? "_unscoped" : projectCode.Trim();
@@ -553,6 +643,47 @@ public sealed class GitWorkspaceManager
         CancellationToken cancellationToken)
     {
         return ReadGitOutputAsync(arguments, workspacePath, Array.Empty<string>(), cancellationToken);
+    }
+
+    private static async Task<string?> TryReadGitOutputAsync(
+        string arguments,
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            arguments,
+            workspacePath,
+            GitCommandTimeout,
+            cancellationToken);
+        return result.Succeeded ? NormalizeOptional(result.Stdout) : null;
+    }
+
+    private static async Task TryRunGitAsync(
+        string arguments,
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        _ = await ProcessCommandRunner.RunAsync(
+            "git",
+            arguments,
+            workspacePath,
+            GitCommandTimeout,
+            cancellationToken);
+    }
+
+    private static async Task<bool> IsGitCommandSuccessfulAsync(
+        string arguments,
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        var result = await ProcessCommandRunner.RunAsync(
+            "git",
+            arguments,
+            workspacePath,
+            GitCommandTimeout,
+            cancellationToken);
+        return result.Succeeded;
     }
 
     private static async Task<CommandProbeResult> RunGitOrThrowAsync(
@@ -827,5 +958,60 @@ public sealed class GitWorkspaceManager
         return "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
 
+    private static string BuildAuditCodeContext(
+        string? branch,
+        string? baseCommit,
+        string? headCommit,
+        string? currentHead,
+        string? nameStatus,
+        string? diffStat)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("Git audit boundary:");
+        builder.AppendLine($"- Branch: {branch ?? string.Empty}");
+        builder.AppendLine($"- Base commit: {baseCommit ?? string.Empty}");
+        builder.AppendLine($"- Head/source commit: {headCommit ?? string.Empty}");
+        builder.AppendLine($"- Current branch head: {currentHead ?? string.Empty}");
+        if (!string.IsNullOrWhiteSpace(diffStat))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Diff stat:");
+            builder.AppendLine(diffStat.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(nameStatus))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Changed file name-status:");
+            builder.AppendLine(nameStatus.Trim());
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static string? LimitText(string? value, int maxChars, ICollection<string> warnings)
+    {
+        value = NormalizeOptional(value);
+        if (value is null || value.Length <= maxChars)
+        {
+            return value;
+        }
+
+        warnings.Add($"Diff was truncated to {maxChars} characters for prompt safety; inspect the repository directly for omitted hunks.");
+        return value[..maxChars] + Environment.NewLine + $"[diff truncated at {maxChars} characters]";
+    }
+
     private sealed record GitChangedFile(string Path, string Status, string? OldPath);
 }
+
+public sealed record CodeAuditGitContextResult(
+    string? Branch,
+    string? BaseCommitId,
+    string? HeadCommitId,
+    string? CurrentBranchHeadCommitId,
+    string ChangedFilesJson,
+    string? Diff,
+    string? CodeContext,
+    bool? SourceCommitReachable,
+    bool? SourceCommitBehindHead,
+    string? Warning);

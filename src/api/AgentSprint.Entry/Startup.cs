@@ -154,6 +154,9 @@ public sealed class Startup : AppStartup
         services.AddTransient<ISprintRequirementDecompositionPreviewDomain, SprintRequirementDecompositionPreviewDomain>();
         services.AddTransient<ISprintBugDomain, SprintBugDomain>();
         services.AddTransient<ISprintTaskLeaseDomain, SprintTaskLeaseDomain>();
+        services.AddTransient<ICodeAuditTaskDomain, CodeAuditTaskDomain>();
+        services.AddTransient<ICodeAuditResultDomain, CodeAuditResultDomain>();
+        services.AddTransient<ICodeAuditFileDomain, CodeAuditFileDomain>();
         services.AddTransient<IDigitalWorkerDomain, DigitalWorkerDomain>();
         services.AddTransient<IWorkerSessionDomain, WorkerSessionDomain>();
         services.AddTransient<IWorkerCommandDomain, WorkerCommandDomain>();

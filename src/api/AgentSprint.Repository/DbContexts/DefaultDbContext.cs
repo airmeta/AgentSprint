@@ -94,6 +94,12 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<SprintTaskLeaseEntity> SprintTaskLeases => Set<SprintTaskLeaseEntity>();
 
+    public DbSet<CodeAuditTaskEntity> CodeAuditTasks => Set<CodeAuditTaskEntity>();
+
+    public DbSet<CodeAuditResultEntity> CodeAuditResults => Set<CodeAuditResultEntity>();
+
+    public DbSet<CodeAuditFileEntity> CodeAuditFiles => Set<CodeAuditFileEntity>();
+
     public DbSet<DigitalWorkerEntity> DigitalWorkers => Set<DigitalWorkerEntity>();
 
     public DbSet<WorkerSessionEntity> WorkerSessions => Set<WorkerSessionEntity>();
@@ -174,6 +180,25 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => new { entity.ProjectId, entity.OwnerId, entity.Status });
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.LeaseToken).IsUnique();
         modelBuilder.Entity<SprintTaskLeaseEntity>().HasIndex(entity => entity.ActiveTargetKey).IsUnique();
+        modelBuilder.Entity<CodeAuditTaskEntity>().HasIndex(entity => new { entity.ProjectId, entity.Status });
+        modelBuilder.Entity<CodeAuditTaskEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });
+        modelBuilder.Entity<CodeAuditTaskEntity>().HasIndex(entity => entity.AuditCommandId);
+        modelBuilder.Entity<CodeAuditTaskEntity>().HasIndex(entity => new { entity.AuditTargetType, entity.TargetId });
+        modelBuilder.Entity<CodeAuditResultEntity>().HasIndex(entity => entity.AuditTaskId);
+        modelBuilder.Entity<CodeAuditResultEntity>().HasIndex(entity => entity.WorkerCommandId);
+        modelBuilder.Entity<CodeAuditFileEntity>()
+            .HasIndex(entity => new
+            {
+                entity.ProjectId,
+                entity.GitRepositoryId,
+                entity.Branch,
+                entity.FilePathHash
+            })
+            .IsUnique();
+        modelBuilder.Entity<CodeAuditFileEntity>().HasIndex(entity => new { entity.ProjectId, entity.AuditStatus });
+        modelBuilder.Entity<CodeAuditFileEntity>().HasIndex(entity => new { entity.ProjectId, entity.FileType });
+        modelBuilder.Entity<CodeAuditFileEntity>().HasIndex(entity => new { entity.GitRepositoryId, entity.Branch });
+        modelBuilder.Entity<CodeAuditFileEntity>().HasIndex(entity => entity.LastAuditAt);
         modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => new { entity.AgentUserId, entity.Status });
         modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });

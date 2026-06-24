@@ -197,6 +197,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'CodeReviewFiles',
+        path: '/code-review/files',
+        component: () => import('#/views/code-review/files/index.vue'),
+        meta: {
+          icon: 'lucide:file-search',
+          title: '审计文件',
+        },
+      },
+      {
         name: 'CodeReviewResults',
         path: '/code-review/results',
         component: () => import('#/views/code-review/results/index.vue'),

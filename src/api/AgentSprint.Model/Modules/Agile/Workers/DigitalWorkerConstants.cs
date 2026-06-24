@@ -57,6 +57,10 @@ public static class WorkerCommandTypes
     public const string StopAfterCurrent = "stop_after_current";
 
     public const string ReloadConfig = "reload_config";
+
+    public const string CodeAudit = "code_audit";
+
+    public const string CodeAuditIndexSync = "code_audit_index_sync";
 }
 
 public static class WorkerCommandStatuses
@@ -85,6 +89,10 @@ public static class WorkerRunTypes
     public const string Bug = "bug";
 
     public const string Command = "command";
+
+    public const string CodeAudit = "code_audit";
+
+    public const string CodeAuditIndexSync = "code_audit_index_sync";
 }
 
 public static class WorkerRunStatuses

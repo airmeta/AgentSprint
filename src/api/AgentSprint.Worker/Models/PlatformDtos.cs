@@ -140,6 +140,115 @@ public sealed record WorkerCommandLogSnapshotResult(
     [property: JsonPropertyName("completed")] bool Completed,
     [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt);
 
+public sealed record CodeAuditTaskDetailResult(
+    [property: JsonPropertyName("task")] CodeAuditTaskResult Task,
+    [property: JsonPropertyName("result")] CodeAuditResultResult? Result);
+
+public sealed record CodeAuditTaskResult(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("projectId")] string ProjectId,
+    [property: JsonPropertyName("gitRepositoryId")] string GitRepositoryId,
+    [property: JsonPropertyName("branch")] string Branch,
+    [property: JsonPropertyName("workerId")] string WorkerId,
+    [property: JsonPropertyName("auditTargetType")] string AuditTargetType,
+    [property: JsonPropertyName("targetId")] string? TargetId,
+    [property: JsonPropertyName("sourceTaskId")] string? SourceTaskId,
+    [property: JsonPropertyName("sourceCommandId")] string? SourceCommandId,
+    [property: JsonPropertyName("auditCommandId")] string? AuditCommandId,
+    [property: JsonPropertyName("sourceRunId")] string? SourceRunId,
+    [property: JsonPropertyName("baseCommitId")] string? BaseCommitId,
+    [property: JsonPropertyName("headCommitId")] string? HeadCommitId,
+    [property: JsonPropertyName("currentBranchHeadCommitId")] string? CurrentBranchHeadCommitId,
+    [property: JsonPropertyName("sourceGitCommitId")] string? SourceGitCommitId,
+    [property: JsonPropertyName("requirementId")] string? RequirementId,
+    [property: JsonPropertyName("moduleId")] string? ModuleId,
+    [property: JsonPropertyName("scopeJson")] string? ScopeJson,
+    [property: JsonPropertyName("selectedSkillIds")] IReadOnlyList<string> SelectedSkillIds,
+    [property: JsonPropertyName("instruction")] string? Instruction,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("conclusion")] string? Conclusion,
+    [property: JsonPropertyName("workspaceDirtyReason")] string? WorkspaceDirtyReason);
+
+public sealed record CodeAuditResultResult(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("auditTaskId")] string AuditTaskId,
+    [property: JsonPropertyName("workerCommandId")] string? WorkerCommandId,
+    [property: JsonPropertyName("workerRunId")] string? WorkerRunId,
+    [property: JsonPropertyName("rawResult")] string? RawResult);
+
+public sealed record CodeAuditExecutionContextResult(
+    [property: JsonPropertyName("task")] CodeAuditTaskResult Task,
+    [property: JsonPropertyName("projectCode")] string ProjectCode,
+    [property: JsonPropertyName("projectName")] string ProjectName,
+    [property: JsonPropertyName("repositoryUrl")] string RepositoryUrl,
+    [property: JsonPropertyName("repositoryReference")] string? RepositoryReference,
+    [property: JsonPropertyName("repositoryDefaultBranch")] string? RepositoryDefaultBranch,
+    [property: JsonPropertyName("gitUsername")] string? GitUsername,
+    [property: JsonPropertyName("gitAccessToken")] string? GitAccessToken,
+    [property: JsonPropertyName("gitCommitAuthorName")] string? GitCommitAuthorName,
+    [property: JsonPropertyName("gitCommitAuthorEmail")] string? GitCommitAuthorEmail,
+    [property: JsonPropertyName("templateCode")] string TemplateCode,
+    [property: JsonPropertyName("templateName")] string TemplateName,
+    [property: JsonPropertyName("prompt")] string Prompt,
+    [property: JsonPropertyName("promptSnapshot")] string PromptSnapshot,
+    [property: JsonPropertyName("skillContextSnapshot")] string SkillContextSnapshot,
+    [property: JsonPropertyName("sourceCommitId")] string? SourceCommitId,
+    [property: JsonPropertyName("sourceRunId")] string? SourceRunId,
+    [property: JsonPropertyName("sourceCommandId")] string? SourceCommandId,
+    [property: JsonPropertyName("changedFilesJson")] string? ChangedFilesJson,
+    [property: JsonPropertyName("diff")] string? Diff,
+    [property: JsonPropertyName("codeContext")] string? CodeContext,
+    [property: JsonPropertyName("gitContextWarnings")] string? GitContextWarnings,
+    [property: JsonPropertyName("scopeDescription")] string? ScopeDescription,
+    [property: JsonPropertyName("targetSummary")] string? TargetSummary);
+
+public sealed record PrepareCodeAuditContextRequest(
+    [property: JsonPropertyName("workerRunId")] string? WorkerRunId,
+    [property: JsonPropertyName("branch")] string? Branch,
+    [property: JsonPropertyName("baseCommitId")] string? BaseCommitId,
+    [property: JsonPropertyName("headCommitId")] string? HeadCommitId,
+    [property: JsonPropertyName("currentBranchHeadCommitId")] string? CurrentBranchHeadCommitId,
+    [property: JsonPropertyName("changedFilesJson")] string? ChangedFilesJson,
+    [property: JsonPropertyName("diff")] string? Diff,
+    [property: JsonPropertyName("codeContext")] string? CodeContext,
+    [property: JsonPropertyName("sourceCommitReachable")] bool? SourceCommitReachable,
+    [property: JsonPropertyName("sourceCommitBehindHead")] bool? SourceCommitBehindHead,
+    [property: JsonPropertyName("warning")] string? Warning);
+
+public sealed record SyncCodeAuditFileIndexRequest(
+    [property: JsonPropertyName("projectId")] string ProjectId,
+    [property: JsonPropertyName("gitRepositoryId")] string GitRepositoryId,
+    [property: JsonPropertyName("branch")] string Branch,
+    [property: JsonPropertyName("commitId")] string? CommitId,
+    [property: JsonPropertyName("files")] IReadOnlyList<CodeAuditFileIndexItem> Files);
+
+public sealed record CodeAuditFileIndexItem(
+    [property: JsonPropertyName("filePath")] string FilePath,
+    [property: JsonPropertyName("fileContentHash")] string? FileContentHash,
+    [property: JsonPropertyName("fileType")] string? FileType);
+
+public sealed record CodeAuditFileIndexSyncResult(
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("created")] int Created,
+    [property: JsonPropertyName("updated")] int Updated,
+    [property: JsonPropertyName("deleted")] int Deleted);
+
+public sealed record CompleteCodeAuditTaskRequest(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("conclusion")] string? Conclusion,
+    [property: JsonPropertyName("workerRunId")] string? WorkerRunId,
+    [property: JsonPropertyName("gitCommitId")] string? GitCommitId,
+    [property: JsonPropertyName("branch")] string? Branch,
+    [property: JsonPropertyName("changedFilesJson")] string? ChangedFilesJson,
+    [property: JsonPropertyName("promptSnapshot")] string? PromptSnapshot,
+    [property: JsonPropertyName("skillContextSnapshot")] string? SkillContextSnapshot,
+    [property: JsonPropertyName("rawResult")] string? RawResult,
+    [property: JsonPropertyName("structuredResultJson")] string? StructuredResultJson,
+    [property: JsonPropertyName("issuesJson")] string? IssuesJson,
+    [property: JsonPropertyName("annotationIssuesJson")] string? AnnotationIssuesJson,
+    [property: JsonPropertyName("manualCheckItemsJson")] string? ManualCheckItemsJson,
+    [property: JsonPropertyName("workspaceDirtyReason")] string? WorkspaceDirtyReason);
+
 public sealed record WorkerPromptResult(
     [property: JsonPropertyName("targetType")] string TargetType,
     [property: JsonPropertyName("targetId")] string TargetId,
@@ -221,4 +330,8 @@ public static class WorkerPlatformCommandTypes
     public const string StopAfterCurrent = "stop_after_current";
 
     public const string ReloadConfig = "reload_config";
+
+    public const string CodeAudit = "code_audit";
+
+    public const string CodeAuditIndexSync = "code_audit_index_sync";
 }

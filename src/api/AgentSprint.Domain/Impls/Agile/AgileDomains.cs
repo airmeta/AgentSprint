@@ -258,6 +258,27 @@ public sealed class SprintTaskLeaseDomain : EntityDomainBase<SprintTaskLeaseEnti
     }
 }
 
+public sealed class CodeAuditTaskDomain : EntityDomainBase<CodeAuditTaskEntity>, ICodeAuditTaskDomain
+{
+    public CodeAuditTaskDomain(IRepository<CodeAuditTaskEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class CodeAuditResultDomain : EntityDomainBase<CodeAuditResultEntity>, ICodeAuditResultDomain
+{
+    public CodeAuditResultDomain(IRepository<CodeAuditResultEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class CodeAuditFileDomain : EntityDomainBase<CodeAuditFileEntity>, ICodeAuditFileDomain
+{
+    public CodeAuditFileDomain(IRepository<CodeAuditFileEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class DigitalWorkerDomain : EntityDomainBase<DigitalWorkerEntity>, IDigitalWorkerDomain
 {
     /// <summary>
