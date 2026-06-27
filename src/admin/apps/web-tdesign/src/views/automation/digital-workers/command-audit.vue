@@ -31,6 +31,8 @@ import {
   Space as TSpace,
   Table as TTable,
   Tag as TTag,
+  TabPanel as TTabPanel,
+  Tabs as TTabs,
   Tooltip as TTooltip,
 } from 'tdesign-vue-next';
 
@@ -48,6 +50,7 @@ const sessions = ref<AutomationApi.WorkerSession[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const selectedCommandId = ref('');
 const detailVisible = ref(false);
+const activeTab = ref('detail');
 const filters = reactive({
   commandType: '',
   keyword: '',
@@ -306,101 +309,107 @@ onMounted(loadPage);
         </div>
       </section>
 
-      <section v-if="worker" class="panel">
-        <TDescriptions bordered :column="3">
-          <TDescriptionsItem label="员工编码">{{ worker.code }}</TDescriptionsItem>
-          <TDescriptionsItem label="员工名称">{{ worker.name }}</TDescriptionsItem>
-          <TDescriptionsItem label="状态">
-            <TTag variant="light">{{ worker.status }}</TTag>
-          </TDescriptionsItem>
-          <TDescriptionsItem label="模型">{{ worker.codexModel || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="工作区">{{ worker.workspaceRoot || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="运行目录">{{ worker.runsRoot || '-' }}</TDescriptionsItem>
-          <TDescriptionsItem label="最近会话">
-            {{ detail?.latestSession?.instanceId || '-' }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="最后心跳">
-            {{ formatDateTime(detail?.latestSession?.lastHeartbeatAt) }}
-          </TDescriptionsItem>
-          <TDescriptionsItem label="待领取命令">{{ detail?.pendingCommands.length || 0 }}</TDescriptionsItem>
-        </TDescriptions>
-      </section>
+      <TTabs v-model="activeTab" theme="card" class="audit-tabs">
+        <TTabPanel value="detail" label="员工详情">
+          <section v-if="worker" class="panel">
+            <TDescriptions bordered :column="3">
+              <TDescriptionsItem label="员工编码">{{ worker.code }}</TDescriptionsItem>
+              <TDescriptionsItem label="员工名称">{{ worker.name }}</TDescriptionsItem>
+              <TDescriptionsItem label="状态">
+                <TTag variant="light">{{ worker.status }}</TTag>
+              </TDescriptionsItem>
+              <TDescriptionsItem label="模型">{{ worker.codexModel || '-' }}</TDescriptionsItem>
+              <TDescriptionsItem label="工作区">{{ worker.workspaceRoot || '-' }}</TDescriptionsItem>
+              <TDescriptionsItem label="运行目录">{{ worker.runsRoot || '-' }}</TDescriptionsItem>
+              <TDescriptionsItem label="最近会话">
+                {{ detail?.latestSession?.instanceId || '-' }}
+              </TDescriptionsItem>
+              <TDescriptionsItem label="最后心跳">
+                {{ formatDateTime(detail?.latestSession?.lastHeartbeatAt) }}
+              </TDescriptionsItem>
+              <TDescriptionsItem label="待领取命令">{{ detail?.pendingCommands.length || 0 }}</TDescriptionsItem>
+            </TDescriptions>
+          </section>
+        </TTabPanel>
 
-      <section class="panel">
-        <div class="filter-bar">
-          <TSpace>
-            <TSelect
-              v-model="filters.commandType"
-              clearable
-              placeholder="全部命令"
-              :options="commandOptions"
-              class="filter-control"
-            />
-            <TSelect
-              v-model="filters.status"
-              clearable
-              placeholder="全部状态"
-              :options="commandStatusOptions"
-              class="filter-control"
-            />
-            <TInput v-model="filters.keyword" clearable placeholder="命令 ID / 会话 / 载荷 / 错误" class="keyword" />
-            <TButton theme="primary" :loading="loading" @click="applyFilters">
-              <template #icon>
-                <IconifyIcon icon="lucide:search" />
-              </template>
-              查询
-            </TButton>
-            <TButton variant="outline" :disabled="loading" @click="resetFilters">
-              <template #icon>
-                <IconifyIcon icon="lucide:rotate-ccw" />
-              </template>
-              重置
-            </TButton>
-          </TSpace>
-        </div>
+        <TTabPanel value="probe" label="能力探针">
+          <section class="panel">
+            <div class="filter-bar">
+              <TSpace>
+                <TSelect
+                  v-model="filters.commandType"
+                  clearable
+                  placeholder="全部命令"
+                  :options="commandOptions"
+                  class="filter-control"
+                />
+                <TSelect
+                  v-model="filters.status"
+                  clearable
+                  placeholder="全部状态"
+                  :options="commandStatusOptions"
+                  class="filter-control"
+                />
+                <TInput v-model="filters.keyword" clearable placeholder="命令 ID / 会话 / 载荷 / 错误" class="keyword" />
+                <TButton theme="primary" :loading="loading" @click="applyFilters">
+                  <template #icon>
+                    <IconifyIcon icon="lucide:search" />
+                  </template>
+                  查询
+                </TButton>
+                <TButton variant="outline" :disabled="loading" @click="resetFilters">
+                  <template #icon>
+                    <IconifyIcon icon="lucide:rotate-ccw" />
+                  </template>
+                  重置
+                </TButton>
+              </TSpace>
+            </div>
 
-        <TTable row-key="id" :columns="withSerialColumn(orderedColumns)" :data="filteredCommands" :loading="loading" hover stripe>
-          <template #title="{ row }">{{ row.title || '-' }}</template>
-          <template #gitCommitId="{ row }">
-            <TSpace size="small" align="center">
-              <span>{{ shortCommit(row.gitCommitId) }}</span>
-              <TButton shape="square" variant="text" size="small">
-                <template #icon>
-                  <IconifyIcon icon="lucide:eye" />
-                </template>
-              </TButton>
-            </TSpace>
-          </template>
-          <template #createdBy="{ row }">{{ resolveUserName(row.createdBy) }}</template>
-          <template #commandType="{ row }">
-            <TTag variant="light" theme="primary">{{ commandText(row.commandType) }}</TTag>
-          </template>
-          <template #commandStatus="{ row }">
-            <TTooltip :content="commandTimeTips(row)" placement="top" theme="light">
-              <TTag :theme="commandStatusTheme(row.status)" variant="light">{{ commandStatusText(row.status) }}</TTag>
-            </TTooltip>
-          </template>
-          <template #createTime="{ row }">{{ formatDateTime(row.createTime) }}</template>
-          <template #actions="{ row }">
-            <TSpace>
-              <RowAction icon="lucide:eye" label="详情" @click="selectCommand(row)" />
-              <TButton
-                variant="text"
-                theme="primary"
-                size="small"
-                :loading="replayingCommandId === row.id"
-                :disabled="row.status === 'succeeded'"
-                @click="replayCommand(row)"
-              >
-                <template #icon>
-                  <IconifyIcon icon="lucide:rotate-cw" />
-                </template>
-                回放
-              </TButton>
-            </TSpace>
-          </template>
-        </TTable>
-      </section>
+            <TTable row-key="id" :columns="withSerialColumn(orderedColumns)" :data="filteredCommands" :loading="loading" hover stripe>
+              <template #title="{ row }">{{ row.title || '-' }}</template>
+              <template #gitCommitId="{ row }">
+                <TSpace size="small" align="center">
+                  <span>{{ shortCommit(row.gitCommitId) }}</span>
+                  <TButton shape="square" variant="text" size="small">
+                    <template #icon>
+                      <IconifyIcon icon="lucide:eye" />
+                    </template>
+                  </TButton>
+                </TSpace>
+              </template>
+              <template #createdBy="{ row }">{{ resolveUserName(row.createdBy) }}</template>
+              <template #commandType="{ row }">
+                <TTag variant="light" theme="primary">{{ commandText(row.commandType) }}</TTag>
+              </template>
+              <template #commandStatus="{ row }">
+                <TTooltip :content="commandTimeTips(row)" placement="top" theme="light">
+                  <TTag :theme="commandStatusTheme(row.status)" variant="light">{{ commandStatusText(row.status) }}</TTag>
+                </TTooltip>
+              </template>
+              <template #createTime="{ row }">{{ formatDateTime(row.createTime) }}</template>
+              <template #actions="{ row }">
+                <TSpace>
+                  <RowAction icon="lucide:eye" label="详情" @click="selectCommand(row)" />
+                  <TButton
+                    variant="text"
+                    theme="primary"
+                    size="small"
+                    :loading="replayingCommandId === row.id"
+                    :disabled="row.status === 'succeeded'"
+                    @click="replayCommand(row)"
+                  >
+                    <template #icon>
+                      <IconifyIcon icon="lucide:rotate-cw" />
+                    </template>
+                    回放
+                  </TButton>
+                </TSpace>
+              </template>
+            </TTable>
+          </section>
+        </TTabPanel>
+      </TTabs>
 
       <TDrawer v-model:visible="detailVisible" size="860px" header="命令详情" :footer="false">
         <div class="detail-drawer">
@@ -484,6 +493,18 @@ onMounted(loadPage);
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-border);
   border-radius: 6px;
+}
+
+.audit-tabs {
+  margin-bottom: 16px;
+}
+
+.audit-tabs :deep(.t-tab-panel) {
+  padding-top: 12px;
+}
+
+.audit-tabs .panel {
+  margin-bottom: 0;
 }
 
 .header {
