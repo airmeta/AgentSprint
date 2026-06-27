@@ -79,6 +79,7 @@ public sealed record AppendWorkerCommandLogRequest(
 public sealed record WorkerSessionResult(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("workerId")] string WorkerId,
+    [property: JsonPropertyName("instanceId")] string InstanceId,
     [property: JsonPropertyName("status")] string Status);
 
 public sealed record WorkerCommandResult(
@@ -118,6 +119,48 @@ public sealed record WorkerRuntimeConfigResult(
     [property: JsonPropertyName("openAiApiKey")] string? OpenAiApiKey,
     [property: JsonPropertyName("agentToken")] string? AgentToken,
     [property: JsonPropertyName("configVersion")] int ConfigVersion);
+
+public sealed record StartupProbeConfigResult(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("command")] string Command,
+    [property: JsonPropertyName("expectedPattern")] string? ExpectedPattern,
+    [property: JsonPropertyName("required")] bool Required,
+    [property: JsonPropertyName("sort")] int Sort);
+
+public sealed record StartupProbeResultReportItem(
+    [property: JsonPropertyName("probeConfigId")] string ProbeConfigId,
+    [property: JsonPropertyName("probeCode")] string ProbeCode,
+    [property: JsonPropertyName("probeName")] string ProbeName,
+    [property: JsonPropertyName("command")] string Command,
+    [property: JsonPropertyName("exitCode")] int? ExitCode,
+    [property: JsonPropertyName("stdout")] string? Stdout,
+    [property: JsonPropertyName("stderr")] string? Stderr,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("passed")] bool Passed,
+    [property: JsonPropertyName("required")] bool Required);
+
+public sealed record ReportStartupProbeResultsRequest(
+    [property: JsonPropertyName("workerId")] string WorkerId,
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("instanceId")] string InstanceId,
+    [property: JsonPropertyName("workerDeployRenderId")] string? WorkerDeployRenderId,
+    [property: JsonPropertyName("results")] IReadOnlyList<StartupProbeResultReportItem> Results);
+
+public sealed record StartupProbeResult(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("workerId")] string WorkerId,
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("instanceId")] string InstanceId,
+    [property: JsonPropertyName("workerDeployRenderId")] string? WorkerDeployRenderId,
+    [property: JsonPropertyName("probeConfigId")] string ProbeConfigId,
+    [property: JsonPropertyName("probeCode")] string ProbeCode,
+    [property: JsonPropertyName("probeName")] string ProbeName,
+    [property: JsonPropertyName("command")] string Command,
+    [property: JsonPropertyName("exitCode")] int? ExitCode,
+    [property: JsonPropertyName("passed")] bool Passed,
+    [property: JsonPropertyName("required")] bool Required);
 
 public sealed record WorkerRunResult(
     [property: JsonPropertyName("id")] string Id,

@@ -83,9 +83,12 @@ export default defineUserConfig({
           text: '烛照',
           children: [
             '/works/烛照/design/敏捷需求管理平台-Codex适配方案.md',
+            '/works/烛照/design/项目材料与提案管理方案.md',
             '/works/烛照/design/优化建议功能实现方案.md',
             '/works/烛照/design/权限管理模型后续演进方案.md',
+            '/works/烛照/requirements/项目材料与提案管理需求细节.md',
             '/works/烛照/requirements/数字员工受控端研发需求细节.md',
+            '/works/烛照/plan/项目材料提案转需求排程.md',
             '/works/烛照/plan/数字员工受控端开发排程.md',
           ],
         },

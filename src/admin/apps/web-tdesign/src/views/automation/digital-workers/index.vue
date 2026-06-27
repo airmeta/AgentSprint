@@ -3,18 +3,24 @@ import type { AutomationApi, SystemApi } from '#/api';
 import type { SprintUserApi } from '#/api/sprint/mvp';
 import type { FormInstanceFunctions, FormRules, PrimaryTableCol } from 'tdesign-vue-next';
 
+import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import {
+  createDigitalWorkerDeployTemplateApi,
   createDigitalWorkerApi,
   createWorkerCommandApi,
+  deleteDigitalWorkerApi,
+  generateDigitalWorkerInstallApi,
   listAgentTokensApi,
   listAiPlatformsApi,
+  listDigitalWorkerDeployTemplatesApi,
   listDictionaryItemsApi,
   listDictionaryTypesApi,
   listDigitalWorkersApi,
   setDigitalWorkerStatusApi,
+  updateDigitalWorkerDeployTemplateApi,
   updateDigitalWorkerApi,
 } from '#/api';
 import { listUserOptionsApi } from '#/api/sprint/mvp';
@@ -24,6 +30,8 @@ import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { confirmAndClose } from '#/views/_shared/dialog-confirm';
 import RowAction from '#/views/system/_shared/row-action.vue';
 import {
+  Button as TButton,
+  Checkbox as TCheckbox,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -34,6 +42,7 @@ import {
   Switch as TSwitch,
   TabPanel as TTabPanel,
   Tabs as TTabs,
+  Table as TTable,
   Tag as TTag,
   Textarea as TTextarea,
   Tooltip as TTooltip,
@@ -45,9 +54,19 @@ const router = useRouter();
 const loading = ref(false);
 const saving = ref(false);
 const visible = ref(false);
+const installVisible = ref(false);
+const installLoading = ref(false);
+const templateVisible = ref(false);
+const templateSaving = ref(false);
+const templateFormRef = ref<FormInstanceFunctions>();
 const formRef = ref<FormInstanceFunctions>();
 const activeWorkerFormTab = ref('employee');
+const installPlainSecret = ref(false);
+const installTemplateId = ref('');
+const installRender = ref<AutomationApi.DigitalWorkerInstallRender>();
+const installWorker = ref<AutomationApi.DigitalWorker>();
 const workers = ref<AutomationApi.DigitalWorker[]>([]);
+const deployTemplates = ref<AutomationApi.DigitalWorkerDeployTemplate[]>([]);
 const users = ref<SprintUserApi.UserOption[]>([]);
 const tokens = ref<SystemApi.AgentToken[]>([]);
 const aiPlatforms = ref<SystemApi.AiPlatform[]>([]);
@@ -85,9 +104,21 @@ const form = reactive<AutomationApi.SaveDigitalWorkerRequest & { aiPlatformCode?
   runsRoot: '/runs',
   sandboxMode: 'workspace-write',
   smokePrompt: 'hello',
-  status: 'active',
+  status: 'inactive',
   workspaceRoot: '/workspaces',
   workerType: 'codex',
+});
+const templateForm = reactive<AutomationApi.SaveDigitalWorkerDeployTemplateRequest & { id?: string }>({
+  backendTechCapabilities: 'dotnet',
+  code: '',
+  composeTemplate: '',
+  description: '',
+  dockerfileExtension: '',
+  name: '',
+  runtimeProfile: 'dotnet-default',
+  sort: 100,
+  status: 1,
+  version: 1,
 });
 
 const rules: FormRules<typeof form> = {
@@ -96,11 +127,21 @@ const rules: FormRules<typeof form> = {
   employeeType: requiredRule('请选择员工类型', 'change'),
   name: requiredRule('请输入员工名称'),
 };
+const templateRules: FormRules<typeof templateForm> = {
+  backendTechCapabilities: requiredRule('请输入后端能力'),
+  code: requiredRule('请输入模板编码'),
+  composeTemplate: requiredRule('请输入 compose 模板'),
+  name: requiredRule('请输入模板名称'),
+  runtimeProfile: requiredRule('请输入运行画像'),
+};
 
 const statusOptions = [
-  { label: '启用', value: 'active' },
-  { label: '停用', value: 'disabled' },
+  { label: '未激活', value: 'inactive' },
+  { label: '启动中', value: 'starting' },
+  { label: '待命', value: 'idle' },
+  { label: '工作中', value: 'working' },
   { label: '维护中', value: 'maintenance' },
+  { label: '停用', value: 'disabled' },
 ];
 const driverTypeOptions = [{ label: 'Codex', value: 'codex' }];
 const maxConcurrentOptions = Array.from({ length: 10 }, (_, index) => {
@@ -126,14 +167,32 @@ const commandOptions = [
   { label: '当前任务后停止', value: 'stop_after_current' },
   { label: '取消当前运行', value: 'cancel_current_run' },
 ];
+const templateStatusOptions = [
+  { label: '启用', value: 1 },
+  { label: '停用', value: 0 },
+];
 const columns: PrimaryTableCol[] = [
   { colKey: 'name', title: '名称', cell: 'name', width: 200 },
   { colKey: 'employeeType', title: '员工类型', cell: 'employeeType', width: 120 },
   { colKey: 'workerType', title: '驱动类型', cell: 'workerType', width: 120 },
+  { colKey: 'agentUserId', title: '平台账号', cell: 'agentUserId', width: 150 },
+  { colKey: 'runtimeProfile', title: '运行镜像', cell: 'runtimeProfile', width: 150 },
+  { colKey: 'backendTechCapabilities', title: '后端能力', cell: 'backendTechCapabilities', width: 160 },
+  { colKey: 'latestHeartbeatAt', title: '最近心跳', cell: 'latestHeartbeatAt', width: 170 },
+  { colKey: 'runtimeSummary', title: '环境摘要', cell: 'runtimeSummary', minWidth: 220 },
   { colKey: 'runtime', title: '运行策略', cell: 'runtime', width: 150 },
   { colKey: 'status', title: '状态', cell: 'status', width: 100 },
   { colKey: 'updateTime', title: '更新时间', cell: 'updateTime', width: 170 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 260 },
+];
+const templateColumns: PrimaryTableCol[] = [
+  { colKey: 'code', title: '模板编码', width: 150 },
+  { colKey: 'name', title: '模板名称', minWidth: 160 },
+  { colKey: 'runtimeProfile', title: '运行画像', width: 140 },
+  { colKey: 'backendTechCapabilities', title: '后端能力', width: 160 },
+  { colKey: 'version', title: '版本', width: 90 },
+  { colKey: 'status', title: '状态', cell: 'templateStatus', width: 90 },
+  { colKey: 'actions', title: '操作', cell: 'templateActions', width: 110 },
 ];
 
 const tablePagination = computed(() => ({
@@ -162,7 +221,21 @@ const aiPlatformOptions = computed(() =>
     value: item.code,
   })),
 );
+const deployTemplateOptions = computed(() =>
+  deployTemplates.value
+    .filter((item) => item.status === 1)
+    .map((item) => ({
+      label: `${item.name} / ${item.runtimeProfile} / ${item.backendTechCapabilities}`,
+      value: item.id,
+    })),
+);
 const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
+
+function resolveUserName(userId?: string) {
+  const user = userId ? userMap.value[userId] : undefined;
+  return user ? `${user.displayName || user.username}` : userId || '-';
+}
+
 function resetForm(row?: AutomationApi.DigitalWorker) {
   Object.assign(form, {
     agentTokenId: row?.agentTokenId || '',
@@ -186,10 +259,30 @@ function resetForm(row?: AutomationApi.DigitalWorker) {
     runsRoot: row?.runsRoot || '/runs',
     sandboxMode: row?.sandboxMode || 'workspace-write',
     smokePrompt: row?.smokePrompt || 'hello',
-    status: row?.status || 'active',
+    status: row?.status || 'inactive',
     workspaceRoot: row?.workspaceRoot || '/workspaces',
     workerType: row?.workerType || 'codex',
   });
+}
+
+function resetTemplateForm(row?: AutomationApi.DigitalWorkerDeployTemplate) {
+  Object.assign(templateForm, {
+    backendTechCapabilities: row?.backendTechCapabilities || 'dotnet',
+    code: row?.code || '',
+    composeTemplate: row?.composeTemplate || '',
+    description: row?.description || '',
+    dockerfileExtension: row?.dockerfileExtension || '',
+    id: row?.id,
+    name: row?.name || '',
+    runtimeProfile: row?.runtimeProfile || 'dotnet-default',
+    sort: row?.sort ?? 100,
+    status: row?.status ?? 1,
+    version: row?.version ?? 1,
+  });
+}
+
+function createTemplate() {
+  resetTemplateForm();
 }
 
 function resolveAiPlatformCode(row?: AutomationApi.DigitalWorker) {
@@ -213,8 +306,9 @@ function getSelectedAiPlatform() {
 }
 
 function statusTheme(status?: string) {
-  if (status === 'active') return 'success';
-  if (status === 'maintenance') return 'warning';
+  if (status === 'idle') return 'success';
+  if (status === 'starting' || status === 'maintenance') return 'warning';
+  if (status === 'working') return 'primary';
   if (status === 'disabled') return 'danger';
   return 'default';
 }
@@ -243,6 +337,39 @@ function resolveBackendCapabilities(row?: AutomationApi.DigitalWorker) {
   return lines;
 }
 
+function sessionStatusText(status?: string) {
+  if (!status) return '-';
+  const map: Record<string, string> = {
+    auth_required: '待登录',
+    busy: '忙碌',
+    error: '异常',
+    expired: '已过期',
+    idle: '空闲',
+    offline: '离线',
+    starting: '启动中',
+  };
+  return map[status] || status;
+}
+
+function templateStatusTheme(status?: number) {
+  return status === 1 ? 'success' : 'default';
+}
+
+function availableStatusActions(row: AutomationApi.DigitalWorker) {
+  if (row.status === 'idle' || row.status === 'working') {
+    return [{ icon: 'lucide:pause-circle', label: '维护', status: 'maintenance' as const, theme: 'warning' as const }];
+  }
+
+  if (row.status === 'maintenance') {
+    return [
+      { icon: 'lucide:check-circle-2', label: '恢复', status: 'idle' as const, theme: 'success' as const },
+      { icon: 'lucide:power', label: '停用', status: 'disabled' as const, theme: 'danger' as const },
+    ];
+  }
+
+  return [];
+}
+
 function resolveEmployeeTypeName(type?: string) {
   return activeEmployeeTypeItems.value.find((item) => item.code === type)?.name || type || '-';
 }
@@ -269,6 +396,96 @@ function openEdit(row: AutomationApi.DigitalWorker) {
 
 async function openDetail(row: AutomationApi.DigitalWorker) {
   await router.push(`/automation/digital-workers/${row.id}/command-audit`);
+}
+
+async function openInstall(row: AutomationApi.DigitalWorker) {
+  installWorker.value = row;
+  installTemplateId.value = deployTemplateOptions.value[0]?.value || '';
+  installVisible.value = true;
+  await generateInstall();
+}
+
+async function generateInstall() {
+  if (!installWorker.value) return;
+  installLoading.value = true;
+  try {
+    installRender.value = await generateDigitalWorkerInstallApi(installWorker.value.id, {
+      plainSecretEnabled: installPlainSecret.value,
+      templateId: installTemplateId.value || undefined,
+    });
+  } finally {
+    installLoading.value = false;
+  }
+}
+
+function openTemplates() {
+  resetTemplateForm();
+  templateVisible.value = true;
+}
+
+function editTemplate(row: AutomationApi.DigitalWorkerDeployTemplate) {
+  resetTemplateForm(row);
+}
+
+async function saveTemplate() {
+  if (templateSaving.value) return;
+  if (!(await validateForm(templateFormRef.value))) return;
+
+  templateSaving.value = true;
+  try {
+    const payload = {
+      backendTechCapabilities: templateForm.backendTechCapabilities.trim(),
+      code: templateForm.code.trim(),
+      composeTemplate: templateForm.composeTemplate,
+      description: templateForm.description?.trim() || undefined,
+      dockerfileExtension: templateForm.dockerfileExtension?.trim() || undefined,
+      name: templateForm.name.trim(),
+      runtimeProfile: templateForm.runtimeProfile.trim(),
+      sort: Number(templateForm.sort ?? 100),
+      status: Number(templateForm.status ?? 1),
+      version: Number(templateForm.version ?? 1),
+    };
+    if (templateForm.id) {
+      await updateDigitalWorkerDeployTemplateApi(templateForm.id, payload);
+    } else {
+      await createDigitalWorkerDeployTemplateApi(payload);
+    }
+    MessagePlugin.success('部署模板已保存');
+    await loadDeployTemplates();
+    resetTemplateForm();
+  } finally {
+    templateSaving.value = false;
+  }
+}
+
+async function copyText(content?: string) {
+  if (!content) return;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(content);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = content;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+  MessagePlugin.success('内容已复制');
+}
+
+function downloadText(filename: string, content?: string) {
+  if (!content) return;
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function buildPayload() {
@@ -336,6 +553,19 @@ function setStatus(row: AutomationApi.DigitalWorker, status: AutomationApi.Worke
   });
 }
 
+function deleteWorker(row: AutomationApi.DigitalWorker) {
+  confirmAndClose({
+    body: `确认删除 ${row.name}？删除只会软删除员工主档，历史审计记录会保留。`,
+    confirmBtn: '删除',
+    header: '删除数字员工',
+    onConfirm: async () => {
+      await deleteDigitalWorkerApi(row.id);
+      MessagePlugin.success('数字员工已删除');
+      await load();
+    },
+  });
+}
+
 function sendCommand(row: AutomationApi.DigitalWorker, commandType: AutomationApi.WorkerCommandType) {
   confirmAndClose({
     body: `确认向 ${row.name} 下发 ${commandText(commandType)} 命令？命令会在下一次心跳时被受控端领取。`,
@@ -380,6 +610,10 @@ async function loadReferences() {
   employeeTypeItems.value = employeeType ? await listDictionaryItemsApi(employeeType.id) : fallbackEmployeeTypeItems;
 }
 
+async function loadDeployTemplates() {
+  deployTemplates.value = await listDigitalWorkerDeployTemplatesApi();
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -390,7 +624,7 @@ async function load() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadReferences(), load()]);
+  await Promise.all([loadReferences(), loadDeployTemplates(), load()]);
 });
 </script>
 
@@ -442,8 +676,27 @@ onMounted(async () => {
         <span class="worker-name-cell">{{ row.name }}</span>
       </TTooltip>
     </template>
+    <template #toolbar>
+      <TButton variant="outline" @click="openTemplates">
+        <template #icon><IconifyIcon icon="lucide:blocks" /></template>
+        部署模板
+      </TButton>
+    </template>
+
     <template #employeeType="{ row }">{{ resolveEmployeeTypeName(row.employeeType) }}</template>
     <template #workerType="{ row }">{{ resolveDriverTypeName(row.workerType) }}</template>
+    <template #agentUserId="{ row }">{{ resolveUserName(row.agentUserId) }}</template>
+    <template #runtimeProfile="{ row }">{{ row.runtimeProfile || '-' }}</template>
+    <template #backendTechCapabilities="{ row }">{{ row.backendTechCapabilities || '-' }}</template>
+    <template #latestHeartbeatAt="{ row }">
+      <div class="heartbeat-cell">
+        <span>{{ formatDateTime(row.latestHeartbeatAt) }}</span>
+        <TTag v-if="row.latestSessionStatus" size="small" variant="light">
+          {{ sessionStatusText(row.latestSessionStatus) }}
+        </TTag>
+      </div>
+    </template>
+    <template #runtimeSummary="{ row }">{{ row.runtimeSummary || '-' }}</template>
     <template #runtime="{ row }">
       {{ row.maxConcurrentRuns }} 并发 / {{ row.heartbeatTimeoutSeconds }} 秒心跳
     </template>
@@ -455,22 +708,24 @@ onMounted(async () => {
     </template>
     <template #actions="{ row }">
       <TSpace>
+        <RowAction icon="lucide:download" label="安装" @click="openInstall(row)" />
         <RowAction icon="lucide:history" label="审计" @click="openDetail(row)" />
         <RowAction label="编辑" @click="openEdit(row)" />
-        <RowAction icon="lucide:rotate-cw" label="烟测" @click="sendCommand(row, 'smoke')" />
+        <RowAction v-if="row.status === 'idle'" icon="lucide:rotate-cw" label="烟测" @click="sendCommand(row, 'smoke')" />
         <RowAction
-          v-if="row.status === 'active'"
-          icon="lucide:pause-circle"
-          label="维护"
-          theme="warning"
-          @click="setStatus(row, 'maintenance')"
+          v-for="action in availableStatusActions(row)"
+          :key="action.status"
+          :icon="action.icon"
+          :label="action.label"
+          :theme="action.theme"
+          @click="setStatus(row, action.status)"
         />
         <RowAction
-          v-else
-          icon="lucide:play-circle"
-          label="启用"
-          theme="success"
-          @click="setStatus(row, 'active')"
+          v-if="row.status === 'disabled'"
+          icon="lucide:trash-2"
+          label="删除"
+          theme="danger"
+          @click="deleteWorker(row)"
         />
       </TSpace>
     </template>
@@ -581,6 +836,146 @@ onMounted(async () => {
       </TTabs>
     </TForm>
   </TDrawer>
+
+  <TDrawer
+    v-model:visible="installVisible"
+    size="860px"
+    :header="`安装配置 - ${installWorker?.name || ''}`"
+    :footer="false"
+  >
+    <div class="install-panel">
+      <div class="install-toolbar">
+        <TCheckbox v-model="installPlainSecret" @change="generateInstall">明文输出</TCheckbox>
+        <TSelect
+          v-model="installTemplateId"
+          class="install-template-select"
+          filterable
+          placeholder="选择部署模板"
+          :options="deployTemplateOptions"
+          @change="generateInstall"
+        />
+        <TButton :loading="installLoading" variant="outline" @click="generateInstall">重新生成</TButton>
+      </div>
+      <div v-if="installRender" class="install-meta">
+        <span>生成记录：{{ installRender.id }}</span>
+        <span>模板版本：{{ installRender.templateVersion }}</span>
+      </div>
+      <div class="install-section">
+        <div class="install-section__header">
+          <div class="install-section__title">docker-compose.yml</div>
+          <TSpace>
+            <TButton variant="text" @click="copyText(installRender?.renderedCompose)">
+              <template #icon><IconifyIcon icon="lucide:copy" /></template>
+              复制
+            </TButton>
+            <TButton variant="text" @click="downloadText('docker-compose.yml', installRender?.renderedCompose)">
+              <template #icon><IconifyIcon icon="lucide:download" /></template>
+              下载
+            </TButton>
+          </TSpace>
+        </div>
+        <TTextarea
+          readonly
+          :value="installRender?.renderedCompose || ''"
+          :autosize="{ minRows: 14, maxRows: 24 }"
+        />
+      </div>
+      <div v-if="installRender?.renderedEnv" class="install-section">
+        <div class="install-section__header">
+          <div class="install-section__title">.env</div>
+          <TSpace>
+            <TButton variant="text" @click="copyText(installRender.renderedEnv)">
+              <template #icon><IconifyIcon icon="lucide:copy" /></template>
+              复制
+            </TButton>
+            <TButton variant="text" @click="downloadText('.env', installRender.renderedEnv)">
+              <template #icon><IconifyIcon icon="lucide:download" /></template>
+              下载
+            </TButton>
+          </TSpace>
+        </div>
+        <TTextarea readonly :value="installRender.renderedEnv" :autosize="{ minRows: 3, maxRows: 8 }" />
+      </div>
+    </div>
+  </TDrawer>
+
+  <TDrawer
+    v-model:visible="templateVisible"
+    size="1040px"
+    header="部署模板管理"
+    :footer="false"
+  >
+    <div class="template-workbench">
+      <div class="template-list">
+        <div class="template-toolbar">
+          <strong>模板列表</strong>
+          <TSpace>
+            <TButton variant="outline" @click="loadDeployTemplates">
+              <template #icon><IconifyIcon icon="lucide:refresh-cw" /></template>
+              刷新
+            </TButton>
+            <TButton theme="primary" @click="createTemplate">
+              <template #icon><IconifyIcon icon="lucide:plus" /></template>
+              新增
+            </TButton>
+          </TSpace>
+        </div>
+        <TTable row-key="id" :columns="templateColumns" :data="deployTemplates" hover>
+          <template #templateStatus="{ row }">
+            <TTag :theme="templateStatusTheme(row.status)" variant="light">
+              {{ row.status === 1 ? '启用' : '停用' }}
+            </TTag>
+          </template>
+          <template #templateActions="{ row }">
+            <RowAction icon="lucide:edit" label="编辑" @click="editTemplate(row)" />
+          </template>
+        </TTable>
+      </div>
+
+      <TForm ref="templateFormRef" class="template-form" :data="templateForm" :rules="templateRules" label-width="110px">
+        <div class="template-form__title">{{ templateForm.id ? '编辑模板' : '新增模板' }}</div>
+        <div class="form-grid">
+          <TFormItem label="模板编码" name="code">
+            <TInput v-model="templateForm.code" placeholder="java17" />
+          </TFormItem>
+          <TFormItem label="模板名称" name="name">
+            <TInput v-model="templateForm.name" placeholder="Java 17 worker" />
+          </TFormItem>
+        </div>
+        <div class="form-grid">
+          <TFormItem label="运行画像" name="runtimeProfile">
+            <TInput v-model="templateForm.runtimeProfile" placeholder="java17" />
+          </TFormItem>
+          <TFormItem label="后端能力" name="backendTechCapabilities">
+            <TInput v-model="templateForm.backendTechCapabilities" placeholder="dotnet,java" />
+          </TFormItem>
+        </div>
+        <div class="form-grid">
+          <TFormItem label="版本">
+            <TInput v-model="templateForm.version" type="number" placeholder="1" />
+          </TFormItem>
+          <TFormItem label="状态">
+            <TSelect v-model="templateForm.status" :options="templateStatusOptions" />
+          </TFormItem>
+        </div>
+        <TFormItem label="说明">
+          <TTextarea v-model="templateForm.description" :autosize="{ minRows: 2, maxRows: 4 }" />
+        </TFormItem>
+        <TFormItem label="Compose" name="composeTemplate">
+          <TTextarea v-model="templateForm.composeTemplate" :autosize="{ minRows: 12, maxRows: 20 }" />
+        </TFormItem>
+        <TFormItem label="Dockerfile扩展">
+          <TTextarea v-model="templateForm.dockerfileExtension" :autosize="{ minRows: 4, maxRows: 8 }" />
+        </TFormItem>
+        <div class="template-form__actions">
+          <TButton theme="primary" :loading="templateSaving" @click="saveTemplate">
+            <template #icon><IconifyIcon icon="lucide:save" /></template>
+            保存模板
+          </TButton>
+        </div>
+      </TForm>
+    </div>
+  </TDrawer>
 </template>
 
 <style scoped>
@@ -647,10 +1042,93 @@ onMounted(async () => {
   padding-top: 14px;
 }
 
+.install-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.install-toolbar,
+.install-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.install-meta {
+  color: var(--td-text-color-secondary);
+}
+
+.install-template-select {
+  min-width: 280px;
+}
+
+.heartbeat-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.install-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.install-section__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.install-section__title {
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.template-workbench {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.template-list,
+.template-form {
+  min-width: 0;
+}
+
+.template-toolbar,
+.template-form__actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.template-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.template-form :deep(.t-form__item) {
+  margin-bottom: 0;
+}
+
+.template-form__title {
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
 @media (max-width: 760px) {
   .filter-field,
   .form-grid,
-  .detail-grid {
+  .detail-grid,
+  .template-workbench {
     grid-template-columns: 1fr;
     width: 100%;
   }

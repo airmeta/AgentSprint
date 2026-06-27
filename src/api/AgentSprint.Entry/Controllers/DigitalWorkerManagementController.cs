@@ -66,6 +66,51 @@ public sealed class DigitalWorkerManagementController : ControllerBase
         return Execute(() => _service.SetWorkerStatusAsync(id, request));
     }
 
+    [HttpPost("{id}/install")]
+    public Task<ActionResult<ApiResponse<DigitalWorkerInstallRenderResult>>> GenerateInstall(
+        string id,
+        GenerateDigitalWorkerInstallRequest request)
+    {
+        return Execute(() => _service.GenerateInstallAsync(id, request, GetUserId()));
+    }
+
+    [HttpGet("deploy-templates")]
+    public async Task<ApiResponse<IReadOnlyList<DigitalWorkerDeployTemplateResult>>> ListDeployTemplates(
+        [FromQuery] string? status,
+        [FromQuery] string? keyword)
+    {
+        return ApiResponse<IReadOnlyList<DigitalWorkerDeployTemplateResult>>.Ok(
+            await _service.ListDeployTemplatesAsync(status, keyword));
+    }
+
+    [HttpPost("deploy-templates")]
+    public Task<ActionResult<ApiResponse<DigitalWorkerDeployTemplateResult>>> CreateDeployTemplate(
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        return Execute(() => _service.CreateDeployTemplateAsync(request));
+    }
+
+    [HttpPut("deploy-templates/{id}")]
+    public Task<ActionResult<ApiResponse<DigitalWorkerDeployTemplateResult>>> UpdateDeployTemplate(
+        string id,
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        return Execute(() => _service.UpdateDeployTemplateAsync(id, request));
+    }
+
+    [HttpDelete("{id}")]
+    public Task<ActionResult<ApiResponse<DigitalWorkerResult>>> DeleteWorker(string id)
+    {
+        return Execute(() => _service.DeleteWorkerAsync(id));
+    }
+
+    [HttpGet("{id}/startup-probes")]
+    public async Task<ApiResponse<IReadOnlyList<StartupProbeResult>>> ListStartupProbeResults(string id)
+    {
+        return ApiResponse<IReadOnlyList<StartupProbeResult>>.Ok(
+            await _service.ListStartupProbeResultsAsync(id));
+    }
+
     [HttpPost("commands")]
     public Task<ActionResult<ApiResponse<WorkerCommandResult>>> CreateCommand(CreateWorkerCommandRequest request)
     {

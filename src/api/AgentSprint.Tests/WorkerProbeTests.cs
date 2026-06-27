@@ -137,6 +137,7 @@ public sealed class WorkerProbeTests
         var workerIndex = hostedServices.FindIndex(descriptor => descriptor.ImplementationType == typeof(AgentSprintWorkerService));
 
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IAkkaClusterService));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(CodexLoginInitializer));
         Assert.True(dependencyInitializerIndex >= 0);
         Assert.True(akkaIndex >= 0);
         Assert.True(workerIndex >= 0);

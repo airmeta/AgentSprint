@@ -81,12 +81,13 @@ public sealed class CodeAuditService : AgentSprintServiceBase, ICodeAuditService
 
         var worker = await _workerDomain.GetAsync(NormalizeRequired(request.WorkerId, "Worker id is required."))
             ?? throw new InvalidOperationException("Worker does not exist.");
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        if (!DigitalWorkerManagementService.CanQueueWorkerCommand(worker))
         {
-            throw new InvalidOperationException("Worker is not active.");
+            throw new InvalidOperationException("Worker is not available for queued commands.");
         }
 
         EnsureWorkerCanUseProject(worker, project.Id);
+        DigitalWorkerManagementService.EnsureBackendTechCovered(worker, project.BackendTechStack);
 
         var auditTargetType = NormalizeAuditTargetType(request.AuditTargetType);
         SprintDevelopmentTaskEntity? sourceTask = null;
@@ -376,12 +377,13 @@ public sealed class CodeAuditService : AgentSprintServiceBase, ICodeAuditService
             ?? throw new InvalidOperationException("Git repository does not exist.");
         var worker = await _workerDomain.GetAsync(NormalizeRequired(request.WorkerId, "Worker id is required."))
             ?? throw new InvalidOperationException("Worker does not exist.");
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        if (!DigitalWorkerManagementService.CanQueueWorkerCommand(worker))
         {
-            throw new InvalidOperationException("Worker is not active.");
+            throw new InvalidOperationException("Worker is not available for queued commands.");
         }
 
         EnsureWorkerCanUseProject(worker, project.Id);
+        DigitalWorkerManagementService.EnsureBackendTechCovered(worker, project.BackendTechStack);
         var gitAccount = await ResolveGitAccountAsync(project, repository);
         var branch = NormalizeOptional(request.Branch) ?? NormalizeOptional(repository.DefaultBranch) ?? "main";
         var payload = JsonSerializer.Serialize(
@@ -576,9 +578,9 @@ public sealed class CodeAuditService : AgentSprintServiceBase, ICodeAuditService
     {
         var worker = await _workerDomain.GetAsync(NormalizeRequired(workerId, "Worker id is required."))
             ?? throw new InvalidOperationException("Worker does not exist.");
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        if (worker.Status is not (DigitalWorkerStatuses.Idle or DigitalWorkerStatuses.Working))
         {
-            throw new InvalidOperationException("Worker is not active.");
+            throw new InvalidOperationException("Worker is not available.");
         }
 
         if (task.WorkerId != worker.Id)
@@ -965,20 +967,20 @@ public sealed class CodeAuditService : AgentSprintServiceBase, ICodeAuditService
 
     private async Task CreateTaskWithCommandAsync(CodeAuditTaskEntity entity, string userId)
     {
+        var command = new WorkerCommandEntity
+        {
+            WorkerId = entity.WorkerId,
+            CommandType = WorkerCommandTypes.CodeAudit,
+            Title = $"Code audit {entity.Id}",
+            PayloadJson = JsonSerializer.Serialize(new CodeAuditCommandPayload(entity.Id)),
+            CreatedBy = userId
+        };
+        entity.AuditCommandId = command.Id;
+
         await _taskDomain.CreateAsync(entity);
         try
         {
-            var command = new WorkerCommandEntity
-            {
-                WorkerId = entity.WorkerId,
-                CommandType = WorkerCommandTypes.CodeAudit,
-                Title = $"Code audit {entity.Id}",
-                PayloadJson = JsonSerializer.Serialize(new CodeAuditCommandPayload(entity.Id)),
-                CreatedBy = userId
-            };
             await _commandDomain.CreateAsync(command);
-            entity.AuditCommandId = command.Id;
-            await _taskDomain.UpdateAsync(entity);
         }
         catch
         {

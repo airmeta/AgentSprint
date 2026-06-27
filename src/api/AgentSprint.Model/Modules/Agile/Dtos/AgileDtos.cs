@@ -462,6 +462,122 @@ public sealed record SprintRequirementFeedbackResult(
     DateTime? ClosedAt,
     DateTime CreateTime);
 
+public sealed record CreateSprintProjectMaterialFolderRequest(
+    string Name,
+    string? ParentId = null,
+    string? Category = null,
+    IReadOnlyList<string>? Tags = null,
+    string? Description = null);
+
+public sealed record UpdateSprintProjectMaterialRequest(
+    string Name,
+    string? Category = null,
+    IReadOnlyList<string>? Tags = null,
+    string? Description = null);
+
+public sealed record MoveSprintProjectMaterialRequest(string? ParentId);
+
+public sealed record SprintProjectMaterialResult(
+    string Id,
+    string ProjectId,
+    string? ParentId,
+    string ItemType,
+    string Name,
+    string? OriginalFileName,
+    string? Extension,
+    string? ContentType,
+    long SizeBytes,
+    string StorageRoot,
+    string? RelativePath,
+    string? Sha256,
+    string? Category,
+    IReadOnlyList<string> Tags,
+    string? Description,
+    string ExtractStatus,
+    string? ExtractedTextPath,
+    string? Summary,
+    string UploadedBy,
+    DateTime? DeletedAt,
+    DateTime? UpdateTime,
+    DateTime CreateTime);
+
+public sealed record SprintProjectMaterialListResult(
+    IReadOnlyList<SprintProjectMaterialResult> Items,
+    int Total,
+    int PageIndex,
+    int PageSize);
+
+public sealed record CreateSprintProposalRequest(
+    string Title,
+    IReadOnlyList<string>? MaterialIds = null,
+    string? Instruction = null,
+    string? Content = null,
+    string? Summary = null);
+
+public sealed record UpdateSprintProposalRequest(
+    string Title,
+    string? Instruction = null,
+    string? Content = null,
+    string? Summary = null,
+    IReadOnlyList<string>? MaterialIds = null);
+
+public sealed record SprintProposalMaterialResult(
+    string Id,
+    string ProposalId,
+    string ProjectId,
+    string MaterialId,
+    string? MaterialVersionHash,
+    string? ExtractedTextSnapshotPath,
+    DateTime CreateTime,
+    SprintProjectMaterialResult? Material = null);
+
+public sealed record SprintProposalConversationResult(
+    string Id,
+    string ProposalId,
+    string ProjectId,
+    string Role,
+    string Content,
+    IReadOnlyList<string> MaterialIds,
+    string? TokenUsageJson,
+    string CreatedBy,
+    DateTime CreateTime);
+
+public sealed record SprintProposalRequirementResult(
+    string Id,
+    string ProposalId,
+    string ProjectId,
+    string RequirementId,
+    IReadOnlyList<string> MaterialIds,
+    string CreatedBy,
+    DateTime CreateTime);
+
+public sealed record SprintProposalResult(
+    string Id,
+    string ProjectId,
+    string Title,
+    string Status,
+    string SourceType,
+    string? Instruction,
+    string? Content,
+    string? Summary,
+    string? AiPromptSnapshot,
+    string? AiResultSnapshot,
+    string CreatedBy,
+    DateTime? ConfirmedAt,
+    DateTime? ConvertedAt,
+    DateTime? VoidedAt,
+    DateTime? UpdateTime,
+    DateTime CreateTime,
+    IReadOnlyList<SprintProposalMaterialResult> Materials,
+    IReadOnlyList<SprintProposalConversationResult>? Conversations = null,
+    IReadOnlyList<SprintProposalRequirementResult>? Requirements = null);
+
+public sealed record SprintProposalListResult(
+    IReadOnlyList<SprintProposalResult> Items,
+    int Total,
+    int PageIndex,
+    int PageSize);
+
 public sealed record SprintTaskLeaseResult(
     string Id,
     string ProjectId,

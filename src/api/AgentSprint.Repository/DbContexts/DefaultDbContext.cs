@@ -72,6 +72,18 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
 
     public DbSet<SprintProjectMemberEntity> SprintProjectMembers => Set<SprintProjectMemberEntity>();
 
+    public DbSet<SprintProjectMaterialEntity> SprintProjectMaterials => Set<SprintProjectMaterialEntity>();
+
+    public DbSet<SprintProjectMaterialEventEntity> SprintProjectMaterialEvents => Set<SprintProjectMaterialEventEntity>();
+
+    public DbSet<SprintProposalEntity> SprintProposals => Set<SprintProposalEntity>();
+
+    public DbSet<SprintProposalMaterialEntity> SprintProposalMaterials => Set<SprintProposalMaterialEntity>();
+
+    public DbSet<SprintProposalConversationEntity> SprintProposalConversations => Set<SprintProposalConversationEntity>();
+
+    public DbSet<SprintProposalRequirementEntity> SprintProposalRequirements => Set<SprintProposalRequirementEntity>();
+
     public DbSet<SprintProjectEndpointEntity> SprintProjectEndpoints => Set<SprintProjectEndpointEntity>();
 
     public DbSet<SprintFeatureModuleEntity> SprintFeatureModules => Set<SprintFeatureModuleEntity>();
@@ -101,6 +113,14 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
     public DbSet<CodeAuditFileEntity> CodeAuditFiles => Set<CodeAuditFileEntity>();
 
     public DbSet<DigitalWorkerEntity> DigitalWorkers => Set<DigitalWorkerEntity>();
+
+    public DbSet<DigitalWorkerDeployTemplateEntity> DigitalWorkerDeployTemplates => Set<DigitalWorkerDeployTemplateEntity>();
+
+    public DbSet<DigitalWorkerDeployRenderEntity> DigitalWorkerDeployRenders => Set<DigitalWorkerDeployRenderEntity>();
+
+    public DbSet<DigitalWorkerStartupProbeConfigEntity> DigitalWorkerStartupProbeConfigs => Set<DigitalWorkerStartupProbeConfigEntity>();
+
+    public DbSet<DigitalWorkerStartupProbeResultEntity> DigitalWorkerStartupProbeResults => Set<DigitalWorkerStartupProbeResultEntity>();
 
     public DbSet<WorkerSessionEntity> WorkerSessions => Set<WorkerSessionEntity>();
 
@@ -167,6 +187,18 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<GitBranchOperationEntity>().HasIndex(entity => new { entity.RepositoryId, entity.OperationType });
         modelBuilder.Entity<GitBranchOperationEntity>().HasIndex(entity => new { entity.RepositoryId, entity.BranchName });
         modelBuilder.Entity<SprintProjectMemberEntity>().HasIndex(entity => new { entity.ProjectId, entity.UserId, entity.Role }).IsUnique();
+        modelBuilder.Entity<SprintProjectMaterialEntity>().HasIndex(entity => new { entity.ProjectId, entity.ParentId, entity.DeletedAt });
+        modelBuilder.Entity<SprintProjectMaterialEntity>().HasIndex(entity => new { entity.ProjectId, entity.ItemType });
+        modelBuilder.Entity<SprintProjectMaterialEntity>().HasIndex(entity => new { entity.ProjectId, entity.UploadedBy });
+        modelBuilder.Entity<SprintProjectMaterialEntity>().HasIndex(entity => entity.Sha256);
+        modelBuilder.Entity<SprintProjectMaterialEventEntity>().HasIndex(entity => new { entity.ProjectId, entity.MaterialId, entity.CreateTime });
+        modelBuilder.Entity<SprintProposalEntity>().HasIndex(entity => new { entity.ProjectId, entity.Status, entity.CreateTime });
+        modelBuilder.Entity<SprintProposalEntity>().HasIndex(entity => new { entity.ProjectId, entity.CreatedBy });
+        modelBuilder.Entity<SprintProposalMaterialEntity>().HasIndex(entity => new { entity.ProposalId, entity.MaterialId }).IsUnique();
+        modelBuilder.Entity<SprintProposalMaterialEntity>().HasIndex(entity => new { entity.ProjectId, entity.MaterialId });
+        modelBuilder.Entity<SprintProposalConversationEntity>().HasIndex(entity => new { entity.ProposalId, entity.CreateTime });
+        modelBuilder.Entity<SprintProposalRequirementEntity>().HasIndex(entity => new { entity.ProposalId, entity.RequirementId }).IsUnique();
+        modelBuilder.Entity<SprintProposalRequirementEntity>().HasIndex(entity => entity.RequirementId);
         modelBuilder.Entity<SprintProjectEndpointEntity>().HasIndex(entity => new { entity.ProjectId, entity.Code }).IsUnique();
         modelBuilder.Entity<SprintFeatureModuleEntity>().HasIndex(entity => new { entity.ProjectId, entity.EndpointId, entity.Code }).IsUnique();
         modelBuilder.Entity<SprintRequirementEntity>().HasIndex(entity => new { entity.ProjectId, entity.Status });
@@ -201,6 +233,15 @@ public sealed class DefaultDbContext : AppDbContext<DefaultDbContext>
         modelBuilder.Entity<CodeAuditFileEntity>().HasIndex(entity => entity.LastAuditAt);
         modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => new { entity.AgentUserId, entity.Status });
+        modelBuilder.Entity<DigitalWorkerEntity>().HasIndex(entity => entity.ActiveAgentTokenKey).IsUnique();
+        modelBuilder.Entity<DigitalWorkerDeployTemplateEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<DigitalWorkerDeployRenderEntity>().HasIndex(entity => new { entity.WorkerId, entity.CreateTime });
+        modelBuilder.Entity<DigitalWorkerStartupProbeConfigEntity>().HasIndex(entity => entity.Code).IsUnique();
+        modelBuilder.Entity<DigitalWorkerStartupProbeResultEntity>().HasIndex(entity => new { entity.WorkerId, entity.CreateTime });
+        modelBuilder.Entity<DigitalWorkerStartupProbeResultEntity>().HasIndex(entity => new { entity.WorkerDeployRenderId, entity.ReportedAt });
+        modelBuilder.Entity<DigitalWorkerStartupProbeResultEntity>()
+            .HasIndex(entity => new { entity.WorkerId, entity.SessionId, entity.InstanceId, entity.ProbeConfigId })
+            .IsUnique();
         modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });
         modelBuilder.Entity<WorkerSessionEntity>().HasIndex(entity => new { entity.WorkerId, entity.InstanceId });
         modelBuilder.Entity<WorkerCommandEntity>().HasIndex(entity => new { entity.WorkerId, entity.Status });

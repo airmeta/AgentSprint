@@ -47,6 +47,39 @@ public interface IDigitalWorkerManagementService
     Task<DigitalWorkerResult> SetWorkerStatusAsync(string id, SetDigitalWorkerStatusRequest request);
 
     /// <summary>
+    /// zh-cn: 生成数字员工人工安装材料，先保存生成记录，再返回渲染后的 docker-compose.yml 与可选 .env。
+    /// en-us: Generates manual-install assets for a digital worker by first saving a render record, then returning rendered docker-compose.yml and optional .env content.
+    /// </summary>
+    Task<DigitalWorkerInstallRenderResult> GenerateInstallAsync(
+        string id,
+        GenerateDigitalWorkerInstallRequest request,
+        string userId);
+
+    /// <summary>
+    /// zh-cn: 查询可用于人工部署的数字员工模板，供管理端安装弹窗和模板维护页使用。
+    /// en-us: Lists digital-worker deploy templates for install rendering and template administration.
+    /// </summary>
+    Task<IReadOnlyList<DigitalWorkerDeployTemplateResult>> ListDeployTemplatesAsync(string? status = null, string? keyword = null);
+
+    /// <summary>
+    /// zh-cn: 新建数字员工部署模板，并在保存时校验 compose 模板、运行画像和能力声明。
+    /// en-us: Creates a digital-worker deploy template after validating its compose template, runtime profile, and capability declaration.
+    /// </summary>
+    Task<DigitalWorkerDeployTemplateResult> CreateDeployTemplateAsync(SaveDigitalWorkerDeployTemplateRequest request);
+
+    /// <summary>
+    /// zh-cn: 更新数字员工部署模板，并执行与安装渲染一致的模板安全校验。
+    /// en-us: Updates a digital-worker deploy template with the same validation used by install rendering.
+    /// </summary>
+    Task<DigitalWorkerDeployTemplateResult> UpdateDeployTemplateAsync(string id, SaveDigitalWorkerDeployTemplateRequest request);
+
+    /// <summary>
+    /// zh-cn: 软删除已停用数字员工，并保留历史会话、命令、运行和探针审计数据。
+    /// en-us: Soft-deletes a disabled digital worker while keeping historical sessions, commands, runs, and startup-probe audit data.
+    /// </summary>
+    Task<DigitalWorkerResult> DeleteWorkerAsync(string id);
+
+    /// <summary>
     /// zh-cn: 创建平台下发命令，命令会在 Worker 下一次心跳时返回并由运行时 ACK。
     /// en-us: Creates a platform command that is returned on the worker's next heartbeat and acknowledged by the runtime.
     /// </summary>
@@ -100,4 +133,10 @@ public interface IDigitalWorkerManagementService
         string? sessionId = null,
         string? runId = null,
         string? eventType = null);
+
+    /// <summary>
+    /// zh-cn: 查询某个数字员工的启动探针结果，供管理端审计页展示容器启动环境。
+    /// en-us: Lists startup-probe results for a digital worker so the admin audit page can show container startup capabilities.
+    /// </summary>
+    Task<IReadOnlyList<StartupProbeResult>> ListStartupProbeResultsAsync(string workerId);
 }

@@ -24,8 +24,14 @@ public sealed class DigitalWorkerManagementService :
     private readonly IWorkerCommandLogBuffer _commandLogBuffer;
     private readonly IWorkerRunDomain _runDomain;
     private readonly IWorkerEventDomain _eventDomain;
+    private readonly ISprintProjectDomain _projectDomain;
     private readonly ISprintDevelopmentTaskDomain _taskDomain;
     private readonly ISprintBugDomain _bugDomain;
+    private readonly ISprintTaskLeaseDomain _leaseDomain;
+    private readonly IAgentTokenDomain _agentTokenDomain;
+    private readonly IDigitalWorkerDeployTemplateDomain _deployTemplateDomain;
+    private readonly IDigitalWorkerDeployRenderDomain _deployRenderDomain;
+    private readonly IDigitalWorkerStartupProbeResultDomain _startupProbeResultDomain;
 
     /// <summary>
     /// zh-cn: 创建数字员工管理服务，聚合主档、会话、命令、运行和事件领域对象，供后台管理端维护 AgentSprint.Worker。
@@ -39,8 +45,14 @@ public sealed class DigitalWorkerManagementService :
         IWorkerCommandLogBuffer commandLogBuffer,
         IWorkerRunDomain runDomain,
         IWorkerEventDomain eventDomain,
+        ISprintProjectDomain projectDomain,
         ISprintDevelopmentTaskDomain taskDomain,
-        ISprintBugDomain bugDomain)
+        ISprintBugDomain bugDomain,
+        ISprintTaskLeaseDomain leaseDomain,
+        IAgentTokenDomain agentTokenDomain,
+        IDigitalWorkerDeployTemplateDomain deployTemplateDomain,
+        IDigitalWorkerDeployRenderDomain deployRenderDomain,
+        IDigitalWorkerStartupProbeResultDomain startupProbeResultDomain)
     {
         _workerDomain = workerDomain;
         _sessionDomain = sessionDomain;
@@ -49,8 +61,14 @@ public sealed class DigitalWorkerManagementService :
         _commandLogBuffer = commandLogBuffer;
         _runDomain = runDomain;
         _eventDomain = eventDomain;
+        _projectDomain = projectDomain;
         _taskDomain = taskDomain;
         _bugDomain = bugDomain;
+        _leaseDomain = leaseDomain;
+        _agentTokenDomain = agentTokenDomain;
+        _deployTemplateDomain = deployTemplateDomain;
+        _deployRenderDomain = deployRenderDomain;
+        _startupProbeResultDomain = startupProbeResultDomain;
     }
 
     /// <inheritdoc />
@@ -71,11 +89,13 @@ public sealed class DigitalWorkerManagementService :
             Name = name,
             AgentUserId = agentUserId,
             AgentTokenId = NormalizeOptional(request.AgentTokenId),
+            ActiveAgentTokenKey = NormalizeOptional(request.AgentTokenId),
             ProjectIds = SerializeIds(NormalizeIds(request.ProjectIds)),
             EndpointIds = SerializeIds(NormalizeIds(request.EndpointIds)),
             SkillIds = SerializeIds(NormalizeIds(request.SkillIds)),
             EmployeeType = NormalizeEmployeeType(request.EmployeeType),
             WorkerType = NormalizeWorkerType(request.WorkerType),
+            Status = DigitalWorkerStatuses.Inactive,
             MaxConcurrentRuns = NormalizeRange(request.MaxConcurrentRuns, 1, 1, 10),
             HeartbeatTimeoutSeconds = NormalizeHeartbeatTimeout(request.HeartbeatTimeoutSeconds, 90),
             PollIntervalSeconds = NormalizeRange(request.PollIntervalSeconds, 15, 5, 300),
@@ -95,6 +115,7 @@ public sealed class DigitalWorkerManagementService :
             Description = NormalizeOptional(request.Description),
             CreatedBy = userId
         };
+        await EnsureAgentTokenAvailableAsync(entity.AgentTokenId, null);
         await _workerDomain.CreateAsync(entity);
         return ToResult(entity);
     }
@@ -105,7 +126,10 @@ public sealed class DigitalWorkerManagementService :
         var entity = await GetWorkerOrThrowAsync(id);
         entity.Name = NormalizeRequired(request.Name, "Worker name is required.");
         entity.AgentUserId = NormalizeRequired(request.AgentUserId, "Agent user is required.");
-        entity.AgentTokenId = NormalizeOptional(request.AgentTokenId);
+        var nextAgentTokenId = NormalizeOptional(request.AgentTokenId);
+        await EnsureAgentTokenAvailableAsync(nextAgentTokenId, entity.Id);
+        entity.AgentTokenId = nextAgentTokenId;
+        entity.ActiveAgentTokenKey = entity.IsDelete == 0 ? nextAgentTokenId : null;
         entity.ProjectIds = SerializeIds(NormalizeIds(request.ProjectIds));
         entity.EndpointIds = SerializeIds(NormalizeIds(request.EndpointIds));
         entity.SkillIds = SerializeIds(NormalizeIds(request.SkillIds));
@@ -145,12 +169,13 @@ public sealed class DigitalWorkerManagementService :
         var entities = await _workerDomain.ListAsync(entity =>
             (string.IsNullOrWhiteSpace(normalizedStatus) || entity.Status == normalizedStatus) &&
             (string.IsNullOrWhiteSpace(normalizedType) || entity.WorkerType == normalizedType));
+        var latestSessions = await LoadLatestSessionsAsync(entities.Select(entity => entity.Id));
         return entities
             .Where(entity =>
                 string.IsNullOrWhiteSpace(normalizedKeyword) ||
                 TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description))
             .OrderByDescending(entity => entity.UpdateTime ?? entity.CreateTime)
-            .Select(ToResult)
+            .Select(entity => ToResult(entity, latestSessions.GetValueOrDefault(entity.Id)))
             .ToList();
     }
 
@@ -171,30 +196,170 @@ public sealed class DigitalWorkerManagementService :
         var commands = await _commandDomain.ListAsync(entity =>
             entity.WorkerId == worker.Id &&
             entity.Status == WorkerCommandStatuses.Pending);
+        var probeResults = await ListStartupProbeResultsAsync(worker.Id);
 
         return new DigitalWorkerDetailResult(
             ToResult(worker),
             latestSession is null ? null : ToResult(latestSession),
             currentRun is null ? null : ToResult(currentRun),
-            commands.OrderBy(entity => entity.CreateTime).Select(ToResult).ToList());
+            commands.OrderBy(entity => entity.CreateTime).Select(ToResult).ToList(),
+            probeResults);
     }
 
     /// <inheritdoc />
     public async Task<DigitalWorkerResult> SetWorkerStatusAsync(string id, SetDigitalWorkerStatusRequest request)
     {
         var entity = await GetWorkerOrThrowAsync(id);
-        entity.Status = NormalizeWorkerStatus(request.Status);
+        var nextStatus = NormalizeWorkerStatus(request.Status);
+        if (nextStatus == DigitalWorkerStatuses.Idle)
+        {
+            await EnsureWorkerCanManuallyRestoreIdleAsync(entity);
+        }
+
+        if (nextStatus == DigitalWorkerStatuses.Disabled)
+        {
+            await EnsureWorkerCanDisableAsync(entity);
+        }
+
+        entity.Status = nextStatus;
         await _workerDomain.UpdateAsync(entity);
         return ToResult(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<DigitalWorkerInstallRenderResult> GenerateInstallAsync(
+        string id,
+        GenerateDigitalWorkerInstallRequest request,
+        string userId)
+    {
+        var worker = await GetWorkerOrThrowAsync(id);
+        if (worker.Status == DigitalWorkerStatuses.Disabled)
+        {
+            throw new InvalidOperationException("Disabled worker cannot generate install assets.");
+        }
+
+        var template = await ResolveDeployTemplateAsync(request.TemplateId);
+        ValidateDeployTemplate(template);
+        var agentToken = await ResolveWorkerAgentTokenValueAsync(worker);
+        var apiBaseUrl = NormalizeOptional(request.ApiBaseUrl) ?? "http://api:5000";
+        var render = new DigitalWorkerDeployRenderEntity
+        {
+            WorkerId = worker.Id,
+            TemplateId = template.Id,
+            TemplateVersion = template.Version,
+            PlainSecretEnabled = request.PlainSecretEnabled,
+            CreatedBy = userId
+        };
+        var placeholderValues = BuildDeployPlaceholderValues(worker, template, apiBaseUrl, agentToken, render.Id);
+        var composeValues = new Dictionary<string, string>(placeholderValues, StringComparer.OrdinalIgnoreCase);
+        if (!request.PlainSecretEnabled)
+        {
+            composeValues["agentToken"] = "${AGENTSPRINT_AGENT_TOKEN}";
+        }
+
+        render.RenderedCompose = RenderTemplate(template.ComposeTemplate, composeValues);
+        render.RenderedEnv = request.PlainSecretEnabled
+            ? null
+            : $"AGENTSPRINT_AGENT_TOKEN={agentToken}{Environment.NewLine}";
+        render.PlaceholderValuesJson = JsonSerializer.Serialize(placeholderValues);
+        ValidateRenderedInstall(render, request.PlainSecretEnabled, agentToken);
+        await _deployRenderDomain.CreateAsync(render);
+        worker.RuntimeProfile = template.RuntimeProfile;
+        worker.BackendTechCapabilities = NormalizeBackendTechCapabilities(template.BackendTechCapabilities);
+        await _workerDomain.UpdateAsync(worker);
+        return ToResult(render);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DigitalWorkerDeployTemplateResult>> ListDeployTemplatesAsync(
+        string? status = null,
+        string? keyword = null)
+    {
+        var normalizedStatus = NormalizeOptional(status);
+        var normalizedKeyword = NormalizeOptional(keyword);
+        var statusValue = int.TryParse(normalizedStatus, out var parsedStatus) ? parsedStatus : (int?)null;
+        var templates = await _deployTemplateDomain.ListAsync(entity =>
+            (!statusValue.HasValue || entity.Status == statusValue.Value));
+        return templates
+            .Where(entity =>
+                string.IsNullOrWhiteSpace(normalizedKeyword) ||
+                TextContains(normalizedKeyword, entity.Code, entity.Name, entity.Description, entity.RuntimeProfile, entity.BackendTechCapabilities))
+            .OrderBy(entity => entity.Sort)
+            .ThenBy(entity => entity.Code)
+            .ThenByDescending(entity => entity.Version)
+            .Select(ToResult)
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<DigitalWorkerDeployTemplateResult> CreateDeployTemplateAsync(SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        var entity = new DigitalWorkerDeployTemplateEntity
+        {
+            Code = NormalizeTemplateCode(request.Code),
+            Name = NormalizeRequired(request.Name, "Deploy template name is required."),
+            Description = NormalizeOptional(request.Description),
+            RuntimeProfile = NormalizeRequired(request.RuntimeProfile, "Runtime profile is required."),
+            BackendTechCapabilities = NormalizeBackendTechCapabilities(request.BackendTechCapabilities),
+            ComposeTemplate = NormalizeRequired(request.ComposeTemplate, "Deploy template compose content is required."),
+            DockerfileExtension = NormalizeOptional(request.DockerfileExtension),
+            Version = NormalizeRange(request.Version, 1, 1, 9999),
+            Sort = NormalizeRange(request.Sort, 100, 0, 9999),
+            Status = NormalizeTemplateStatus(request.Status)
+        };
+        await EnsureDeployTemplateCodeAvailableAsync(entity.Code, null);
+        ValidateDeployTemplate(entity);
+        await _deployTemplateDomain.CreateAsync(entity);
+        return ToResult(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<DigitalWorkerDeployTemplateResult> UpdateDeployTemplateAsync(
+        string id,
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        var entity = await GetDeployTemplateOrThrowAsync(id);
+        var code = NormalizeTemplateCode(request.Code);
+        await EnsureDeployTemplateCodeAvailableAsync(code, entity.Id);
+        entity.Code = code;
+        entity.Name = NormalizeRequired(request.Name, "Deploy template name is required.");
+        entity.Description = NormalizeOptional(request.Description);
+        entity.RuntimeProfile = NormalizeRequired(request.RuntimeProfile, "Runtime profile is required.");
+        entity.BackendTechCapabilities = NormalizeBackendTechCapabilities(request.BackendTechCapabilities);
+        entity.ComposeTemplate = NormalizeRequired(request.ComposeTemplate, "Deploy template compose content is required.");
+        entity.DockerfileExtension = NormalizeOptional(request.DockerfileExtension);
+        entity.Version = NormalizeRange(request.Version, entity.Version, 1, 9999);
+        entity.Sort = NormalizeRange(request.Sort, entity.Sort, 0, 9999);
+        entity.Status = NormalizeTemplateStatus(request.Status);
+        ValidateDeployTemplate(entity);
+        await _deployTemplateDomain.UpdateAsync(entity);
+        return ToResult(entity);
+    }
+
+    /// <inheritdoc />
+    public async Task<DigitalWorkerResult> DeleteWorkerAsync(string id)
+    {
+        var entity = await GetWorkerOrThrowAsync(id);
+        if (entity.Status != DigitalWorkerStatuses.Disabled)
+        {
+            throw new InvalidOperationException("Only disabled workers can be deleted.");
+        }
+
+        await EnsureWorkerHasNoUnfinishedWorkAsync(entity);
+        var result = ToResult(entity);
+        entity.ActiveAgentTokenKey = null;
+        entity.IsDelete = 1;
+        await _workerDomain.UpdateAsync(entity);
+        return result;
     }
 
     /// <inheritdoc />
     public async Task<WorkerCommandResult> CreateCommandAsync(CreateWorkerCommandRequest request, string userId)
     {
         var worker = await GetWorkerOrThrowAsync(request.WorkerId);
-        if (worker.Status == DigitalWorkerStatuses.Disabled)
+        if (!CanQueueWorkerCommand(worker))
         {
-            throw new InvalidOperationException("Disabled worker cannot receive commands.");
+            throw new InvalidOperationException("Worker is not available for queued commands.");
         }
 
         if (!string.IsNullOrWhiteSpace(request.SessionId))
@@ -276,9 +441,9 @@ public sealed class DigitalWorkerManagementService :
         var source = await _commandDomain.GetAsync(commandId)
             ?? throw new InvalidOperationException("Worker command does not exist.");
         var worker = await GetWorkerOrThrowAsync(source.WorkerId);
-        if (worker.Status == DigitalWorkerStatuses.Disabled)
+        if (!CanQueueWorkerCommand(worker))
         {
-            throw new InvalidOperationException("Disabled worker cannot receive commands.");
+            throw new InvalidOperationException("Worker is not available for queued commands.");
         }
 
         var commandType = NormalizeCommandType(source.CommandType);
@@ -358,6 +523,18 @@ public sealed class DigitalWorkerManagementService :
             .ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StartupProbeResult>> ListStartupProbeResultsAsync(string workerId)
+    {
+        var worker = await GetWorkerOrThrowAsync(workerId);
+        var results = await _startupProbeResultDomain.ListAsync(entity => entity.WorkerId == worker.Id);
+        return results
+            .OrderByDescending(entity => entity.ReportedAt)
+            .ThenBy(entity => entity.ProbeCode)
+            .Select(ToResult)
+            .ToList();
+    }
+
     private async Task<DigitalWorkerEntity> GetWorkerOrThrowAsync(string id)
     {
         var entity = await _workerDomain.GetAsync(id);
@@ -387,7 +564,383 @@ public sealed class DigitalWorkerManagementService :
         return entity ?? throw new InvalidOperationException("Worker session does not exist.");
     }
 
+    private async Task EnsureAgentTokenAvailableAsync(string? agentTokenId, string? currentWorkerId)
+    {
+        if (string.IsNullOrWhiteSpace(agentTokenId))
+        {
+            return;
+        }
+
+        var duplicated = await _workerDomain.ListAsync(entity =>
+            entity.ActiveAgentTokenKey == agentTokenId &&
+            entity.Id != currentWorkerId);
+        if (duplicated.Count > 0)
+        {
+            throw new InvalidOperationException("Agent Token is already bound to another active digital worker.");
+        }
+    }
+
+    private async Task<DigitalWorkerDeployTemplateEntity> ResolveDeployTemplateAsync(string? templateId)
+    {
+        var normalizedTemplateId = NormalizeOptional(templateId);
+        DigitalWorkerDeployTemplateEntity? template = null;
+        if (normalizedTemplateId is not null)
+        {
+            template = await _deployTemplateDomain.GetAsync(normalizedTemplateId);
+            if (template is null)
+            {
+                var byCode = await _deployTemplateDomain.ListAsync(entity => entity.Code == normalizedTemplateId);
+                template = byCode.SingleOrDefault();
+            }
+        }
+
+        if (template is null)
+        {
+            var templates = await _deployTemplateDomain.ListAsync(entity =>
+                entity.Status == DigitalWorkerTemplateStatuses.Enabled);
+            template = templates
+                .OrderBy(entity => entity.Sort)
+                .ThenByDescending(entity => entity.Version)
+                .FirstOrDefault();
+        }
+
+        return template ?? throw new InvalidOperationException("No enabled digital worker deploy template is configured.");
+    }
+
+    private async Task<DigitalWorkerDeployTemplateEntity> GetDeployTemplateOrThrowAsync(string id)
+    {
+        var normalized = NormalizeRequired(id, "Deploy template id is required.");
+        var template = await _deployTemplateDomain.GetAsync(normalized);
+        if (template is null)
+        {
+            var templates = await _deployTemplateDomain.ListAsync(entity => entity.Code == normalized);
+            template = templates.SingleOrDefault();
+        }
+
+        return template ?? throw new InvalidOperationException("Deploy template does not exist.");
+    }
+
+    private async Task EnsureDeployTemplateCodeAvailableAsync(string code, string? currentTemplateId)
+    {
+        var duplicated = await _deployTemplateDomain.ListAsync(entity =>
+            entity.Code == code &&
+            entity.Id != currentTemplateId &&
+            entity.IsDelete == 0);
+        if (duplicated.Count > 0)
+        {
+            throw new InvalidOperationException("Deploy template code already exists.");
+        }
+    }
+
+    private static void ValidateDeployTemplate(DigitalWorkerDeployTemplateEntity template)
+    {
+        var compose = NormalizeRequired(template.ComposeTemplate, "Deploy template compose content is required.");
+        if (!compose.Contains("{{apiBaseUrl}}", StringComparison.OrdinalIgnoreCase) &&
+            !compose.Contains("AgentSprint__ApiBaseUrl", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Deploy template must include AgentSprint API base URL.");
+        }
+
+        if (!compose.Contains("{{agentToken}}", StringComparison.OrdinalIgnoreCase) &&
+            !compose.Contains("AGENTSPRINT_AGENT_TOKEN", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Deploy template must include Agent Token placeholder or env reference.");
+        }
+
+        if (!compose.Contains("{{workspaceRoot}}", StringComparison.OrdinalIgnoreCase) ||
+            !compose.Contains("{{runsRoot}}", StringComparison.OrdinalIgnoreCase) ||
+            !compose.Contains("{{codexHome}}", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Deploy template must include isolated workspace, runs, and Codex home placeholders.");
+        }
+
+        if (compose.Contains("container_name: math-codex-worker-1", StringComparison.OrdinalIgnoreCase) ||
+            compose.Contains("container_name: agentsprint-worker", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Deploy template cannot hardcode a specific worker container name.");
+        }
+
+        if (!compose.Contains("{{serviceName}}", StringComparison.OrdinalIgnoreCase) &&
+            !compose.Contains("{{containerName}}", StringComparison.OrdinalIgnoreCase) &&
+            !compose.Contains("{{workerCode}}", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Deploy template must use worker-specific service or container placeholders.");
+        }
+
+        var dockerfileExtension = NormalizeOptional(template.DockerfileExtension);
+        if (dockerfileExtension is not null &&
+            (dockerfileExtension.Contains(" rm -rf / ", StringComparison.OrdinalIgnoreCase) ||
+             dockerfileExtension.Contains("curl ", StringComparison.OrdinalIgnoreCase) ||
+             dockerfileExtension.Contains("wget ", StringComparison.OrdinalIgnoreCase) ||
+             dockerfileExtension.Contains("mkfs", StringComparison.OrdinalIgnoreCase) ||
+             dockerfileExtension.Contains(":(){", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Deploy template Dockerfile extension contains unsafe commands.");
+        }
+    }
+
+    private async Task<string> ResolveWorkerAgentTokenValueAsync(DigitalWorkerEntity worker)
+    {
+        if (string.IsNullOrWhiteSpace(worker.AgentTokenId))
+        {
+            throw new InvalidOperationException("Worker Agent Token is required before generating install assets.");
+        }
+
+        var token = await _agentTokenDomain.GetAsync(worker.AgentTokenId)
+            ?? throw new InvalidOperationException("Worker Agent Token does not exist.");
+        if (token.Status != 1 || token.RevokedAt is not null || token.ExpiresAt <= DateTime.UtcNow)
+        {
+            throw new InvalidOperationException("Worker Agent Token is invalid or expired.");
+        }
+
+        return NormalizeRequired(token.TokenValue, "Worker Agent Token value is empty.");
+    }
+
+    private static Dictionary<string, string> BuildDeployPlaceholderValues(
+        DigitalWorkerEntity worker,
+        DigitalWorkerDeployTemplateEntity template,
+        string apiBaseUrl,
+        string agentToken,
+        string workerDeployRenderId)
+    {
+        var serviceName = SanitizeServiceName(worker.Code);
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["workerCode"] = worker.Code,
+            ["workerName"] = worker.Name,
+            ["serviceName"] = serviceName,
+            ["containerName"] = serviceName,
+            ["imageName"] = ResolveWorkerImageName(template.RuntimeProfile),
+            ["apiBaseUrl"] = apiBaseUrl,
+            ["agentToken"] = agentToken,
+            ["workspaceRoot"] = worker.WorkspaceRoot,
+            ["runsRoot"] = worker.RunsRoot,
+            ["codexHome"] = worker.CodexHome,
+            ["runtimeProfile"] = template.RuntimeProfile,
+            ["workerDeployRenderId"] = workerDeployRenderId
+        };
+    }
+
+    private static string SanitizeServiceName(string code)
+    {
+        var builder = new StringBuilder();
+        foreach (var character in code.ToLowerInvariant())
+        {
+            builder.Append(char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '-');
+        }
+
+        var value = builder.ToString().Trim('-', '_');
+        return string.IsNullOrWhiteSpace(value) ? "agentsprint-worker" : value;
+    }
+
+    private static string ResolveWorkerImageName(string runtimeProfile)
+    {
+        return runtimeProfile.Equals("dotnet-default", StringComparison.OrdinalIgnoreCase)
+            ? "agentsprint-worker:latest"
+            : $"agentsprint-worker-{runtimeProfile}:latest";
+    }
+
+    private static string RenderTemplate(string template, IReadOnlyDictionary<string, string> values)
+    {
+        var result = template;
+        foreach (var (key, value) in values)
+        {
+            result = result.Replace("{{" + key + "}}", value, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return result;
+    }
+
+    private static void ValidateRenderedInstall(
+        DigitalWorkerDeployRenderEntity render,
+        bool plainSecretEnabled,
+        string agentToken)
+    {
+        if (render.RenderedCompose.Contains("{{", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Rendered compose contains unresolved placeholders.");
+        }
+
+        if (!render.RenderedCompose.Contains("AgentSprint__WorkerDeployRenderId", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Rendered compose must include AgentSprint__WorkerDeployRenderId.");
+        }
+
+        if (!render.RenderedCompose.Contains("AgentSprint__ApiBaseUrl", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Rendered compose must include AgentSprint__ApiBaseUrl.");
+        }
+
+        if (!render.RenderedCompose.Contains("AgentSprint__AgentToken", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Rendered compose must include AgentSprint__AgentToken.");
+        }
+
+        if (!plainSecretEnabled && render.RenderedCompose.Contains(agentToken, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Agent Token cannot appear in docker-compose.yml when plain secret output is disabled.");
+        }
+    }
+
+    private async Task EnsureWorkerCanDisableAsync(DigitalWorkerEntity worker)
+    {
+        if (worker.Status != DigitalWorkerStatuses.Maintenance)
+        {
+            throw new InvalidOperationException("Worker can be disabled only from maintenance status.");
+        }
+
+        await EnsureWorkerHasNoUnfinishedWorkAsync(worker);
+    }
+
+    private async Task EnsureWorkerCanManuallyRestoreIdleAsync(DigitalWorkerEntity worker)
+    {
+        if (worker.Status is DigitalWorkerStatuses.Inactive or DigitalWorkerStatuses.Starting)
+        {
+            throw new InvalidOperationException("Worker can enter idle only after required startup probes pass.");
+        }
+
+        if (worker.Status == DigitalWorkerStatuses.Disabled)
+        {
+            throw new InvalidOperationException("Disabled worker cannot be restored to idle directly.");
+        }
+
+        await EnsureWorkerHasNoUnfinishedWorkAsync(worker);
+        await EnsureLatestRequiredStartupProbesPassedAsync(worker.Id);
+    }
+
+    private async Task EnsureLatestRequiredStartupProbesPassedAsync(string workerId)
+    {
+        var results = await _startupProbeResultDomain.ListAsync(entity => entity.WorkerId == workerId);
+        var latestByProbe = results
+            .Where(entity => entity.Required)
+            .GroupBy(entity => entity.ProbeCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(entity => entity.ReportedAt).First())
+            .ToList();
+        if (latestByProbe.Count == 0 || latestByProbe.Any(entity => !entity.Passed))
+        {
+            throw new InvalidOperationException("Worker cannot be restored to idle until all required startup probes have passed.");
+        }
+    }
+
+    private async Task EnsureWorkerHasNoUnfinishedWorkAsync(DigitalWorkerEntity worker)
+    {
+        var blockingCommands = await _commandDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            (entity.Status == WorkerCommandStatuses.Pending ||
+             entity.Status == WorkerCommandStatuses.Acked ||
+             entity.Status == WorkerCommandStatuses.Running));
+        var blockingRuns = await _runDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            (entity.Status == WorkerRunStatuses.Pending ||
+             entity.Status == WorkerRunStatuses.Running));
+        var blockingTasks = await _taskDomain.ListAsync(entity =>
+            entity.AssigneeId == worker.AgentUserId &&
+            entity.AssigneeType == SprintTaskAssigneeTypes.DigitalWorker &&
+            entity.Status != SprintDevelopmentTaskStatuses.Completed);
+        var blockingBugs = await _bugDomain.ListAsync(entity =>
+            entity.DeveloperId == worker.AgentUserId &&
+            entity.Status != SprintBugStatuses.Closed &&
+            entity.Status != SprintBugStatuses.FixedReadyForRegression);
+        var now = DateTime.UtcNow;
+        var blockingLeases = await _leaseDomain.ListAsync(entity =>
+            entity.OwnerId == worker.AgentUserId &&
+            entity.Status == SprintTaskLeaseStatuses.Active &&
+            entity.ExpiresAt > now);
+
+        var messages = new List<string>();
+        if (blockingCommands.Count > 0)
+        {
+            messages.Add($"pending/running commands {blockingCommands.Count}");
+        }
+
+        if (blockingRuns.Count > 0)
+        {
+            messages.Add($"pending/running runs {blockingRuns.Count}");
+        }
+
+        if (blockingTasks.Count > 0)
+        {
+            messages.Add($"unfinished development tasks {blockingTasks.Count}");
+        }
+
+        if (blockingBugs.Count > 0)
+        {
+            messages.Add($"unfinished bugs {blockingBugs.Count}");
+        }
+
+        if (blockingLeases.Count > 0)
+        {
+            messages.Add($"active task leases {blockingLeases.Count}");
+        }
+
+        if (messages.Count > 0)
+        {
+            throw new InvalidOperationException("Worker still has unfinished work: " + string.Join(", ", messages) + ".");
+        }
+    }
+
+    internal static bool CanQueueWorkerCommand(DigitalWorkerEntity worker)
+    {
+        return worker.Status is
+            DigitalWorkerStatuses.Idle or
+            DigitalWorkerStatuses.Working or
+            DigitalWorkerStatuses.Active;
+    }
+
+    internal static string NormalizeBackendTechCapabilities(string? value)
+    {
+        var capabilities = ParseTechStack(value).ToList();
+        return capabilities.Count == 0 ? "dotnet" : string.Join(",", capabilities);
+    }
+
+    internal static void EnsureBackendTechCovered(DigitalWorkerEntity worker, string? backendTechStack)
+    {
+        var required = ParseTechStack(backendTechStack).ToList();
+        if (required.Count == 0)
+        {
+            return;
+        }
+
+        var capabilities = ParseTechStack(worker.BackendTechCapabilities).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = required.Where(item => !capabilities.Contains(item)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Worker backend tech capability does not cover project stack: {string.Join(", ", missing)}.");
+        }
+    }
+
+    private static IEnumerable<string> ParseTechStack(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split([',', ';', '/', '|', ' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeTechStackItem)
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeTechStackItem(string value)
+    {
+        var normalized = value.Trim().TrimStart('.').ToLowerInvariant();
+        return normalized switch
+        {
+            "" => null,
+            "c#" or "csharp" or "aspnetcore" or "asp.net" or "asp.netcore" or "net" or "netcore" => "dotnet",
+            "dotnet" or "java" or "node" or "python" or "go" or "php" or "ruby" => normalized,
+            "nodejs" or "javascript" or "typescript" => "node",
+            "python3" => "python",
+            "golang" => "go",
+            _ => null
+        };
+    }
+
     internal static DigitalWorkerResult ToResult(DigitalWorkerEntity entity)
+    {
+        return ToResult(entity, null);
+    }
+
+    internal static DigitalWorkerResult ToResult(DigitalWorkerEntity entity, WorkerSessionEntity? latestSession)
     {
         return new DigitalWorkerResult(
             entity.Id,
@@ -401,6 +954,8 @@ public sealed class DigitalWorkerManagementService :
             entity.EmployeeType,
             entity.WorkerType,
             entity.Status,
+            entity.RuntimeProfile,
+            entity.BackendTechCapabilities,
             entity.MaxConcurrentRuns,
             entity.HeartbeatTimeoutSeconds,
             entity.PollIntervalSeconds,
@@ -420,7 +975,91 @@ public sealed class DigitalWorkerManagementService :
             entity.Description,
             entity.CreatedBy,
             entity.CreateTime,
+            entity.UpdateTime,
+            latestSession?.LastHeartbeatAt,
+            latestSession?.Status,
+            BuildRuntimeSummary(latestSession));
+    }
+
+    internal static DigitalWorkerDeployTemplateResult ToResult(DigitalWorkerDeployTemplateEntity entity)
+    {
+        return new DigitalWorkerDeployTemplateResult(
+            entity.Id,
+            entity.Code,
+            entity.Name,
+            entity.Description,
+            entity.RuntimeProfile,
+            entity.BackendTechCapabilities,
+            entity.ComposeTemplate,
+            entity.DockerfileExtension,
+            entity.Version,
+            entity.Sort,
+            entity.Status,
+            entity.CreateTime,
             entity.UpdateTime);
+    }
+
+    private async Task<IReadOnlyDictionary<string, WorkerSessionEntity>> LoadLatestSessionsAsync(IEnumerable<string> workerIds)
+    {
+        var ids = workerIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal);
+        if (ids.Count == 0)
+        {
+            return new Dictionary<string, WorkerSessionEntity>();
+        }
+
+        var sessions = await _sessionDomain.ListAsync(entity => ids.Contains(entity.WorkerId));
+        return sessions
+            .GroupBy(entity => entity.WorkerId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(entity => entity.LastHeartbeatAt ?? entity.StartedAt)
+                    .First(),
+                StringComparer.Ordinal);
+    }
+
+    private static string? BuildRuntimeSummary(WorkerSessionEntity? session)
+    {
+        if (session is null)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(session.ContainerId))
+        {
+            parts.Add($"容器 {session.ContainerId[..Math.Min(12, session.ContainerId.Length)]}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.HostName))
+        {
+            parts.Add(session.HostName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.CodexVersion))
+        {
+            parts.Add($"Codex {session.CodexVersion}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.GitVersion))
+        {
+            parts.Add(session.GitVersion);
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.DotnetVersion))
+        {
+            parts.Add($".NET {session.DotnetVersion}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.NodeVersion))
+        {
+            parts.Add($"Node {session.NodeVersion}");
+        }
+
+        return parts.Count == 0 ? null : string.Join(" / ", parts);
     }
 
     private async Task<string> ResolveWorkerCodeAsync(string? requestedCode)
@@ -540,6 +1179,54 @@ public sealed class DigitalWorkerManagementService :
             entity.CreateTime);
     }
 
+    internal static DigitalWorkerInstallRenderResult ToResult(DigitalWorkerDeployRenderEntity entity)
+    {
+        return new DigitalWorkerInstallRenderResult(
+            entity.Id,
+            entity.WorkerId,
+            entity.TemplateId,
+            entity.TemplateVersion,
+            entity.RenderedCompose,
+            entity.RenderedEnv,
+            entity.PlainSecretEnabled,
+            entity.PlaceholderValuesJson,
+            entity.CreateTime);
+    }
+
+    internal static StartupProbeConfigResult ToResult(DigitalWorkerStartupProbeConfigEntity entity)
+    {
+        return new StartupProbeConfigResult(
+            entity.Id,
+            entity.Code,
+            entity.Name,
+            entity.Command,
+            entity.ExpectedPattern,
+            entity.Required,
+            entity.Sort);
+    }
+
+    internal static StartupProbeResult ToResult(DigitalWorkerStartupProbeResultEntity entity)
+    {
+        return new StartupProbeResult(
+            entity.Id,
+            entity.WorkerId,
+            entity.SessionId,
+            entity.InstanceId,
+            entity.WorkerDeployRenderId,
+            entity.ProbeConfigId,
+            entity.ProbeCode,
+            entity.ProbeName,
+            entity.Command,
+            entity.ExitCode,
+            entity.Stdout,
+            entity.Stderr,
+            entity.Error,
+            entity.Passed,
+            entity.Required,
+            entity.ReportedAt,
+            entity.CreateTime);
+    }
+
     internal static string NormalizeWorkerType(string? value)
     {
         var normalized = NormalizeOptional(value) ?? DigitalWorkerTypes.Codex;
@@ -566,12 +1253,36 @@ public sealed class DigitalWorkerManagementService :
 
     internal static string NormalizeWorkerStatus(string? value)
     {
-        var normalized = NormalizeOptional(value) ?? DigitalWorkerStatuses.Active;
+        var normalized = NormalizeOptional(value) ?? DigitalWorkerStatuses.Inactive;
         return normalized switch
         {
-            DigitalWorkerStatuses.Active or DigitalWorkerStatuses.Disabled or DigitalWorkerStatuses.Maintenance => normalized,
-            _ => DigitalWorkerStatuses.Active
+            DigitalWorkerStatuses.Inactive or
+            DigitalWorkerStatuses.Starting or
+            DigitalWorkerStatuses.Idle or
+            DigitalWorkerStatuses.Working or
+            DigitalWorkerStatuses.Maintenance or
+            DigitalWorkerStatuses.Disabled => normalized,
+            DigitalWorkerStatuses.Active => DigitalWorkerStatuses.Idle,
+            _ => DigitalWorkerStatuses.Inactive
         };
+    }
+
+    internal static string NormalizeTemplateCode(string? value)
+    {
+        var normalized = NormalizeRequired(value, "Deploy template code is required.").ToLowerInvariant();
+        if (normalized.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new InvalidOperationException("Deploy template code can only contain letters, numbers, underscores, hyphens, or dots.");
+        }
+
+        return normalized;
+    }
+
+    internal static int NormalizeTemplateStatus(int? value)
+    {
+        return value == DigitalWorkerTemplateStatuses.Disabled
+            ? DigitalWorkerTemplateStatuses.Disabled
+            : DigitalWorkerTemplateStatuses.Enabled;
     }
 
     internal static string NormalizeSessionStatus(string? value)
@@ -618,6 +1329,7 @@ public sealed class DigitalWorkerManagementService :
             var task = await _taskDomain.GetAsync(taskId)
                 ?? throw new InvalidOperationException("Target task does not exist.");
             EnsureWorkerCanReceiveAssignedTarget(worker, task.AssigneeId);
+            await EnsureWorkerCanUseProjectBackendTechAsync(worker, task.ProjectId);
             return;
         }
 
@@ -627,7 +1339,19 @@ public sealed class DigitalWorkerManagementService :
             var bug = await _bugDomain.GetAsync(bugId)
                 ?? throw new InvalidOperationException("Target bug does not exist.");
             EnsureWorkerCanReceiveAssignedTarget(worker, bug.DeveloperId);
+            await EnsureWorkerCanUseProjectBackendTechAsync(worker, bug.ProjectId);
         }
+    }
+
+    private async Task EnsureWorkerCanUseProjectBackendTechAsync(DigitalWorkerEntity worker, string projectId)
+    {
+        var project = await _projectDomain.GetAsync(projectId);
+        if (project is null)
+        {
+            return;
+        }
+
+        EnsureBackendTechCovered(worker, project.BackendTechStack);
     }
 
     private async Task<string> ResolveCommandTitleAsync(
@@ -885,6 +1609,8 @@ public sealed class DigitalWorkerRuntimeService :
     private readonly IWorkerCommandLogBuffer _commandLogBuffer;
     private readonly IWorkerRunDomain _runDomain;
     private readonly IWorkerEventDomain _eventDomain;
+    private readonly IDigitalWorkerStartupProbeConfigDomain _startupProbeConfigDomain;
+    private readonly IDigitalWorkerStartupProbeResultDomain _startupProbeResultDomain;
 
     /// <summary>
     /// zh-cn: 创建数字员工运行时服务，供 AgentSprint.Worker 调用注册、心跳、命令 ACK、运行记录和事件上报接口。
@@ -911,7 +1637,9 @@ public sealed class DigitalWorkerRuntimeService :
         IWorkerCommandLogDomain commandLogDomain,
         IWorkerCommandLogBuffer commandLogBuffer,
         IWorkerRunDomain runDomain,
-        IWorkerEventDomain eventDomain)
+        IWorkerEventDomain eventDomain,
+        IDigitalWorkerStartupProbeConfigDomain startupProbeConfigDomain,
+        IDigitalWorkerStartupProbeResultDomain startupProbeResultDomain)
     {
         _workerDomain = workerDomain;
         _agentTokenDomain = agentTokenDomain;
@@ -930,15 +1658,19 @@ public sealed class DigitalWorkerRuntimeService :
         _commandLogBuffer = commandLogBuffer;
         _runDomain = runDomain;
         _eventDomain = eventDomain;
+        _startupProbeConfigDomain = startupProbeConfigDomain;
+        _startupProbeResultDomain = startupProbeResultDomain;
     }
 
     /// <inheritdoc />
     public async Task<WorkerRuntimeConfigResult> GetRuntimeConfigAsync(string workerId)
     {
         var worker = await GetWorkerOrThrowAsync(workerId);
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        EnsureWorkerCanPullRuntimeConfig(worker);
+        if (worker.Status == DigitalWorkerStatuses.Inactive)
         {
-            throw new InvalidOperationException("Worker is not active.");
+            worker.Status = DigitalWorkerStatuses.Starting;
+            await _workerDomain.UpdateAsync(worker);
         }
 
         string? agentToken = null;
@@ -985,18 +1717,36 @@ public sealed class DigitalWorkerRuntimeService :
         var workers = await _workerDomain.ListAsync(worker => worker.AgentTokenId == token.Id);
         var worker = workers.SingleOrDefault()
             ?? throw new InvalidOperationException("Agent Token is not bound to a digital worker.");
+        EnsureWorkerCanPullRuntimeConfig(worker);
 
         token.LastUsedAt = DateTime.UtcNow;
         await _agentTokenDomain.UpdateAsync(token);
+        if (worker.Status == DigitalWorkerStatuses.Inactive)
+        {
+            worker.Status = DigitalWorkerStatuses.Starting;
+            await _workerDomain.UpdateAsync(worker);
+        }
 
         return await BuildRuntimeConfigAsync(worker, token.TokenValue);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StartupProbeConfigResult>> ListStartupProbeConfigsAsync()
+    {
+        var configs = await _startupProbeConfigDomain.ListAsync(entity =>
+            entity.Status == DigitalWorkerStartupProbeStatuses.Enabled);
+        return configs
+            .OrderBy(entity => entity.Sort)
+            .ThenBy(entity => entity.Code)
+            .Select(DigitalWorkerManagementService.ToResult)
+            .ToList();
     }
 
     /// <inheritdoc />
     public async Task<WorkerPromptResult> GetWorkPromptAsync(string workerId, string targetType, string targetId)
     {
         var worker = await GetWorkerOrThrowAsync(workerId);
-        EnsureWorkerActive(worker);
+        EnsureWorkerCanRunManagedWork(worker);
         var context = await BuildPromptContextAsync(worker, targetType, targetId);
         var template = await GetDigitalWorkerPromptTemplateAsync();
         var renderedPrompt = RenderPromptTemplate(template.Content, BuildPromptVariables(worker, context)).Trim();
@@ -1018,7 +1768,7 @@ public sealed class DigitalWorkerRuntimeService :
     public async Task<WorkerWorkCompletionResult> CompleteWorkAsync(string workerId, string targetType, string targetId)
     {
         var worker = await GetWorkerOrThrowAsync(workerId);
-        EnsureWorkerActive(worker);
+        EnsureWorkerCanRunManagedWork(worker);
         var normalizedTargetType = NormalizeTargetType(targetType);
         var normalizedTargetId = DigitalWorkerManagementService.NormalizeRequired(targetId, "Target id is required.");
         if (normalizedTargetType == WorkerRunTypes.Task)
@@ -1048,9 +1798,11 @@ public sealed class DigitalWorkerRuntimeService :
     public async Task<WorkerSessionResult> RegisterSessionAsync(RegisterWorkerSessionRequest request)
     {
         var worker = await GetWorkerOrThrowAsync(request.WorkerId);
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        EnsureWorkerCanPullRuntimeConfig(worker);
+        if (worker.Status == DigitalWorkerStatuses.Inactive)
         {
-            throw new InvalidOperationException("Worker is not active.");
+            worker.Status = DigitalWorkerStatuses.Starting;
+            await _workerDomain.UpdateAsync(worker);
         }
 
         var oldSessions = await _sessionDomain.ListAsync(entity =>
@@ -1062,10 +1814,19 @@ public sealed class DigitalWorkerRuntimeService :
             oldSession.Status = WorkerSessionStatuses.Expired;
             oldSession.StoppedAt ??= DateTime.UtcNow;
             await _sessionDomain.UpdateAsync(oldSession);
+            await FailUnfinishedSessionWorkAsync(
+                worker,
+                oldSession,
+                "Worker session expired because a new worker instance registered.");
+        }
+
+        if (oldSessions.Count > 0)
+        {
+            await RestoreWorkerStatusAfterRunAsync(worker);
         }
 
         var status = string.IsNullOrWhiteSpace(request.ErrorSummary)
-            ? WorkerSessionStatuses.Idle
+            ? WorkerSessionStatuses.Starting
             : WorkerSessionStatuses.Error;
         var entity = new WorkerSessionEntity
         {
@@ -1094,10 +1855,11 @@ public sealed class DigitalWorkerRuntimeService :
     public async Task<WorkerHeartbeatResult> HeartbeatAsync(WorkerHeartbeatRequest request)
     {
         var worker = await GetWorkerOrThrowAsync(request.WorkerId);
+        EnsureWorkerCanHeartbeat(worker);
         var session = await GetSessionOrThrowAsync(request.SessionId);
         EnsureSessionBelongsToWorker(session, worker.Id);
 
-        session.Status = worker.Status == DigitalWorkerStatuses.Active
+        session.Status = CanWorkerReturnCommands(worker)
             ? DigitalWorkerManagementService.NormalizeSessionStatus(request.Status)
             : WorkerSessionStatuses.Offline;
         session.CurrentRunId = DigitalWorkerManagementService.NormalizeOptional(request.CurrentRunId);
@@ -1109,6 +1871,7 @@ public sealed class DigitalWorkerRuntimeService :
         }
 
         await _sessionDomain.UpdateAsync(session);
+        await UpdateWorkerStatusFromHeartbeatAsync(worker, session);
         await ExpireStaleSessionsAsync(worker);
         await ExpireCommandsAsync(worker.Id);
 
@@ -1117,7 +1880,7 @@ public sealed class DigitalWorkerRuntimeService :
             entity.Status == WorkerCommandStatuses.Pending &&
             (entity.SessionId == null || entity.SessionId == session.Id));
         var dispatchableCommands = commands
-            .Where(entity => CanDispatchCommand(session.Status, entity.CommandType))
+            .Where(entity => CanDispatchCommand(worker, session.Status, entity.CommandType))
             .ToList();
 
         return new WorkerHeartbeatResult(
@@ -1128,6 +1891,108 @@ public sealed class DigitalWorkerRuntimeService :
             dispatchableCommands.OrderBy(entity => entity.CreateTime)
                 .Select(DigitalWorkerManagementService.ToResult)
                 .ToList());
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StartupProbeResult>> ReportStartupProbeResultsAsync(
+        ReportStartupProbeResultsRequest request)
+    {
+        var worker = await GetWorkerOrThrowAsync(request.WorkerId);
+        EnsureWorkerCanHeartbeat(worker);
+        var sessionId = DigitalWorkerManagementService.NormalizeRequired(request.SessionId, "SessionId is required.");
+        var session = await GetSessionOrThrowAsync(sessionId);
+        EnsureSessionBelongsToWorker(session, worker.Id);
+
+        var instanceId = DigitalWorkerManagementService.NormalizeRequired(request.InstanceId, "InstanceId is required.");
+        var previousResults = await _startupProbeResultDomain.ListAsync(entity => entity.WorkerId == worker.Id);
+        foreach (var previousResult in previousResults)
+        {
+            if (previousResult.SessionId != sessionId || previousResult.InstanceId != instanceId)
+            {
+                await _startupProbeResultDomain.DeleteAsync(previousResult.Id);
+            }
+        }
+
+        var entities = new List<DigitalWorkerStartupProbeResultEntity>();
+        var currentResults = previousResults
+            .Where(entity => entity.SessionId == sessionId && entity.InstanceId == instanceId)
+            .GroupBy(entity => entity.ProbeConfigId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(entity => entity.ReportedAt).First(), StringComparer.Ordinal);
+        foreach (var item in request.Results)
+        {
+            var probeConfigId = DigitalWorkerManagementService.NormalizeRequired(item.ProbeConfigId, "Probe config id is required.");
+            var entity = currentResults.GetValueOrDefault(probeConfigId);
+            var isNew = entity is null;
+            entity ??= new DigitalWorkerStartupProbeResultEntity
+            {
+                WorkerId = worker.Id,
+                SessionId = sessionId,
+                InstanceId = instanceId,
+                ProbeConfigId = probeConfigId
+            };
+            entity.WorkerDeployRenderId = DigitalWorkerManagementService.NormalizeOptional(request.WorkerDeployRenderId);
+            entity.ProbeCode = DigitalWorkerManagementService.NormalizeRequired(item.ProbeCode, "Probe code is required.");
+            entity.ProbeName = DigitalWorkerManagementService.NormalizeRequired(item.ProbeName, "Probe name is required.");
+            entity.Command = DigitalWorkerManagementService.NormalizeRequired(item.Command, "Probe command is required.");
+            entity.ExitCode = item.ExitCode;
+            entity.Stdout = TrimProbeText(item.Stdout);
+            entity.Stderr = TrimProbeText(item.Stderr);
+            entity.Error = DigitalWorkerManagementService.NormalizeOptional(item.Error);
+            entity.Passed = item.Passed;
+            entity.Required = item.Required;
+            entity.ReportedAt = DateTime.UtcNow;
+            if (isNew)
+            {
+                await _startupProbeResultDomain.CreateAsync(entity);
+                currentResults[probeConfigId] = entity;
+            }
+            else
+            {
+                await _startupProbeResultDomain.UpdateAsync(entity);
+            }
+
+            entities.Add(entity);
+        }
+
+        var requiredProbeResults = entities.Where(entity => entity.Required).ToList();
+        var requiredProbesPassed = requiredProbeResults.Count > 0 && requiredProbeResults.All(entity => entity.Passed);
+        var inferredCapabilities = InferBackendCapabilitiesFromProbeResults(entities);
+        if (!string.IsNullOrWhiteSpace(inferredCapabilities))
+        {
+            worker.BackendTechCapabilities = inferredCapabilities;
+        }
+
+        if (requiredProbesPassed)
+        {
+            if (worker.Status is DigitalWorkerStatuses.Inactive or DigitalWorkerStatuses.Starting or DigitalWorkerStatuses.Active)
+            {
+                worker.Status = DigitalWorkerStatuses.Idle;
+                await _workerDomain.UpdateAsync(worker);
+            }
+        }
+        else if (worker.Status == DigitalWorkerStatuses.Inactive)
+        {
+            worker.Status = DigitalWorkerStatuses.Starting;
+            await _workerDomain.UpdateAsync(worker);
+        }
+
+        await CreateEventAsync(
+            worker.Id,
+            sessionId,
+            null,
+            "worker_startup_probe_reported",
+            requiredProbesPassed ? WorkerEventLevels.Info : WorkerEventLevels.Warn,
+            "Worker startup probe results reported.",
+            JsonSerializer.Serialize(new
+            {
+                total = entities.Count,
+                passed = entities.Count(entity => entity.Passed),
+                requiredFailed = entities.Count(entity => entity.Required && !entity.Passed),
+                requiredPassed = requiredProbesPassed,
+                backendTechCapabilities = inferredCapabilities,
+                request.WorkerDeployRenderId
+            }));
+        return entities.Select(DigitalWorkerManagementService.ToResult).ToList();
     }
 
     /// <inheritdoc />
@@ -1190,6 +2055,12 @@ public sealed class DigitalWorkerRuntimeService :
         await _runDomain.CreateAsync(entity);
         if (entity.Status == WorkerRunStatuses.Running)
         {
+            if (worker.Status == DigitalWorkerStatuses.Idle)
+            {
+                worker.Status = DigitalWorkerStatuses.Working;
+                await _workerDomain.UpdateAsync(worker);
+            }
+
             await MarkTargetStartedAsync(worker, entity);
         }
 
@@ -1241,6 +2112,12 @@ public sealed class DigitalWorkerRuntimeService :
             }
         }
 
+        var worker = await _workerDomain.GetAsync(run.WorkerId);
+        if (worker is not null)
+        {
+            await RestoreWorkerStatusAfterRunAsync(worker);
+        }
+
         await CreateEventAsync(run.WorkerId, run.SessionId, run.Id, "codex_finished", ResolveRunEventLevel(run.Status), "Worker run finished.", request.ResultJson);
         return DigitalWorkerManagementService.ToResult(run);
     }
@@ -1272,7 +2149,7 @@ public sealed class DigitalWorkerRuntimeService :
         await MarkRequirementDevelopingFromTaskAsync(task, worker.AgentUserId);
     }
 
-    private static bool CanDispatchCommand(string sessionStatus, string commandType)
+    private static bool CanDispatchCommand(DigitalWorkerEntity worker, string sessionStatus, string commandType)
     {
         if (commandType is WorkerCommandTypes.CancelCurrentRun or WorkerCommandTypes.StopAfterCurrent)
         {
@@ -1284,7 +2161,7 @@ public sealed class DigitalWorkerRuntimeService :
             return true;
         }
 
-        return sessionStatus == WorkerSessionStatuses.Idle;
+        return CanWorkerReturnCommands(worker) && sessionStatus == WorkerSessionStatuses.Idle;
     }
 
     private async Task MarkRequirementDevelopingFromTaskAsync(SprintDevelopmentTaskEntity task, string userId)
@@ -1328,7 +2205,7 @@ public sealed class DigitalWorkerRuntimeService :
         AppendWorkerCommandLogRequest request)
     {
         var worker = await GetWorkerOrThrowAsync(workerId);
-        EnsureWorkerActive(worker);
+        EnsureWorkerCanRunManagedWork(worker);
         var command = await GetCommandOrThrowAsync(DigitalWorkerManagementService.NormalizeRequired(
             request.CommandId,
             "Command id is required."));
@@ -1442,10 +2319,122 @@ public sealed class DigitalWorkerRuntimeService :
 
     private static void EnsureWorkerActive(DigitalWorkerEntity worker)
     {
-        if (worker.Status != DigitalWorkerStatuses.Active)
+        EnsureWorkerCanRunManagedWork(worker);
+    }
+
+    private static void EnsureWorkerCanRunManagedWork(DigitalWorkerEntity worker)
+    {
+        if (worker.Status is DigitalWorkerStatuses.Disabled or DigitalWorkerStatuses.Maintenance)
         {
-            throw new InvalidOperationException("Worker is not active.");
+            throw new InvalidOperationException("Worker is not available for managed work.");
         }
+    }
+
+    private static void EnsureWorkerCanPullRuntimeConfig(DigitalWorkerEntity worker)
+    {
+        if (worker.Status == DigitalWorkerStatuses.Disabled || worker.IsDelete != 0)
+        {
+            throw new InvalidOperationException("Worker is disabled or deleted.");
+        }
+    }
+
+    private static void EnsureWorkerCanHeartbeat(DigitalWorkerEntity worker)
+    {
+        if (worker.Status == DigitalWorkerStatuses.Disabled || worker.IsDelete != 0)
+        {
+            throw new InvalidOperationException("Worker is disabled or deleted.");
+        }
+    }
+
+    private static bool CanWorkerReturnCommands(DigitalWorkerEntity worker)
+    {
+        return worker.Status is DigitalWorkerStatuses.Idle or DigitalWorkerStatuses.Working or DigitalWorkerStatuses.Active;
+    }
+
+    private async Task UpdateWorkerStatusFromHeartbeatAsync(DigitalWorkerEntity worker, WorkerSessionEntity session)
+    {
+        if (worker.Status == DigitalWorkerStatuses.Inactive)
+        {
+            worker.Status = DigitalWorkerStatuses.Starting;
+            await _workerDomain.UpdateAsync(worker);
+            return;
+        }
+
+        if (worker.Status == DigitalWorkerStatuses.Working && session.Status == WorkerSessionStatuses.Idle)
+        {
+            await RestoreWorkerStatusAfterRunAsync(worker);
+        }
+    }
+
+    private async Task RestoreWorkerStatusAfterRunAsync(DigitalWorkerEntity worker)
+    {
+        if (worker.Status == DigitalWorkerStatuses.Maintenance)
+        {
+            return;
+        }
+
+        var runningRuns = await _runDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            (entity.Status == WorkerRunStatuses.Pending || entity.Status == WorkerRunStatuses.Running));
+        var runningCommands = await _commandDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            (entity.Status == WorkerCommandStatuses.Acked || entity.Status == WorkerCommandStatuses.Running));
+        if (runningRuns.Count == 0 && runningCommands.Count == 0 && worker.Status == DigitalWorkerStatuses.Working)
+        {
+            worker.Status = DigitalWorkerStatuses.Idle;
+            await _workerDomain.UpdateAsync(worker);
+        }
+    }
+
+    private static string? TrimProbeText(string? value)
+    {
+        var normalized = DigitalWorkerManagementService.NormalizeOptional(value);
+        return normalized is null || normalized.Length <= 4000 ? normalized : normalized[..4000];
+    }
+
+    private static string? InferBackendCapabilitiesFromProbeResults(
+        IReadOnlyCollection<DigitalWorkerStartupProbeResultEntity> results)
+    {
+        var capabilities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in results.Where(entity => entity.Passed))
+        {
+            var code = result.ProbeCode;
+            var command = result.Command;
+            if (ContainsProbeSignal(code, command, "dotnet"))
+            {
+                capabilities.Add("dotnet");
+            }
+
+            if (ContainsProbeSignal(code, command, "java"))
+            {
+                capabilities.Add("java");
+            }
+
+            if (ContainsProbeSignal(code, command, "python"))
+            {
+                capabilities.Add("python");
+            }
+
+            if (ContainsProbeSignal(code, command, "node"))
+            {
+                capabilities.Add("node");
+            }
+
+            if (ContainsProbeSignal(code, command, "go"))
+            {
+                capabilities.Add("go");
+            }
+        }
+
+        return capabilities.Count == 0
+            ? null
+            : DigitalWorkerManagementService.NormalizeBackendTechCapabilities(string.Join(",", capabilities.OrderBy(item => item)));
+    }
+
+    private static bool ContainsProbeSignal(string? code, string? command, string signal)
+    {
+        return (!string.IsNullOrWhiteSpace(code) && code.Contains(signal, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(command) && command.Contains(signal, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<WorkerPromptContextResult> BuildPromptContextAsync(
@@ -1884,10 +2873,7 @@ public sealed class DigitalWorkerRuntimeService :
 
     private async Task<WorkerRuntimeConfigResult> BuildRuntimeConfigAsync(DigitalWorkerEntity worker, string? agentToken)
     {
-        if (worker.Status != DigitalWorkerStatuses.Active)
-        {
-            throw new InvalidOperationException("Worker is not active.");
-        }
+        EnsureWorkerCanPullRuntimeConfig(worker);
 
         var aiPlatform = await ResolveAiPlatformAsync(worker);
         var projectId = DigitalWorkerManagementService.DeserializeIds(worker.ProjectIds).FirstOrDefault();
@@ -1979,6 +2965,59 @@ public sealed class DigitalWorkerRuntimeService :
             session.Status = WorkerSessionStatuses.Expired;
             session.StoppedAt ??= DateTime.UtcNow;
             await _sessionDomain.UpdateAsync(session);
+            await FailUnfinishedSessionWorkAsync(
+                worker,
+                session,
+                "Worker session heartbeat timed out.");
+        }
+
+        await RestoreWorkerStatusAfterRunAsync(worker);
+    }
+
+    private async Task FailUnfinishedSessionWorkAsync(
+        DigitalWorkerEntity worker,
+        WorkerSessionEntity session,
+        string reason)
+    {
+        var now = DateTime.UtcNow;
+        var runs = await _runDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            entity.SessionId == session.Id &&
+            (entity.Status == WorkerRunStatuses.Pending || entity.Status == WorkerRunStatuses.Running));
+        foreach (var run in runs)
+        {
+            run.Status = WorkerRunStatuses.Blocked;
+            run.CompletedAt ??= now;
+            run.Error = reason;
+            await _runDomain.UpdateAsync(run);
+        }
+
+        var commands = await _commandDomain.ListAsync(entity =>
+            entity.WorkerId == worker.Id &&
+            entity.SessionId == session.Id &&
+            (entity.Status == WorkerCommandStatuses.Acked || entity.Status == WorkerCommandStatuses.Running));
+        foreach (var command in commands)
+        {
+            command.Status = WorkerCommandStatuses.Failed;
+            command.CompletedAt ??= now;
+            command.Error = reason;
+            await _commandDomain.UpdateAsync(command);
+        }
+
+        if (runs.Count > 0 || commands.Count > 0)
+        {
+            await CreateEventAsync(
+                worker.Id,
+                session.Id,
+                null,
+                "worker_session_work_failed",
+                WorkerEventLevels.Warn,
+                reason,
+                JsonSerializer.Serialize(new
+                {
+                    failedRuns = runs.Count,
+                    failedCommands = commands.Count
+                }));
         }
     }
 

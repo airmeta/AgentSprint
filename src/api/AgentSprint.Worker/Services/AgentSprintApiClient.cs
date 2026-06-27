@@ -116,6 +116,21 @@ public sealed class AgentSprintApiClient
         return GetAsync<WorkerRuntimeConfigResult>("worker-runtime/config", cancellationToken);
     }
 
+    public Task<IReadOnlyList<StartupProbeConfigResult>> ListStartupProbeConfigsAsync(CancellationToken cancellationToken)
+    {
+        return GetAsync<IReadOnlyList<StartupProbeConfigResult>>("worker-runtime/startup-probes", cancellationToken);
+    }
+
+    public Task<IReadOnlyList<StartupProbeResult>> ReportStartupProbeResultsAsync(
+        ReportStartupProbeResultsRequest request,
+        CancellationToken cancellationToken)
+    {
+        return PostAsync<ReportStartupProbeResultsRequest, IReadOnlyList<StartupProbeResult>>(
+            "worker-runtime/startup-probes/report",
+            request,
+            cancellationToken);
+    }
+
     public Task<WorkerSessionResult> RegisterSessionAsync(
         RegisterWorkerSessionRequest request,
         CancellationToken cancellationToken)
@@ -299,8 +314,9 @@ public sealed class AgentSprintApiClient
             $"path={path}, status={(int)response.StatusCode}, body={WorkerDiagnostics.TrimAndRedact(body, 3000)}");
         if (!response.IsSuccessStatusCode)
         {
+            var safeBody = WorkerDiagnostics.TrimAndRedact(body, 3000);
             throw new InvalidOperationException(
-                $"AgentSprint API request failed. Path={path}, Status={(int)response.StatusCode}, Body={body}");
+                $"AgentSprint API request failed. Path={path}, Status={(int)response.StatusCode}, Body={safeBody}");
         }
 
         var apiResponse = JsonSerializer.Deserialize<ApiResponse<TResponse>>(body, JsonOptions);
@@ -330,8 +346,9 @@ public sealed class AgentSprintApiClient
             $"path={path}, status={(int)response.StatusCode}, body={WorkerDiagnostics.TrimAndRedact(body, 3000)}");
         if (!response.IsSuccessStatusCode)
         {
+            var safeBody = WorkerDiagnostics.TrimAndRedact(body, 3000);
             throw new InvalidOperationException(
-                $"AgentSprint API request failed. Path={path}, Status={(int)response.StatusCode}, Body={body}");
+                $"AgentSprint API request failed. Path={path}, Status={(int)response.StatusCode}, Body={safeBody}");
         }
 
         var apiResponse = JsonSerializer.Deserialize<ApiResponse<TResponse>>(body, JsonOptions);

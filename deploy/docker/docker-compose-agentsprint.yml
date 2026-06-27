@@ -1,0 +1,163 @@
+name: agentsprint
+
+services:
+  mysql:
+    image: mysql:9.7.0
+    container_name: agentsprint-mysql
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: "${AGENTSPRINT_DB_PASSWORD}"
+      MYSQL_DATABASE: "agentsprint"
+    volumes:
+      - /opt/agentsprint-data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: docker.1panel.live/library/redis:7-alpine
+    container_name: agentsprint-redis
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$${AGENTSPRINT_REDIS_PASSWORD:-}" ]; then
+          exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$${AGENTSPRINT_REDIS_PASSWORD}"
+        fi
+        exec redis-server /usr/local/etc/redis/redis.conf
+    environment:
+      AGENTSPRINT_REDIS_PASSWORD: "${AGENTSPRINT_REDIS_PASSWORD:-}"
+    volumes:
+      - /opt/agentsprint-data/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - /opt/agentsprint-data/redis/data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: agentsprint-api:latest
+    container_name: agentsprint-api
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      TZ: Asia/Shanghai
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__AgentSprintConnectionString: "server=mysql;port=3306;database=agentsprint;user=root;password=${AGENTSPRINT_DB_PASSWORD};Allow User Variables=True;UseAffectedRows=False;CharSet=utf8mb4;"
+      RedisSettings__ConnectionString: "${AGENTSPRINT_REDIS_CONNECTION_STRING:-redis:6379}"
+      RedisSettings__UserName: "${AGENTSPRINT_REDIS_USERNAME:-}"
+      RedisSettings__Password: "${AGENTSPRINT_REDIS_PASSWORD:-}"
+      AkkaSettings__SystemName: "agentsprint-cluster"
+      AkkaSettings__Host: "api"
+      AkkaSettings__Port: "25520"
+      AkkaSettings__SeedNodes__0: "akka.tcp://agentsprint-cluster@api:25520"
+    ports:
+      - "5000:5000"
+      - "25520:25520"
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+      args:
+        VITE_GLOB_API_URL: /api
+    image: agentsprint-admin:latest
+    container_name: agentsprint-admin
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "5999:80"
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: agentsprint-mcp:latest
+    container_name: agentsprint-mcp
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      - api
+    environment:
+      TZ: Asia/Shanghai
+      ASPNETCORE_ENVIRONMENT: Production
+      AGENTSPRINT_API_BASE_URL: "http://api:5000"
+      AGENTSPRINT_MCP_USERNAME: "developer"
+      AGENTSPRINT_MCP_PASSWORD: "123456"
+      AGENTSPRINT_WORKSPACE_PATH: "/workspace"
+    ports:
+      - "5010:5010"
+
+  math-codex-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: agentsprint-worker:latest
+    container_name: math-codex-worker-1
+    privileged: true
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      - api
+      - mcp
+    environment:
+      TZ: Asia/Shanghai
+      DOTNET_ENVIRONMENT: Production
+      AgentSprint__ApiBaseUrl: "http://api:5000"
+      AgentSprint__AgentToken: "${AGENTSPRINT_AGENT_TOKEN:-}"
+      AkkaSettings__SystemName: "agentsprint-cluster"
+      AkkaSettings__Host: "math-codex-worker-1"
+      AkkaSettings__Port: "0"
+      AkkaSettings__SeedNodes__0: "akka.tcp://agentsprint-cluster@api:25520"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      CODEX_HOME: "/codex-home"
+    volumes:
+      - /opt/math-for-codex/primary/worker-1/workspaces:/workspaces
+      - /opt/math-for-codex/primary/worker-1/codex-home:/codex-home
+      - /opt/math-for-codex/primary/worker-1/runs:/runs
+
+  math-codex-worker-javaer-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker-java17
+    image: agentsprint-worker-java17:latest
+    container_name: math-codex-worker-javaer-01
+    privileged: true
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    depends_on:
+      - api
+      - mcp
+    environment:
+      TZ: Asia/Shanghai
+      DOTNET_ENVIRONMENT: Production
+      Worker__WorkerId: "math-codex-worker-javaer-01"
+      Worker__WorkerName: "math-codex-worker-javaer-01"
+      AgentSprint__ApiBaseUrl: "http://api:5000"
+      AgentSprint__AgentToken: "${AGENTSPRINT_AGENT_TOKEN_JAVAER_01:-}"
+      AkkaSettings__SystemName: "agentsprint-cluster"
+      AkkaSettings__Host: "math-codex-worker-javaer-01"
+      AkkaSettings__Port: "0"
+      AkkaSettings__SeedNodes__0: "akka.tcp://agentsprint-cluster@api:25520"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      CODEX_HOME: "/codex-home"
+      JAVA_HOME: "/usr/lib/jvm/java-17-openjdk-amd64"
+    volumes:
+      - /opt/math-for-codex/primary/worker-javaer-01/workspaces:/workspaces
+      - /opt/math-for-codex/primary/worker-javaer-01/codex-home:/codex-home
+      - /opt/math-for-codex/primary/worker-javaer-01/runs:/runs

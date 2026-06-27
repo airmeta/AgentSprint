@@ -86,6 +86,108 @@ public sealed class SprintProjectMemberDomain :
     }
 }
 
+public sealed class SprintProjectMaterialDomain :
+    EntityDomainBase<SprintProjectMaterialEntity>,
+    ISprintProjectMaterialDomain
+{
+    /// <summary>
+    /// zh-cn: 创建项目材料领域对象，复用 Air.Cloud 仓储维护项目文件和逻辑文件夹元数据。
+    /// en-us: Creates the project-material domain and reuses the Air.Cloud repository to maintain project files and logical folder metadata.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 项目材料实体仓储。
+    /// en-us: Project material entity repository.
+    /// </param>
+    public SprintProjectMaterialDomain(IRepository<SprintProjectMaterialEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class SprintProjectMaterialEventDomain :
+    EntityDomainBase<SprintProjectMaterialEventEntity>,
+    ISprintProjectMaterialEventDomain
+{
+    /// <summary>
+    /// zh-cn: 创建项目材料事件领域对象，复用 Air.Cloud 仓储记录上传、下载、移动和删除审计事件。
+    /// en-us: Creates the project-material-event domain and reuses the Air.Cloud repository to record upload, download, move, and delete audit events.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 项目材料事件实体仓储。
+    /// en-us: Project material event entity repository.
+    /// </param>
+    public SprintProjectMaterialEventDomain(IRepository<SprintProjectMaterialEventEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class SprintProposalDomain :
+    EntityDomainBase<SprintProposalEntity>,
+    ISprintProposalDomain
+{
+    /// <summary>
+    /// zh-cn: 创建提案领域对象，复用 Air.Cloud 仓储维护提案草稿、确认和作废状态。
+    /// en-us: Creates the proposal domain and reuses the Air.Cloud repository to maintain proposal drafts, confirmations, and voided states.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 提案实体仓储。
+    /// en-us: Proposal entity repository.
+    /// </param>
+    public SprintProposalDomain(IRepository<SprintProposalEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class SprintProposalMaterialDomain :
+    EntityDomainBase<SprintProposalMaterialEntity>,
+    ISprintProposalMaterialDomain
+{
+    /// <summary>
+    /// zh-cn: 创建提案材料关系领域对象，保存提案来源材料和生成时材料哈希。
+    /// en-us: Creates the proposal-material relation domain, storing source materials and material hashes captured at generation time.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 提案材料关系仓储。
+    /// en-us: Proposal material relation repository.
+    /// </param>
+    public SprintProposalMaterialDomain(IRepository<SprintProposalMaterialEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class SprintProposalConversationDomain :
+    EntityDomainBase<SprintProposalConversationEntity>,
+    ISprintProposalConversationDomain
+{
+    /// <summary>
+    /// zh-cn: 创建提案对话领域对象，保存后续 AI 生成提案时的提示词和回复记录。
+    /// en-us: Creates the proposal conversation domain for persisting future AI proposal prompts and responses.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 提案对话仓储。
+    /// en-us: Proposal conversation repository.
+    /// </param>
+    public SprintProposalConversationDomain(IRepository<SprintProposalConversationEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class SprintProposalRequirementDomain :
+    EntityDomainBase<SprintProposalRequirementEntity>,
+    ISprintProposalRequirementDomain
+{
+    /// <summary>
+    /// zh-cn: 创建提案转需求关系领域对象，记录提案转换出的需求和来源材料。
+    /// en-us: Creates the proposal-requirement relation domain, recording requirements converted from proposals and their source materials.
+    /// </summary>
+    /// <param name="repository">
+    /// zh-cn: 提案需求关系仓储。
+    /// en-us: Proposal requirement relation repository.
+    /// </param>
+    public SprintProposalRequirementDomain(IRepository<SprintProposalRequirementEntity> repository) : base(repository)
+    {
+    }
+}
+
 public sealed class SprintProjectEndpointDomain :
     EntityDomainBase<SprintProjectEndpointEntity>,
     ISprintProjectEndpointDomain
@@ -290,6 +392,42 @@ public sealed class DigitalWorkerDomain : EntityDomainBase<DigitalWorkerEntity>,
     /// en-us: Digital-worker entity repository.
     /// </param>
     public DigitalWorkerDomain(IRepository<DigitalWorkerEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DigitalWorkerDeployTemplateDomain :
+    EntityDomainBase<DigitalWorkerDeployTemplateEntity>,
+    IDigitalWorkerDeployTemplateDomain
+{
+    public DigitalWorkerDeployTemplateDomain(IRepository<DigitalWorkerDeployTemplateEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DigitalWorkerDeployRenderDomain :
+    EntityDomainBase<DigitalWorkerDeployRenderEntity>,
+    IDigitalWorkerDeployRenderDomain
+{
+    public DigitalWorkerDeployRenderDomain(IRepository<DigitalWorkerDeployRenderEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DigitalWorkerStartupProbeConfigDomain :
+    EntityDomainBase<DigitalWorkerStartupProbeConfigEntity>,
+    IDigitalWorkerStartupProbeConfigDomain
+{
+    public DigitalWorkerStartupProbeConfigDomain(IRepository<DigitalWorkerStartupProbeConfigEntity> repository) : base(repository)
+    {
+    }
+}
+
+public sealed class DigitalWorkerStartupProbeResultDomain :
+    EntityDomainBase<DigitalWorkerStartupProbeResultEntity>,
+    IDigitalWorkerStartupProbeResultDomain
+{
+    public DigitalWorkerStartupProbeResultDomain(IRepository<DigitalWorkerStartupProbeResultEntity> repository) : base(repository)
     {
     }
 }

@@ -22,7 +22,7 @@ public sealed class WorkerOptions
 
     public int MaxRunMinutes { get; set; } = 60;
 
-    public int CodexIdleTimeoutSeconds { get; set; } = 90;
+    public int CodexIdleTimeoutSeconds { get; set; } = 300;
 
     public string CodexExecutable { get; set; } = "codex";
 

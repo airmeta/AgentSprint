@@ -41,6 +41,7 @@ public sealed class DigitalWorkerServiceTests
         Assert.Equal(90, worker.HeartbeatTimeoutSeconds);
         Assert.Equal("/workspaces", worker.WorkspaceRoot);
         Assert.Equal("gpt-5.4", worker.CodexModel);
+        Assert.Equal(DigitalWorkerStatuses.Inactive, worker.Status);
     }
 
     [Fact]
@@ -185,6 +186,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker 2", "agent-1", Code: "codex-2"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var command = await management.CreateCommandAsync(
             new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"hi\"}", Title: "Manual smoke"),
             "admin");
@@ -219,6 +221,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker 3", "agent-1", Code: "codex-3"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(
             new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
         var command = await management.CreateCommandAsync(
@@ -258,6 +261,233 @@ public sealed class DigitalWorkerServiceTests
     }
 
     [Fact]
+    public async Task Runtime_RegisterSession_FailsUnfinishedWorkFromExpiredPreviousSession()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Restarted Worker", "agent-1", Code: "codex-restarted"),
+            "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        var oldSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-old"));
+        var command = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke),
+            "admin");
+        await runtime.StartCommandAsync(command.Id, new AckWorkerCommandRequest(oldSession.Id));
+        var run = await runtime.StartRunAsync(
+            new StartWorkerRunRequest(
+                worker.Id,
+                oldSession.Id,
+                WorkerRunTypes.Smoke,
+                WorkerRunStatuses.Running,
+                CommandId: command.Id));
+
+        var newSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-new"));
+
+        var oldSessionEntity = await domains.Sessions.GetAsync(oldSession.Id);
+        var commandEntity = await domains.Commands.GetAsync(command.Id);
+        var runEntity = await domains.Runs.GetAsync(run.Id);
+        var workerEntity = await domains.Workers.GetAsync(worker.Id);
+        var events = await management.ListEventsAsync(worker.Id, oldSession.Id);
+
+        Assert.Equal(WorkerSessionStatuses.Expired, oldSessionEntity?.Status);
+        Assert.NotNull(oldSessionEntity?.StoppedAt);
+        Assert.Equal(WorkerCommandStatuses.Failed, commandEntity?.Status);
+        Assert.Equal("Worker session expired because a new worker instance registered.", commandEntity?.Error);
+        Assert.Equal(WorkerRunStatuses.Blocked, runEntity?.Status);
+        Assert.Equal("Worker session expired because a new worker instance registered.", runEntity?.Error);
+        Assert.Equal(DigitalWorkerStatuses.Idle, workerEntity?.Status);
+        Assert.Equal("instance-new", newSession.InstanceId);
+        Assert.Contains(events, item => item.EventType == "worker_session_work_failed");
+    }
+
+    [Fact]
+    public async Task Runtime_RestartAfterProbeDispatchesNextPendingCommandWithoutReplayingFailedRun()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Restart Queue Worker", "agent-1", Code: "codex-restart-queue"),
+            "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        var oldSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-old"));
+        var runningCommand = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"old\"}"),
+            "admin");
+        var queuedCommand = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"next\"}"),
+            "admin");
+        await runtime.StartCommandAsync(runningCommand.Id, new AckWorkerCommandRequest(oldSession.Id));
+        await runtime.StartRunAsync(
+            new StartWorkerRunRequest(
+                worker.Id,
+                oldSession.Id,
+                WorkerRunTypes.Smoke,
+                WorkerRunStatuses.Running,
+                CommandId: runningCommand.Id));
+
+        var newSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-new"));
+        await runtime.ReportStartupProbeResultsAsync(new ReportStartupProbeResultsRequest(
+            worker.Id,
+            newSession.Id,
+            newSession.InstanceId,
+            "render-1",
+            [
+                new StartupProbeResultReportItem(
+                    "probe-codex",
+                    "codex-login-status",
+                    "Codex login status",
+                    "codex login status",
+                    0,
+                    "ok",
+                    null,
+                    null,
+                    true,
+                    true)
+            ]));
+
+        var heartbeat = await runtime.HeartbeatAsync(
+            new WorkerHeartbeatRequest(worker.Id, newSession.Id, WorkerSessionStatuses.Idle));
+        var failedRunningCommand = await domains.Commands.GetAsync(runningCommand.Id);
+
+        var dispatched = Assert.Single(heartbeat.Commands);
+        Assert.Equal(queuedCommand.Id, dispatched.Id);
+        Assert.Equal(WorkerCommandStatuses.Failed, failedRunningCommand?.Status);
+    }
+
+    [Fact]
+    public async Task Runtime_ReportStartupProbeResults_KeepsOnlyLatestWorkerStartupResults()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Probe Worker", "agent-1", Code: "codex-probe-current"),
+            "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        var firstSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        await runtime.ReportStartupProbeResultsAsync(new ReportStartupProbeResultsRequest(
+            worker.Id,
+            firstSession.Id,
+            firstSession.InstanceId,
+            "render-1",
+            [
+                new StartupProbeResultReportItem(
+                    "probe-codex",
+                    "codex-login-status",
+                    "Codex login status",
+                    "codex login status",
+                    0,
+                    "old-ok",
+                    null,
+                    null,
+                    true,
+                    true)
+            ]));
+        var secondSession = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-2"));
+
+        var latest = await runtime.ReportStartupProbeResultsAsync(new ReportStartupProbeResultsRequest(
+            worker.Id,
+            secondSession.Id,
+            secondSession.InstanceId,
+            "render-2",
+            [
+                new StartupProbeResultReportItem(
+                    "probe-codex",
+                    "codex-login-status",
+                    "Codex login status",
+                    "codex login status",
+                    1,
+                    null,
+                    "new-failed",
+                    null,
+                    false,
+                    true)
+            ]));
+
+        var activeResults = await domains.StartupProbeResults.ListAsync(entity => entity.WorkerId == worker.Id);
+        var allResults = await domains.StartupProbeResults.ListIncludingDeletedAsync(entity => entity.WorkerId == worker.Id);
+        var managementResults = await management.ListStartupProbeResultsAsync(worker.Id);
+
+        var active = Assert.Single(activeResults);
+        Assert.Equal(secondSession.Id, active.SessionId);
+        Assert.Equal("instance-2", active.InstanceId);
+        Assert.Equal("new-failed", active.Stderr);
+        Assert.DoesNotContain(activeResults, item => item.Stdout == "old-ok");
+        Assert.Single(latest);
+        Assert.Single(managementResults);
+        Assert.Contains(allResults, item => item.Stdout == "old-ok" && item.IsDelete == 1);
+    }
+
+    [Fact]
+    public async Task Runtime_ReportStartupProbeResults_UpdatesSameSessionInstanceProbe()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var runtime = domains.CreateRuntimeService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Probe Retry Worker", "agent-1", Code: "codex-probe-retry"),
+            "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        var session = await runtime.RegisterSessionAsync(
+            new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
+        var first = await runtime.ReportStartupProbeResultsAsync(new ReportStartupProbeResultsRequest(
+            worker.Id,
+            session.Id,
+            session.InstanceId,
+            "render-1",
+            [
+                new StartupProbeResultReportItem(
+                    "probe-codex",
+                    "codex-login-status",
+                    "Codex login status",
+                    "codex login status",
+                    1,
+                    null,
+                    "failed",
+                    null,
+                    false,
+                    true)
+            ]));
+
+        var second = await runtime.ReportStartupProbeResultsAsync(new ReportStartupProbeResultsRequest(
+            worker.Id,
+            session.Id,
+            session.InstanceId,
+            "render-1",
+            [
+                new StartupProbeResultReportItem(
+                    "probe-codex",
+                    "codex-login-status",
+                    "Codex login status",
+                    "codex login status",
+                    0,
+                    "ok",
+                    null,
+                    null,
+                    true,
+                    true)
+            ]));
+
+        var activeResults = await domains.StartupProbeResults.ListAsync(entity => entity.WorkerId == worker.Id);
+        var active = Assert.Single(activeResults);
+
+        Assert.Equal(first.Single().Id, second.Single().Id);
+        Assert.Equal("ok", active.Stdout);
+        Assert.True(active.Passed);
+        Assert.Equal(1, domains.StartupProbeResults.CreateCount);
+        Assert.Equal(1, domains.StartupProbeResults.UpdateCount);
+    }
+
+    [Fact]
     public async Task Runtime_AppendCommandLog_BuffersChunksPersistsOnCompletedAndKeepsLatestTwoHundred()
     {
         var domains = new DigitalWorkerTestDomains();
@@ -266,6 +496,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(
             new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
 
@@ -304,6 +535,9 @@ public sealed class DigitalWorkerServiceTests
                     Completed: true));
 
             Assert.True(completed.Completed);
+            await runtime.FinishRunAsync(
+                run.Id,
+                new FinishWorkerRunRequest(WorkerRunStatuses.Success, ExitCode: 0));
         }
 
         var activeLogs = await domains.CommandLogs.ListAsync(entity => entity.WorkerId == worker.Id);
@@ -327,6 +561,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(
             new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
         var command = await management.CreateCommandAsync(
@@ -369,6 +604,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker Log", "agent-1", Code: "codex-log"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(
             new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
         var command = await management.CreateCommandAsync(
@@ -580,6 +816,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-auth"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
         await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
         {
@@ -609,6 +846,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-wrong-assignee"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var task = new SprintDevelopmentTaskEntity
         {
             ProjectId = "project-1",
@@ -638,6 +876,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-right-assignee"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var task = new SprintDevelopmentTaskEntity
         {
             ProjectId = "project-1",
@@ -668,6 +907,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-busy"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(new RegisterWorkerSessionRequest(worker.Id, "instance-1"));
         await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
         {
@@ -702,6 +942,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-code"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var session = await runtime.RegisterSessionAsync(
             new RegisterWorkerSessionRequest(worker.Code, "instance-1"));
         var command = await management.CreateCommandAsync(
@@ -757,9 +998,11 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-command-audit"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         var otherWorker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Other Worker", "agent-1", Code: "codex-command-other"),
             "admin");
+        await MarkWorkerIdleAsync(domains, otherWorker);
         var command = await management.CreateCommandAsync(
             new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke, "{\"prompt\":\"hi\"}"),
             "admin");
@@ -786,6 +1029,7 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker", "agent-1", Code: "codex-command-replay"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
         await domains.Tasks.CreateAsync(new SprintDevelopmentTaskEntity
         {
             Id = "task-1",
@@ -814,6 +1058,113 @@ public sealed class DigitalWorkerServiceTests
     }
 
     [Fact]
+    public async Task Management_CreateAndReplayCommand_AllowsWorkingWorkerQueue()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Busy Codex Worker", "agent-1", Code: "codex-command-queue"),
+            "admin");
+        var workerEntity = await domains.Workers.GetAsync(worker.Id)
+            ?? throw new InvalidOperationException("Test worker does not exist.");
+        workerEntity.Status = DigitalWorkerStatuses.Working;
+        await domains.Workers.UpdateAsync(workerEntity);
+
+        var source = await management.CreateCommandAsync(
+            new CreateWorkerCommandRequest(worker.Id, WorkerCommandTypes.Smoke),
+            "admin");
+        var replayed = await management.ReplayCommandAsync(source.Id, "auditor");
+
+        Assert.Equal(WorkerCommandStatuses.Pending, source.Status);
+        Assert.Equal(WorkerCommandStatuses.Pending, replayed.Status);
+        Assert.Equal(worker.Id, replayed.WorkerId);
+        Assert.Null(replayed.SessionId);
+    }
+
+    [Fact]
+    public async Task Management_GenerateInstall_UpdatesWorkerRuntimeProfileAndCapabilities()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var token = new AgentTokenEntity
+        {
+            Id = "token-java",
+            Name = "Java worker token",
+            TokenValue = "secret-token",
+            TokenHash = HashToken("secret-token"),
+            Status = 1,
+            CreatedBy = "admin",
+            ExpiresAt = DateTime.UtcNow.AddDays(1)
+        };
+        await domains.AgentTokens.CreateAsync(token);
+        await domains.DeployTemplates.CreateAsync(new DigitalWorkerDeployTemplateEntity
+        {
+            Id = "template-java17",
+            Code = "java17",
+            Name = "Java 17",
+            RuntimeProfile = "java17",
+            BackendTechCapabilities = "java,dotnet",
+            ComposeTemplate = """
+services:
+  {{serviceName}}:
+    image: "{{imageName}}"
+    environment:
+      AgentSprint__ApiBaseUrl: "{{apiBaseUrl}}"
+      AgentSprint__AgentToken: "{{agentToken}}"
+      AgentSprint__WorkerDeployRenderId: "{{workerDeployRenderId}}"
+    volumes:
+      - "{{workspaceRoot}}:/workspaces"
+      - "{{runsRoot}}:/runs"
+      - "{{codexHome}}:/codex-home"
+""",
+            Version = 2,
+            Status = DigitalWorkerTemplateStatuses.Enabled
+        });
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Java Worker", "agent-1", AgentTokenId: token.Id, Code: "java-worker"),
+            "admin");
+
+        var render = await management.GenerateInstallAsync(
+            worker.Id,
+            new GenerateDigitalWorkerInstallRequest("java17", PlainSecretEnabled: false),
+            "admin");
+        var updated = await domains.Workers.GetAsync(worker.Id);
+
+        Assert.Equal("template-java17", render.TemplateId);
+        Assert.Equal("java17", updated?.RuntimeProfile);
+        Assert.Equal(["java", "dotnet"], Assert.IsType<string>(updated?.BackendTechCapabilities).Split(','));
+        Assert.DoesNotContain("secret-token", render.RenderedCompose, StringComparison.Ordinal);
+        Assert.Contains("AGENTSPRINT_AGENT_TOKEN=secret-token", render.RenderedEnv);
+    }
+
+    [Fact]
+    public async Task Management_DisableWorker_RejectsActiveLease()
+    {
+        var domains = new DigitalWorkerTestDomains();
+        var management = domains.CreateManagementService();
+        var worker = await management.CreateWorkerAsync(
+            new CreateDigitalWorkerRequest("Leased Worker", "agent-lease", Code: "leased-worker"),
+            "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        await domains.Leases.CreateAsync(new SprintTaskLeaseEntity
+        {
+            ProjectId = "project-1",
+            TargetType = SprintTaskTargetTypes.DevelopmentTask,
+            TargetId = "task-1",
+            OwnerId = "agent-lease",
+            Status = SprintTaskLeaseStatuses.Active,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        });
+        await management.SetWorkerStatusAsync(
+            worker.Id,
+            new SetDigitalWorkerStatusRequest(DigitalWorkerStatuses.Maintenance));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            management.SetWorkerStatusAsync(worker.Id, new SetDigitalWorkerStatusRequest(DigitalWorkerStatuses.Disabled)));
+        Assert.Contains("active task leases", ex.Message);
+    }
+
+    [Fact]
     public async Task Runtime_RegisterSession_RejectsDisabledWorker()
     {
         var domains = new DigitalWorkerTestDomains();
@@ -822,6 +1173,10 @@ public sealed class DigitalWorkerServiceTests
         var worker = await management.CreateWorkerAsync(
             new CreateDigitalWorkerRequest("Codex Worker 4", "agent-1", Code: "codex-4"),
             "admin");
+        await MarkWorkerIdleAsync(domains, worker);
+        await management.SetWorkerStatusAsync(
+            worker.Id,
+            new SetDigitalWorkerStatusRequest(DigitalWorkerStatuses.Maintenance));
         await management.SetWorkerStatusAsync(
             worker.Id,
             new SetDigitalWorkerStatusRequest(DigitalWorkerStatuses.Disabled));
@@ -834,6 +1189,14 @@ public sealed class DigitalWorkerServiceTests
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         return Convert.ToHexString(bytes);
+    }
+
+    private static async Task MarkWorkerIdleAsync(DigitalWorkerTestDomains domains, DigitalWorkerResult worker)
+    {
+        var entity = await domains.Workers.GetAsync(worker.Id)
+            ?? throw new InvalidOperationException("Test worker does not exist.");
+        entity.Status = DigitalWorkerStatuses.Idle;
+        await domains.Workers.UpdateAsync(entity);
     }
 }
 
@@ -930,6 +1293,14 @@ internal sealed class DigitalWorkerTestDomains
 
     public InMemoryWorkerEventDomain Events { get; } = new();
 
+    public InMemoryDigitalWorkerStartupProbeConfigDomain StartupProbeConfigs { get; } = new();
+
+    public InMemoryDigitalWorkerStartupProbeResultDomain StartupProbeResults { get; } = new();
+
+    public InMemoryDigitalWorkerDeployTemplateDomain DeployTemplates { get; } = new();
+
+    public InMemoryDigitalWorkerDeployRenderDomain DeployRenders { get; } = new();
+
     public InMemoryDigitalWorkerSprintProjectDomain Projects { get; } = new();
 
     public InMemoryDigitalWorkerGitRepositoryDomain GitRepositories { get; } = new();
@@ -941,6 +1312,8 @@ internal sealed class DigitalWorkerTestDomains
     public InMemoryDigitalWorkerSprintDevelopmentTaskDomain Tasks { get; } = new();
 
     public InMemoryDigitalWorkerSprintBugDomain Bugs { get; } = new();
+
+    public InMemoryDigitalWorkerSprintTaskLeaseDomain Leases { get; } = new();
 
     public InMemoryDigitalWorkerSprintSkillDomain Skills { get; } = new();
 
@@ -959,7 +1332,22 @@ internal sealed class DigitalWorkerTestDomains
 
     public DigitalWorkerManagementService CreateManagementService()
     {
-        return new DigitalWorkerManagementService(Workers, Sessions, Commands, CommandLogs, CommandLogBuffer, Runs, Events, Tasks, Bugs);
+        return new DigitalWorkerManagementService(
+            Workers,
+            Sessions,
+            Commands,
+            CommandLogs,
+            CommandLogBuffer,
+            Runs,
+            Events,
+            Projects,
+            Tasks,
+            Bugs,
+            Leases,
+            AgentTokens,
+            DeployTemplates,
+            DeployRenders,
+            StartupProbeResults);
     }
 
     public DigitalWorkerRuntimeService CreateRuntimeService()
@@ -981,7 +1369,9 @@ internal sealed class DigitalWorkerTestDomains
             CommandLogs,
             CommandLogBuffer,
             Runs,
-            Events);
+            Events,
+            StartupProbeConfigs,
+            StartupProbeResults);
     }
 }
 
@@ -1048,6 +1438,22 @@ internal sealed class InMemoryWorkerEventDomain :
     InMemoryDigitalWorkerDomainBase<WorkerEventEntity>,
     IWorkerEventDomain;
 
+internal sealed class InMemoryDigitalWorkerStartupProbeConfigDomain :
+    InMemoryDigitalWorkerDomainBase<DigitalWorkerStartupProbeConfigEntity>,
+    IDigitalWorkerStartupProbeConfigDomain;
+
+internal sealed class InMemoryDigitalWorkerStartupProbeResultDomain :
+    InMemoryDigitalWorkerDomainBase<DigitalWorkerStartupProbeResultEntity>,
+    IDigitalWorkerStartupProbeResultDomain;
+
+internal sealed class InMemoryDigitalWorkerDeployTemplateDomain :
+    InMemoryDigitalWorkerDomainBase<DigitalWorkerDeployTemplateEntity>,
+    IDigitalWorkerDeployTemplateDomain;
+
+internal sealed class InMemoryDigitalWorkerDeployRenderDomain :
+    InMemoryDigitalWorkerDomainBase<DigitalWorkerDeployRenderEntity>,
+    IDigitalWorkerDeployRenderDomain;
+
 internal sealed class InMemoryDigitalWorkerSprintProjectDomain :
     InMemoryDigitalWorkerDomainBase<SprintProjectEntity>,
     ISprintProjectDomain;
@@ -1071,6 +1477,10 @@ internal sealed class InMemoryDigitalWorkerSprintDevelopmentTaskDomain :
 internal sealed class InMemoryDigitalWorkerSprintBugDomain :
     InMemoryDigitalWorkerDomainBase<SprintBugEntity>,
     ISprintBugDomain;
+
+internal sealed class InMemoryDigitalWorkerSprintTaskLeaseDomain :
+    InMemoryDigitalWorkerDomainBase<SprintTaskLeaseEntity>,
+    ISprintTaskLeaseDomain;
 
 internal sealed class InMemoryDigitalWorkerSprintSkillDomain :
     InMemoryDigitalWorkerDomainBase<SprintSkillEntity>,

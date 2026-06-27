@@ -64,7 +64,7 @@ internal static class WorkerDiagnostics
 
         value = Regex.Replace(
             value,
-            "(\"(?:agentToken|gitAccessToken|accessToken|apiKey|password|token)\"\\s*:\\s*\")([^\"]*)(\")",
+            "(\"(?:agentToken|gitAccessToken|accessToken|apiKey|openAiApiKey|openaiApiKey|password|token)\"\\s*:\\s*\")([^\"]*)(\")",
             "$1***REDACTED***$3",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         value = Regex.Replace(

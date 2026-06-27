@@ -25,6 +25,12 @@ public interface IDigitalWorkerRuntimeService
     Task<WorkerRuntimeConfigResult> GetRuntimeConfigByAgentTokenAsync(string agentToken);
 
     /// <summary>
+    /// zh-cn: 获取平台启用的启动探针配置，Worker 启动后按这些命令检测运行环境能力。
+    /// en-us: Gets enabled platform startup-probe configurations so the Worker can detect runtime capabilities after startup.
+    /// </summary>
+    Task<IReadOnlyList<StartupProbeConfigResult>> ListStartupProbeConfigsAsync();
+
+    /// <summary>
     /// zh-cn: 为 Worker 托管的 Codex 执行生成数字员工专用提示词；该接口读取平台任务、需求、项目、Skill 和提示词模板，返回已渲染的完整 prompt，不要求 Codex 再连接 MCP。
     /// en-us: Builds the digital-worker prompt for a Worker-hosted Codex run; this API reads platform task, requirement, project, skill, and prompt-template data and returns a rendered prompt without requiring Codex to connect to MCP.
     /// </summary>
@@ -47,6 +53,12 @@ public interface IDigitalWorkerRuntimeService
     /// en-us: Receives a Worker heartbeat, refreshes session state, and returns pending commands plus the next heartbeat interval.
     /// </summary>
     Task<WorkerHeartbeatResult> HeartbeatAsync(WorkerHeartbeatRequest request);
+
+    /// <summary>
+    /// zh-cn: 接收 Worker 启动探针结果，保存审计记录，并在必需探针全部通过后把数字员工切换为 idle。
+    /// en-us: Receives Worker startup-probe results, persists audit records, and switches the digital worker to idle when all required probes pass.
+    /// </summary>
+    Task<IReadOnlyList<StartupProbeResult>> ReportStartupProbeResultsAsync(ReportStartupProbeResultsRequest request);
 
     /// <summary>
     /// zh-cn: ACK 平台下发命令，确保同一命令不会被重复进入执行态。

@@ -1229,6 +1229,11 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         task.AssigneeId = request.AssigneeId.Trim();
         task.AssigneeType = NormalizeAssigneeType(request.AssigneeType);
         var digitalWorker = await ResolveDigitalWorkerForAssignmentAsync(task.AssigneeType, task.AssigneeId);
+        if (digitalWorker is not null)
+        {
+            await EnsureDigitalWorkerCanUseProjectBackendTechAsync(digitalWorker, task.ProjectId);
+        }
+
         task.AssignedBy = string.IsNullOrWhiteSpace(assignedBy) ? null : assignedBy.Trim();
         task.Status = SprintDevelopmentTaskStatuses.Assigned;
         task.AssignedAt = DateTime.UtcNow;
@@ -1279,9 +1284,11 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
 
         var workers = await _digitalWorkerDomain.ListAsync(entity =>
             entity.AgentUserId == assigneeId &&
-            entity.Status == DigitalWorkerStatuses.Active);
+            (entity.Status == DigitalWorkerStatuses.Idle ||
+             entity.Status == DigitalWorkerStatuses.Working ||
+             entity.Status == DigitalWorkerStatuses.Active));
         return workers.OrderBy(entity => entity.CreateTime).FirstOrDefault()
-            ?? throw new InvalidOperationException("No active digital worker is bound to assignee.");
+            ?? throw new InvalidOperationException("No queueable digital worker is bound to assignee.");
     }
 
     private async Task DispatchDigitalWorkerTaskCommandAsync(
@@ -1749,6 +1756,11 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         var manualDigitalWorker = normalizedAssignmentMode == SprintTaskAssignmentModes.Manual && normalizedAssigneeId is not null
             ? await ResolveDigitalWorkerForAssignmentAsync(normalizedAssigneeType, normalizedAssigneeId)
             : null;
+        if (manualDigitalWorker is not null)
+        {
+            await EnsureDigitalWorkerCanUseProjectBackendTechAsync(manualDigitalWorker, requirement.ProjectId);
+        }
+
         var developers = await ResolveRequirementDevelopersAsync(requirement);
         var developerIndex = 0;
         foreach (var task in tasks)
@@ -2045,6 +2057,12 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             lease.ActiveTargetKey = null;
             await _leaseDomain.UpdateAsync(lease);
         }
+    }
+
+    private async Task EnsureDigitalWorkerCanUseProjectBackendTechAsync(DigitalWorkerEntity worker, string projectId)
+    {
+        var project = await GetProjectOrThrowAsync(projectId);
+        DigitalWorkerManagementService.EnsureBackendTechCovered(worker, project.BackendTechStack);
     }
 
     private async Task ReleaseExpiredTargetLeasesAsync(string targetType, string targetId, DateTime now)

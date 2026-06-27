@@ -9,7 +9,7 @@ namespace AgentSprint.Worker.Services;
 
 public sealed class CodexProcessRunner
 {
-    private static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromSeconds(300);
     private static readonly TimeSpan KillWaitTimeout = TimeSpan.FromSeconds(10);
 
     private readonly WorkerRunLogger _runLogger;

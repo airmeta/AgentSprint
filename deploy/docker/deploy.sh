@@ -12,6 +12,9 @@ Options:
   -r, --root PATH      Deployment root.
                       Default: /opt/agentsprint-deploy, or the parent of this script
                       when running from the docker directory.
+  -f, --compose-file NAME
+                      Compose file inside the docker directory.
+                      Default: docker-compose-agentsprint.yml.
   --skip-build         Skip docker compose build --no-cache.
   --no-clean           Extract over the existing docker directory instead of replacing it.
   -h, --help           Show this help.
@@ -61,6 +64,7 @@ else
 fi
 
 PACKAGE="${AGENTSPRINT_PACKAGE:-$DEPLOY_ROOT/agentsprint-docker-deploy.tgz}"
+COMPOSE_FILE="${AGENTSPRINT_COMPOSE_FILE:-docker-compose-agentsprint.yml}"
 SKIP_BUILD=0
 CLEAN_EXTRACT=1
 SERVICES=()
@@ -76,6 +80,11 @@ while [ "$#" -gt 0 ]; do
     -r|--root)
       [ "$#" -ge 2 ] || fail "$1 requires a path"
       DEPLOY_ROOT="$2"
+      shift 2
+      ;;
+    -f|--compose-file)
+      [ "$#" -ge 2 ] || fail "$1 requires a compose file name"
+      COMPOSE_FILE="$2"
       shift 2
       ;;
     --skip-build)
@@ -127,9 +136,9 @@ require_command() {
 
 compose() {
   if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
+    docker compose -f "$COMPOSE_FILE" "$@"
   elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
+    docker-compose -f "$COMPOSE_FILE" "$@"
   else
     fail "Required command not found: docker compose or docker-compose"
   fi
@@ -183,6 +192,56 @@ run_health_checks() {
     | grep -E 'Now listening|Application started|Hosting failed|Unhandled|Access denied|SELECT EXISTS' || true
 }
 
+wait_for_mysql() {
+  local attempts="${1:-30}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if docker exec agentsprint-mysql sh -c 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+      log "mysql health OK"
+      return 0
+    fi
+    sleep 2
+  done
+
+  fail "MySQL did not become ready"
+}
+
+run_mysql_script() {
+  local script="$1"
+  [ -f "$script" ] || return 0
+
+  log "Execute MySQL script: $(basename "$script")"
+  docker exec -i agentsprint-mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" agentsprint' < "$script"
+}
+
+run_database_scripts() {
+  wait_for_mysql
+
+  run_mysql_script "$DOCKER_DIR/artifacts/api/DatabaseInitializer.sql"
+  run_mysql_script "$DOCKER_DIR/artifacts/api/DatabaseSeedDictionaries.sql"
+  run_mysql_script "$DOCKER_DIR/artifacts/api/DatabaseMenuLocalization.zh-CN.sql"
+}
+
+service_requested() {
+  local target="$1"
+
+  [ "${#SERVICES[@]}" -eq 0 ] && return 0
+  for service in "${SERVICES[@]}"; do
+    [ "$service" = "$target" ] && return 0
+  done
+
+  return 1
+}
+
+ensure_worker_base_image() {
+  if ! service_requested "math-codex-worker-1" && ! service_requested "math-codex-worker-javaer-01"; then
+    return 0
+  fi
+
+  log "Build worker base image: agentsprint-codex-worker-base:latest"
+  docker build --no-cache -f Dockerfile.codex-worker-base -t agentsprint-codex-worker-base:latest .
+}
+
 require_command docker
 require_command tar
 require_command curl
@@ -232,7 +291,11 @@ if [ -n "$env_backup" ]; then
   chmod 600 "$ENV_FILE" || true
 fi
 
-if grep -q 'AGENTSPRINT_DB_PASSWORD' "$DOCKER_DIR/docker-compose.yml"; then
+if [ ! -f "$DOCKER_DIR/$COMPOSE_FILE" ]; then
+  fail "Compose file not found: $DOCKER_DIR/$COMPOSE_FILE"
+fi
+
+if grep -q 'AGENTSPRINT_DB_PASSWORD' "$DOCKER_DIR/$COMPOSE_FILE"; then
   [ -f "$ENV_FILE" ] || fail "$ENV_FILE is required because docker-compose.yml uses AGENTSPRINT_DB_PASSWORD"
   if ! grep -q '^AGENTSPRINT_DB_PASSWORD=' "$ENV_FILE"; then
     fail "$ENV_FILE must define AGENTSPRINT_DB_PASSWORD"
@@ -240,14 +303,31 @@ if grep -q 'AGENTSPRINT_DB_PASSWORD' "$DOCKER_DIR/docker-compose.yml"; then
   chmod 600 "$ENV_FILE" || true
 fi
 
+install -d -m 0755 /opt/agentsprint-data/redis/data
+if [ -d /opt/agentsprint-data/redis/redis.conf ]; then
+  log "Remove invalid Redis config directory: /opt/agentsprint-data/redis/redis.conf"
+  rm -rf /opt/agentsprint-data/redis/redis.conf
+fi
+if [ ! -f /opt/agentsprint-data/redis/redis.conf ]; then
+  cat > /opt/agentsprint-data/redis/redis.conf <<'REDISCONF'
+appendonly yes
+protected-mode no
+bind 0.0.0.0
+port 6379
+dir /data
+REDISCONF
+fi
+
 log "Artifact sizes"
 du -sh "$DOCKER_DIR"/artifacts/* 2>/dev/null || true
 
 cd "$DOCKER_DIR"
-log "Validate docker compose config"
+log "Validate docker compose config: $COMPOSE_FILE"
 compose config --quiet
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
+  ensure_worker_base_image
+
   if [ "${#SERVICES[@]}" -gt 0 ]; then
     log "Build services with --no-cache: ${SERVICES[*]}"
     compose build --no-cache "${SERVICES[@]}"
@@ -265,6 +345,7 @@ else
   compose up -d
 fi
 
+run_database_scripts
 run_health_checks
 
 log "Deployment finished"

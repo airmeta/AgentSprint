@@ -13,6 +13,18 @@ public interface IGitBranchOperationDomain : IEntityDomainBase<GitBranchOperatio
 
 public interface ISprintProjectMemberDomain : IEntityDomainBase<SprintProjectMemberEntity>;
 
+public interface ISprintProjectMaterialDomain : IEntityDomainBase<SprintProjectMaterialEntity>;
+
+public interface ISprintProjectMaterialEventDomain : IEntityDomainBase<SprintProjectMaterialEventEntity>;
+
+public interface ISprintProposalDomain : IEntityDomainBase<SprintProposalEntity>;
+
+public interface ISprintProposalMaterialDomain : IEntityDomainBase<SprintProposalMaterialEntity>;
+
+public interface ISprintProposalConversationDomain : IEntityDomainBase<SprintProposalConversationEntity>;
+
+public interface ISprintProposalRequirementDomain : IEntityDomainBase<SprintProposalRequirementEntity>;
+
 public interface ISprintProjectEndpointDomain : IEntityDomainBase<SprintProjectEndpointEntity>;
 
 public interface ISprintFeatureModuleDomain : IEntityDomainBase<SprintFeatureModuleEntity>;
@@ -42,6 +54,14 @@ public interface ICodeAuditResultDomain : IEntityDomainBase<CodeAuditResultEntit
 public interface ICodeAuditFileDomain : IEntityDomainBase<CodeAuditFileEntity>;
 
 public interface IDigitalWorkerDomain : IEntityDomainBase<DigitalWorkerEntity>;
+
+public interface IDigitalWorkerDeployTemplateDomain : IEntityDomainBase<DigitalWorkerDeployTemplateEntity>;
+
+public interface IDigitalWorkerDeployRenderDomain : IEntityDomainBase<DigitalWorkerDeployRenderEntity>;
+
+public interface IDigitalWorkerStartupProbeConfigDomain : IEntityDomainBase<DigitalWorkerStartupProbeConfigEntity>;
+
+public interface IDigitalWorkerStartupProbeResultDomain : IEntityDomainBase<DigitalWorkerStartupProbeResultEntity>;
 
 public interface IWorkerSessionDomain : IEntityDomainBase<WorkerSessionEntity>;
 

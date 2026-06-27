@@ -1,7 +1,7 @@
 import { requestClient } from '#/api/request';
 
 export namespace AutomationApi {
-  export type WorkerStatus = 'active' | 'disabled' | 'maintenance';
+  export type WorkerStatus = 'active' | 'disabled' | 'idle' | 'inactive' | 'maintenance' | 'starting' | 'working';
   export type WorkerType = 'codex';
   export type EmployeeType = 'audit' | 'development' | 'operations' | 'product' | 'test';
   export type SessionStatus =
@@ -26,6 +26,7 @@ export namespace AutomationApi {
     agentTokenId?: string;
     agentUserId: string;
     aiPlatformCode: string;
+    backendTechCapabilities: string;
     code: string;
     createTime: string;
     createdBy: string;
@@ -46,6 +47,7 @@ export namespace AutomationApi {
     pollIntervalSeconds: number;
     projectIds: string[];
     runSmokeOnStartup: boolean;
+    runtimeProfile: string;
     runsRoot: string;
     sandboxMode: string;
     skillIds: string[];
@@ -54,13 +56,78 @@ export namespace AutomationApi {
     updateTime?: string;
     workspaceRoot: string;
     workerType: WorkerType;
+    latestHeartbeatAt?: string;
+    latestSessionStatus?: string;
+    runtimeSummary?: string;
   }
 
   export interface DigitalWorkerDetail {
     currentRun?: WorkerRun;
     latestSession?: WorkerSession;
     pendingCommands: WorkerCommand[];
+    startupProbeResults?: StartupProbeResult[];
     worker: DigitalWorker;
+  }
+
+  export interface DigitalWorkerInstallRender {
+    createTime: string;
+    id: string;
+    placeholderValuesJson: string;
+    plainSecretEnabled: boolean;
+    renderedCompose: string;
+    renderedEnv?: string;
+    templateId: string;
+    templateVersion: number;
+    workerId: string;
+  }
+
+  export interface DigitalWorkerDeployTemplate {
+    backendTechCapabilities: string;
+    code: string;
+    composeTemplate: string;
+    createTime: string;
+    description?: string;
+    dockerfileExtension?: string;
+    id: string;
+    name: string;
+    runtimeProfile: string;
+    sort: number;
+    status: number;
+    updateTime?: string;
+    version: number;
+  }
+
+  export interface SaveDigitalWorkerDeployTemplateRequest {
+    backendTechCapabilities: string;
+    code: string;
+    composeTemplate: string;
+    description?: string;
+    dockerfileExtension?: string;
+    name: string;
+    runtimeProfile: string;
+    sort?: number;
+    status?: number;
+    version?: number;
+  }
+
+  export interface StartupProbeResult {
+    command: string;
+    createTime: string;
+    error?: string;
+    exitCode?: number;
+    id: string;
+    instanceId: string;
+    passed: boolean;
+    probeCode: string;
+    probeConfigId: string;
+    probeName: string;
+    reportedAt: string;
+    required: boolean;
+    sessionId?: string;
+    stderr?: string;
+    stdout?: string;
+    workerDeployRenderId?: string;
+    workerId: string;
   }
 
   export interface SaveDigitalWorkerRequest {
@@ -203,6 +270,38 @@ export function getDigitalWorkerDetailApi(id: string) {
 
 export function setDigitalWorkerStatusApi(id: string, status: AutomationApi.WorkerStatus) {
   return requestClient.post<AutomationApi.DigitalWorker>(`/workers/${id}/status`, { status });
+}
+
+export function generateDigitalWorkerInstallApi(
+  id: string,
+  data: { apiBaseUrl?: string; plainSecretEnabled?: boolean; templateId?: string },
+) {
+  return requestClient.post<AutomationApi.DigitalWorkerInstallRender>(`/workers/${id}/install`, data);
+}
+
+export function listDigitalWorkerDeployTemplatesApi(params?: { keyword?: string; status?: string }) {
+  return requestClient.get<AutomationApi.DigitalWorkerDeployTemplate[]>('/workers/deploy-templates', {
+    params: normalizeQuery(params),
+  });
+}
+
+export function createDigitalWorkerDeployTemplateApi(data: AutomationApi.SaveDigitalWorkerDeployTemplateRequest) {
+  return requestClient.post<AutomationApi.DigitalWorkerDeployTemplate>('/workers/deploy-templates', data);
+}
+
+export function updateDigitalWorkerDeployTemplateApi(
+  id: string,
+  data: AutomationApi.SaveDigitalWorkerDeployTemplateRequest,
+) {
+  return requestClient.put<AutomationApi.DigitalWorkerDeployTemplate>(`/workers/deploy-templates/${id}`, data);
+}
+
+export function deleteDigitalWorkerApi(id: string) {
+  return requestClient.delete<AutomationApi.DigitalWorker>(`/workers/${id}`);
+}
+
+export function listStartupProbeResultsApi(id: string) {
+  return requestClient.get<AutomationApi.StartupProbeResult[]>(`/workers/${id}/startup-probes`);
 }
 
 export function createWorkerCommandApi(data: {

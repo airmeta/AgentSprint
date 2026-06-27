@@ -102,6 +102,16 @@ const orderedColumns: PrimaryTableCol[] = [
   columns.find((item) => item.colKey === 'actions')!,
 ];
 
+const probeColumns: PrimaryTableCol[] = [
+  { colKey: 'probeName', title: 'Probe', minWidth: 150 },
+  { colKey: 'command', title: 'Command', ellipsis: true, minWidth: 180 },
+  { colKey: 'exitCode', title: 'Exit Code', width: 110 },
+  { colKey: 'passed', title: 'Result', cell: 'probePassed', width: 110 },
+  { colKey: 'required', title: 'Required', cell: 'probeRequired', width: 90 },
+  { colKey: 'workerDeployRenderId', title: 'Render ID', cell: 'workerDeployRenderId', ellipsis: true, minWidth: 180 },
+  { colKey: 'reportedAt', title: 'Reported At', cell: 'reportedAt', width: 170 },
+];
+
 const workerId = computed(() => String(route.params.id || ''));
 const routeSessionId = computed(() => String(route.query.sessionId || ''));
 const selectedCommand = computed(() => commands.value.find((item) => item.id === selectedCommandId.value));
@@ -143,6 +153,7 @@ const stats = computed(() => ({
   succeeded: commands.value.filter((item) => item.status === 'succeeded').length,
   total: commands.value.length,
 }));
+const startupProbeResults = computed(() => detail.value?.startupProbeResults || []);
 
 function commandText(commandType?: string) {
   return commandOptions.find((item) => item.value === commandType)?.label || commandType || '-';
@@ -185,6 +196,16 @@ function shortCommit(value?: string) {
 
 function commandTimeTips(command: AutomationApi.WorkerCommand) {
   return `开始时间: ${formatDateTime(command.startedAt)}\n结束时间: ${formatDateTime(command.completedAt)}`;
+}
+
+function probeOutputTips(row: AutomationApi.StartupProbeResult) {
+  return [
+    row.stdout ? `stdout: ${row.stdout}` : '',
+    row.stderr ? `stderr: ${row.stderr}` : '',
+    row.error ? `error: ${row.error}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n') || 'no output';
 }
 
 async function applyFilters() {
@@ -333,6 +354,38 @@ onMounted(loadPage);
         </TTabPanel>
 
         <TTabPanel value="probe" label="能力探针">
+          <section class="panel">
+            <div class="panel-title">
+              <h3>Startup Probes</h3>
+              <span>{{ startupProbeResults.length }}</span>
+            </div>
+            <TEmpty v-if="startupProbeResults.length === 0" description="No startup probe reports" />
+            <TTable
+              v-else
+              row-key="id"
+              :columns="withSerialColumn(probeColumns)"
+              :data="startupProbeResults"
+              hover
+              stripe
+            >
+              <template #probePassed="{ row }">
+                <TTooltip :content="probeOutputTips(row)" placement="top" theme="light">
+                  <TTag :theme="row.passed ? 'success' : 'danger'" variant="light">
+                    {{ row.passed ? 'Passed' : 'Failed' }}
+                  </TTag>
+                </TTooltip>
+              </template>
+              <template #probeRequired="{ row }">
+                <TTag :theme="row.required ? 'warning' : 'default'" variant="light">
+                  {{ row.required ? 'Required' : 'Optional' }}
+                </TTag>
+              </template>
+              <template #workerDeployRenderId="{ row }">{{ row.workerDeployRenderId || '-' }}</template>
+              <template #reportedAt="{ row }">{{ formatDateTime(row.reportedAt) }}</template>
+            </TTable>
+          </section>
+
+
           <section class="panel">
             <div class="filter-bar">
               <TSpace>

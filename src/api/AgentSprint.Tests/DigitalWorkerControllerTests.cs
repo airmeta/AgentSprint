@@ -207,6 +207,27 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
         return Task.FromResult(workers);
     }
 
+    public Task<IReadOnlyList<DigitalWorkerDeployTemplateResult>> ListDeployTemplatesAsync(
+        string? status = null,
+        string? keyword = null)
+    {
+        IReadOnlyList<DigitalWorkerDeployTemplateResult> templates = [];
+        return Task.FromResult(templates);
+    }
+
+    public Task<DigitalWorkerDeployTemplateResult> CreateDeployTemplateAsync(
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        return Task.FromResult(CreateTemplateResult("template-id", request));
+    }
+
+    public Task<DigitalWorkerDeployTemplateResult> UpdateDeployTemplateAsync(
+        string id,
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        return Task.FromResult(CreateTemplateResult(id, request));
+    }
+
     public Task<DigitalWorkerDetailResult> GetWorkerDetailAsync(string id)
     {
         return Task.FromResult(new DigitalWorkerDetailResult(
@@ -228,6 +249,7 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
                 "admin"),
             null,
             null,
+            [],
             []));
     }
 
@@ -298,6 +320,45 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             DateTime.UtcNow));
     }
 
+    public Task<DigitalWorkerInstallRenderResult> GenerateInstallAsync(
+        string id,
+        GenerateDigitalWorkerInstallRequest request,
+        string userId)
+    {
+        LastUserId = userId;
+        return Task.FromResult(new DigitalWorkerInstallRenderResult(
+            "render-id",
+            id,
+            request.TemplateId ?? "template-id",
+            1,
+            "services: {}",
+            request.PlainSecretEnabled ? null : "AGENTSPRINT_AGENT_TOKEN=***",
+            request.PlainSecretEnabled,
+            "{}",
+            DateTime.UtcNow));
+    }
+
+    public Task<DigitalWorkerResult> DeleteWorkerAsync(string id)
+    {
+        return Task.FromResult(CreateWorkerResult(
+            id,
+            "worker-code",
+            "Worker",
+            "agent-1",
+            null,
+            [],
+            [],
+            [],
+            DigitalWorkerEmployeeTypes.Development,
+            DigitalWorkerTypes.Codex,
+            DigitalWorkerStatuses.Disabled,
+            1,
+            90,
+            null,
+            "admin",
+            DateTime.UtcNow));
+    }
+
     public Task<WorkerCommandResult> ReplayCommandAsync(string commandId, string userId)
     {
         LastReplayCommandId = commandId;
@@ -349,6 +410,32 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
         return Task.FromResult(events);
     }
 
+    public Task<IReadOnlyList<StartupProbeResult>> ListStartupProbeResultsAsync(string workerId)
+    {
+        IReadOnlyList<StartupProbeResult> result = [];
+        return Task.FromResult(result);
+    }
+
+    private static DigitalWorkerDeployTemplateResult CreateTemplateResult(
+        string id,
+        SaveDigitalWorkerDeployTemplateRequest request)
+    {
+        return new DigitalWorkerDeployTemplateResult(
+            id,
+            request.Code,
+            request.Name,
+            request.Description,
+            request.RuntimeProfile,
+            request.BackendTechCapabilities,
+            request.ComposeTemplate,
+            request.DockerfileExtension,
+            request.Version ?? 1,
+            request.Sort ?? 100,
+            request.Status ?? 1,
+            DateTime.UtcNow,
+            null);
+    }
+
     private static DigitalWorkerResult CreateWorkerResult(
         string id,
         string? code,
@@ -379,6 +466,8 @@ internal sealed class CapturingDigitalWorkerManagementService : IDigitalWorkerMa
             employeeType,
             workerType,
             status,
+            "dotnet-default",
+            "dotnet",
             maxConcurrentRuns,
             heartbeatTimeoutSeconds,
             15,
@@ -465,6 +554,22 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
             1));
     }
 
+    public Task<IReadOnlyList<StartupProbeConfigResult>> ListStartupProbeConfigsAsync()
+    {
+        IReadOnlyList<StartupProbeConfigResult> result =
+        [
+            new StartupProbeConfigResult(
+                "probe-config-id",
+                "dotnet",
+                "Dotnet",
+                "dotnet --info",
+                null,
+                true,
+                1)
+        ];
+        return Task.FromResult(result);
+    }
+
     public Task<WorkerSessionResult> RegisterSessionAsync(RegisterWorkerSessionRequest request)
     {
         LastRegisterRequest = request;
@@ -518,6 +623,31 @@ internal sealed class CapturingDigitalWorkerRuntimeService : IDigitalWorkerRunti
                     "admin",
                     DateTime.UtcNow)
             ]));
+    }
+
+    public Task<IReadOnlyList<StartupProbeResult>> ReportStartupProbeResultsAsync(ReportStartupProbeResultsRequest request)
+    {
+        IReadOnlyList<StartupProbeResult> result = request.Results
+            .Select(item => new StartupProbeResult(
+                "probe-result-id",
+                request.WorkerId,
+                request.SessionId,
+                request.InstanceId,
+                request.WorkerDeployRenderId,
+                item.ProbeConfigId,
+                item.ProbeCode,
+                item.ProbeName,
+                item.Command,
+                item.ExitCode,
+                item.Stdout,
+                item.Stderr,
+                item.Error,
+                item.Passed,
+                item.Required,
+                DateTime.UtcNow,
+                DateTime.UtcNow))
+            .ToList();
+        return Task.FromResult(result);
     }
 
     public Task<WorkerCommandResult> AckCommandAsync(string commandId, AckWorkerCommandRequest request)

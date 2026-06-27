@@ -832,7 +832,7 @@ public sealed class AgileMvpServiceTests
             Name = "Codex Worker",
             Code = "codex-worker",
             AgentUserId = "worker-agent-1",
-            Status = DigitalWorkerStatuses.Active
+            Status = DigitalWorkerStatuses.Idle
         };
         await workerDomain.CreateAsync(worker);
 
@@ -1398,7 +1398,7 @@ public sealed class AgileMvpServiceTests
             Name = "Codex Worker",
             Code = "codex-worker",
             AgentUserId = "worker-agent-1",
-            Status = DigitalWorkerStatuses.Active
+            Status = DigitalWorkerStatuses.Idle
         });
         var project = await service.CreateProjectAsync(
             CreateProjectRequest("MVP-DIGITAL-ASSIGN", "Digital assign"),
@@ -1447,7 +1447,7 @@ public sealed class AgileMvpServiceTests
             Name = "Codex Worker",
             Code = "codex-worker",
             AgentUserId = "agent-1",
-            Status = DigitalWorkerStatuses.Active
+            Status = DigitalWorkerStatuses.Idle
         };
         await workerDomain.CreateAsync(worker);
 
@@ -1457,6 +1457,48 @@ public sealed class AgileMvpServiceTests
             "pm-1");
 
         var command = Assert.Single(await commandDomain.ListAsync());
+        Assert.Equal(worker.Id, command.WorkerId);
+        Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
+        Assert.Equal(WorkerCommandStatuses.Pending, command.Status);
+        Assert.Contains(task.Id, command.PayloadJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AssignDevelopmentTaskAsync_QueuesStartTaskCommandForWorkingDigitalWorker()
+    {
+        var workerDomain = new InMemoryAgileDigitalWorkerDomain();
+        var commandDomain = new InMemoryAgileWorkerCommandDomain();
+        var service = CreateService(
+            digitalWorkerDomain: workerDomain,
+            workerCommandDomain: commandDomain);
+        var project = await service.CreateProjectAsync(
+            CreateProjectRequest("MVP-DW-WORKING-CMD", "Working digital worker command"),
+            "pm-1");
+        var requirement = await service.CreateRequirementAsync(
+            new CreateSprintRequirementRequest(project.Id, "Queue while busy", null, 1),
+            "po-1");
+        requirement = await SubmitAndApproveRequirementAsync(service, requirement.Id, "pm-1");
+        var task = (await service.DecomposeRequirementAsync(
+            requirement.Id,
+            new DecomposeSprintRequirementRequest(null, SprintTaskAssignmentModes.Manual),
+            "pm-1")).Single();
+        var worker = new DigitalWorkerEntity
+        {
+            Name = "Working Codex Worker",
+            Code = "working-codex-worker",
+            AgentUserId = "agent-working",
+            Status = DigitalWorkerStatuses.Working
+        };
+        await workerDomain.CreateAsync(worker);
+
+        var assigned = await service.AssignDevelopmentTaskAsync(
+            task.Id,
+            new AssignSprintDevelopmentTaskRequest("agent-working", SprintTaskAssigneeTypes.DigitalWorker),
+            "pm-1");
+
+        var command = Assert.Single(await commandDomain.ListAsync());
+        Assert.Equal(SprintDevelopmentTaskStatuses.Assigned, assigned.Status);
+        Assert.Equal(SprintTaskAssigneeTypes.DigitalWorker, assigned.AssigneeType);
         Assert.Equal(worker.Id, command.WorkerId);
         Assert.Equal(WorkerCommandTypes.StartTask, command.CommandType);
         Assert.Equal(WorkerCommandStatuses.Pending, command.Status);
@@ -2448,6 +2490,14 @@ internal sealed class InMemoryGitBranchOperationDomain :
 internal sealed class InMemorySprintProjectMemberDomain :
     InMemoryDomainBase<SprintProjectMemberEntity>,
     ISprintProjectMemberDomain;
+
+internal sealed class InMemorySprintProjectMaterialDomain :
+    InMemoryDomainBase<SprintProjectMaterialEntity>,
+    ISprintProjectMaterialDomain;
+
+internal sealed class InMemorySprintProjectMaterialEventDomain :
+    InMemoryDomainBase<SprintProjectMaterialEventEntity>,
+    ISprintProjectMaterialEventDomain;
 
 internal sealed class InMemorySprintProjectEndpointDomain :
     InMemoryDomainBase<SprintProjectEndpointEntity>,

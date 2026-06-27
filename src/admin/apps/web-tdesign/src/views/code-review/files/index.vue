@@ -140,10 +140,14 @@ async function loadRows() {
 async function loadOptions() {
   const [projectRows, workerRows] = await Promise.all([
     listProjectsApi(),
-    listDigitalWorkersApi({ status: 'active' }),
+    listDigitalWorkersApi(),
   ]);
   projects.value = projectRows;
-  workers.value = workerRows.filter((item) => item.employeeType === 'audit' || item.workerType === 'codex');
+  workers.value = workerRows.filter(
+    (item) =>
+      (item.employeeType === 'audit' || item.workerType === 'codex') &&
+      ['active', 'idle', 'working'].includes(item.status),
+  );
 }
 
 async function openSync() {

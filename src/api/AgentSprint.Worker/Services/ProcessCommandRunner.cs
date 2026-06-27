@@ -19,6 +19,7 @@ internal static class ProcessCommandRunner
             arguments,
             workingDirectory,
             timeout,
+            null,
             Array.Empty<string>(),
             cancellationToken);
     }
@@ -28,6 +29,25 @@ internal static class ProcessCommandRunner
         string arguments,
         string? workingDirectory,
         TimeSpan timeout,
+        IReadOnlyCollection<string> secretValues,
+        CancellationToken cancellationToken)
+    {
+        return await RunAsync(
+            fileName,
+            arguments,
+            workingDirectory,
+            timeout,
+            null,
+            secretValues,
+            cancellationToken);
+    }
+
+    public static async Task<CommandProbeResult> RunAsync(
+        string fileName,
+        string arguments,
+        string? workingDirectory,
+        TimeSpan timeout,
+        string? standardInput,
         IReadOnlyCollection<string> secretValues,
         CancellationToken cancellationToken)
     {
@@ -54,6 +74,7 @@ internal static class ProcessCommandRunner
                 WorkingDirectory = effectiveWorkingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = standardInput is not null,
                 UseShellExecute = false,
                 CreateNoWindow = true
             },
@@ -87,6 +108,12 @@ internal static class ProcessCommandRunner
 
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
+            if (standardInput is not null)
+            {
+                await process.StandardInput.WriteAsync(standardInput.AsMemory(), timeoutCts.Token);
+                await process.StandardInput.FlushAsync(timeoutCts.Token);
+                process.StandardInput.Close();
+            }
 
             await process.WaitForExitAsync(timeoutCts.Token);
 

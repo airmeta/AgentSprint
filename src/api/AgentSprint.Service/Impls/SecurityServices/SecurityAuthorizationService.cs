@@ -283,7 +283,7 @@ public sealed class SecurityAuthorizationService : AgentSprintServiceBase, ISecu
         return path switch
         {
             "/sprint/project" => "/sprint/projects",
-            "/sprint/product" => "/sprint/requirements",
+            "/sprint/product" => "/sprint/proposals",
             "/sprint/worker" => "/sprint/my-tasks",
             "/sprint/test" => "/sprint/tests",
             "/sprint/git" => "/sprint/git/accounts",

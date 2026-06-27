@@ -151,7 +151,7 @@ public sealed class CodexProcessRunnerTests
             var diagnostics = CodexProcessRunner.BuildLaunchDiagnostics(
                 request,
                 Path.Combine(root, "final.md"),
-                TimeSpan.FromSeconds(90));
+                TimeSpan.FromSeconds(300));
 
             Assert.Contains("configExists=True", diagnostics);
             Assert.Contains("configModel=gpt-test", diagnostics);

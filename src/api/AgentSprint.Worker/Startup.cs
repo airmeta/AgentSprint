@@ -46,6 +46,7 @@ public sealed class Startup : AppStartup
 
         services.AddHttpClient<AgentSprintApiClient>();
         services.AddSingleton<WorkerRuntimeConfigApplier>();
+        services.AddSingleton<CodexLoginInitializer>();
         services.AddSingleton<WorkerRunLogger>();
         services.AddSingleton<WorkerEnvironmentProbe>();
         services.AddSingleton<GitWorkspaceManager>();

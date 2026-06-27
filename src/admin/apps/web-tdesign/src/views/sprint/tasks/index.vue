@@ -87,7 +87,7 @@ const digitalWorkerMap = computed(() =>
 );
 const workerOptions = computed(() =>
   digitalWorkers.value
-    .filter((worker) => worker.status === 'active')
+    .filter((worker) => ['active', 'idle', 'working'].includes(worker.status))
     .map((worker) => ({
       label: `${worker.name} (${worker.code})`,
       value: worker.agentUserId,
@@ -184,12 +184,16 @@ function filterTasksByRequirementKeyword(items: SprintMvpApi.DevelopmentTask[]) 
   });
 }
 
+function resolveRequirementTitle(requirementId?: string) {
+  return requirementId ? requirementMap.value[requirementId]?.title || requirementId : '-';
+}
+
 async function loadBase() {
   [projects.value, requirements.value, users.value, digitalWorkers.value] = await Promise.all([
     listProjectsApi(),
     listRequirementsApi(),
     listUserOptionsApi(),
-    listDigitalWorkersApi({ status: 'active' }),
+    listDigitalWorkersApi(),
   ]);
   filters.projectId ||= projects.value[0]?.id || '';
 }
@@ -415,12 +419,12 @@ onActivated(async () => {
         </template>
         <template #requirementId="{ row }">
           <TTooltip
-            v-if="requirementMap[row.requirementId]?.title"
+            v-if="resolveRequirementTitle(row.requirementId) !== row.requirementId"
             placement="top"
             theme="light"
           >
-            <template #content>{{ requirementMap[row.requirementId].title }}</template>
-            <span class="requirement-text">{{ requirementMap[row.requirementId].title }}</span>
+            <template #content>{{ resolveRequirementTitle(row.requirementId) }}</template>
+            <span class="requirement-text">{{ resolveRequirementTitle(row.requirementId) }}</span>
           </TTooltip>
           <span v-else class="requirement-text">{{ row.requirementId }}</span>
         </template>

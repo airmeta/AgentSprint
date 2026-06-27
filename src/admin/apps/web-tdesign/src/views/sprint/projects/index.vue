@@ -44,6 +44,7 @@ import {
   validateForm,
 } from '#/views/_shared/form-rules';
 import { formatDateTime } from '#/views/_shared/date-format';
+import ProjectMaterialsPanel from './project-materials-panel.vue';
 
 const router = useRouter();
 
@@ -51,7 +52,7 @@ const creating = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const drawerVisible = ref(false);
-const drawerMode = ref<'edit' | 'stats'>('edit');
+const drawerMode = ref<'detail' | 'edit' | 'materials' | 'stats'>('detail');
 const createVisible = ref(false);
 const createFormRef = ref<FormInstanceFunctions>();
 const editFormRef = ref<FormInstanceFunctions>();
@@ -116,7 +117,6 @@ const activeProjects = computed(
 const userOptions = computed(() =>
   users.value.map((user) => ({ label: `${user.displayName} (${user.username})`, value: user.id })),
 );
-const userMap = computed(() => Object.fromEntries(users.value.map((item) => [item.id, item])));
 const generatedProjectCode = computed(() => generateProjectCode(form.name));
 const runtimeEnvironmentOptions = computed(() =>
   runtimeEnvironments.value
@@ -241,36 +241,10 @@ async function loadDictionaries() {
   backendTechOptions.value = backendItems;
 }
 
-function resolveUserName(userId?: string) {
-  return userId ? userMap.value[userId]?.displayName || userId : '未指定';
-}
-
-function resolveUserNames(userIds?: string[]) {
-  return userIds && userIds.length > 0 ? userIds.map((id) => resolveUserName(id)).join('、') : '未指定';
-}
-
-function resolveRuntimeEnvironmentName(id?: string) {
-  if (!id) return '未配置';
-  const environment = runtimeEnvironments.value.find((item) => item.id === id);
-  return environment ? `${environment.name} (${environment.code})` : id;
-}
-
-function resolveGitAccountName(id?: string) {
-  if (!id) return '未配置';
-  const account = gitAccounts.value.find((item) => item.id === id);
-  return account ? `${account.name} (${account.username})` : id;
-}
-
 function resolveGitRepositoryName(id?: string) {
   if (!id) return '未配置';
   const repository = gitRepositories.value.find((item) => item.id === id);
   return repository ? `${repository.name} (${repository.code})` : id;
-}
-
-function resolveAiPlatformName(code?: string) {
-  if (!code) return '未配置';
-  const platform = aiPlatforms.value.find((item) => item.code === code);
-  return platform ? `${platform.name} (${platform.code} / ${platform.model})` : code;
 }
 
 function dictionaryOptions(items: SystemApi.DictionaryItem[]) {
@@ -288,11 +262,6 @@ function serializeValues(values: string[]) {
   return values.join(',');
 }
 
-function resolveDictionaryNames(value: string | undefined, items: SystemApi.DictionaryItem[]) {
-  const map = Object.fromEntries(items.map((item) => [item.code, item.name]));
-  const values = deserializeValues(value);
-  return values.length > 0 ? values.map((item) => map[item] || item).join('、') : '未填写';
-}
 
 function resolveRuntimeEnvironmentUrl(id?: string) {
   const environment = runtimeEnvironments.value.find((item) => item.id === id);
@@ -451,6 +420,10 @@ onMounted(async () => {
             <IconifyIcon icon="lucide:eye" />
             详情
           </TLink>
+          <TLink theme="primary" @click="openDrawer(project, 'materials')">
+            <IconifyIcon icon="lucide:folder-open" />
+            材料
+          </TLink>
           <TLink theme="primary" @click="openDrawer(project, 'stats')">
             <IconifyIcon icon="lucide:bar-chart-3" />
             统计
@@ -483,6 +456,9 @@ onMounted(async () => {
               <strong>{{ formatDateTime(selectedProject.createTime) }}</strong>
             </div>
           </div>
+        </template>
+        <template v-else-if="drawerMode === 'materials'">
+          <ProjectMaterialsPanel :project="selectedProject" :users="users" />
         </template>
         <template v-else-if="drawerMode === 'edit'">
           <TForm ref="editFormRef" :data="editForm" :rules="projectRules" label-width="100px">

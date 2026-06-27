@@ -20,11 +20,33 @@ public static class DigitalWorkerEmployeeTypes
 
 public static class DigitalWorkerStatuses
 {
+    public const string Inactive = "inactive";
+
+    public const string Starting = "starting";
+
+    public const string Idle = "idle";
+
+    public const string Working = "working";
+
     public const string Active = "active";
 
     public const string Disabled = "disabled";
 
     public const string Maintenance = "maintenance";
+}
+
+public static class DigitalWorkerTemplateStatuses
+{
+    public const int Enabled = 1;
+
+    public const int Disabled = 0;
+}
+
+public static class DigitalWorkerStartupProbeStatuses
+{
+    public const int Enabled = 1;
+
+    public const int Disabled = 0;
 }
 
 public static class WorkerSessionStatuses

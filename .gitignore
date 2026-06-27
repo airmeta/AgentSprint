@@ -5,6 +5,7 @@
 /.tmp
 /deploy/docker/*
 !/deploy/docker/deploy.sh
+!/deploy/docker/docker-compose-agentsprint.yml
 !/deploy/docker/Dockerfile.worker
 !/deploy/docker/fastgithub-worker-entrypoint.sh
 /src/admin/.github

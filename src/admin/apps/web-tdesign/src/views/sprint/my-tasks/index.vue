@@ -183,6 +183,10 @@ function filterTasksByRequirementKeyword(items: SprintMvpApi.DevelopmentTask[]) 
   });
 }
 
+function resolveRequirementTitle(requirementId?: string) {
+  return requirementId ? requirementMap.value[requirementId]?.title || requirementId : '-';
+}
+
 function isTaskCompleted(task: SprintMvpApi.DevelopmentTask) {
   return task.status === 'completed';
 }
@@ -499,12 +503,12 @@ onMounted(loadTasks);
       >
         <template #requirementId="{ row }">
           <TTooltip
-            v-if="requirementMap[row.requirementId]?.title"
+            v-if="resolveRequirementTitle(row.requirementId) !== row.requirementId"
             placement="top"
             theme="light"
           >
-            <template #content>{{ requirementMap[row.requirementId].title }}</template>
-            <span class="requirement-text">{{ requirementMap[row.requirementId].title }}</span>
+            <template #content>{{ resolveRequirementTitle(row.requirementId) }}</template>
+            <span class="requirement-text">{{ resolveRequirementTitle(row.requirementId) }}</span>
           </TTooltip>
           <span v-else class="requirement-text">{{ row.requirementId }}</span>
         </template>
@@ -516,7 +520,7 @@ onMounted(loadTasks);
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
-        <template #executorType="{ row }">
+        <template #executorType>
           <TTag size="small" theme="success" variant="light">员工</TTag>
         </template>
         <template #executor="{ row }">
@@ -764,4 +768,3 @@ onMounted(loadTasks);
   height: 14px;
 }
 </style>
-

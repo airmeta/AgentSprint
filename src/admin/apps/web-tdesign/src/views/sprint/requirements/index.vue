@@ -203,7 +203,7 @@ const assignEmployeeOptions = computed(() => {
 });
 const assignDigitalWorkerOptions = computed(() =>
   digitalWorkers.value
-    .filter((worker) => worker.status === 'active')
+    .filter((worker) => ['active', 'idle', 'working'].includes(worker.status))
     .map((worker) => ({
       label: `${worker.name} (${worker.code})`,
       value: worker.agentUserId,
@@ -1402,7 +1402,7 @@ async function convertFeedback() {
 onMounted(async () => {
   [users.value, digitalWorkers.value] = await Promise.all([
     listUserOptionsApi(),
-    listDigitalWorkersApi({ status: 'active' }),
+    listDigitalWorkersApi(),
   ]);
   await loadProjects();
   await loadRequirements();

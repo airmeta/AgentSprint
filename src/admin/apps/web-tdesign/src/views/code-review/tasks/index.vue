@@ -241,10 +241,14 @@ async function loadRows() {
 async function loadCreateOptions() {
   const [projectRows, workerRows] = await Promise.all([
     listProjectsApi(),
-    listDigitalWorkersApi({ status: 'active' }),
+    listDigitalWorkersApi(),
   ]);
   projects.value = projectRows;
-  workers.value = workerRows.filter((item) => item.employeeType === 'audit' || item.workerType === 'codex');
+  workers.value = workerRows.filter(
+    (item) =>
+      (item.employeeType === 'audit' || item.workerType === 'codex') &&
+      ['active', 'idle', 'working'].includes(item.status),
+  );
   createForm.projectId ||= projects.value[0]?.id || '';
   createForm.workerId ||= workers.value[0]?.id || '';
   await loadTargetOptionsForCreate();

@@ -490,6 +490,120 @@ CREATE TABLE IF NOT EXISTS sprint_project_member (
   UNIQUE INDEX IX_sprint_project_member_ProjectId_UserId_Role (ProjectId, UserId, Role)
 ) CHARACTER SET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS sprint_project_material (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ParentId varchar(64) CHARACTER SET utf8mb4 NULL,
+  ItemType varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+  Name varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  OriginalFileName varchar(255) CHARACTER SET utf8mb4 NULL,
+  Extension varchar(32) CHARACTER SET utf8mb4 NULL,
+  ContentType varchar(128) CHARACTER SET utf8mb4 NULL,
+  SizeBytes bigint NOT NULL,
+  StorageRoot varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  RelativePath varchar(1024) CHARACTER SET utf8mb4 NULL,
+  Sha256 varchar(128) CHARACTER SET utf8mb4 NULL,
+  Category varchar(64) CHARACTER SET utf8mb4 NULL,
+  TagsJson varchar(1024) CHARACTER SET utf8mb4 NULL,
+  Description varchar(2048) CHARACTER SET utf8mb4 NULL,
+  ExtractStatus varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  ExtractedTextPath varchar(1024) CHARACTER SET utf8mb4 NULL,
+  Summary text CHARACTER SET utf8mb4 NULL,
+  UploadedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  DeletedAt datetime(6) NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_sprint_project_material_ProjectId_ParentId_DeletedAt (ProjectId, ParentId, DeletedAt),
+  INDEX IX_sprint_project_material_ProjectId_ItemType (ProjectId, ItemType),
+  INDEX IX_sprint_project_material_ProjectId_UploadedBy (ProjectId, UploadedBy),
+  INDEX IX_sprint_project_material_Sha256 (Sha256)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sprint_project_material_event (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  MaterialId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  EventType varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  PayloadJson text CHARACTER SET utf8mb4 NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_sprint_project_material_event_ProjectId_MaterialId_CreateTime (ProjectId, MaterialId, CreateTime)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sprint_proposal (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Title varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  SourceType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  Instruction varchar(2048) CHARACTER SET utf8mb4 NULL,
+  Content text CHARACTER SET utf8mb4 NULL,
+  Summary varchar(2048) CHARACTER SET utf8mb4 NULL,
+  AiPromptSnapshot text CHARACTER SET utf8mb4 NULL,
+  AiResultSnapshot text CHARACTER SET utf8mb4 NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ConfirmedAt datetime(6) NULL,
+  ConvertedAt datetime(6) NULL,
+  VoidedAt datetime(6) NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_sprint_proposal_ProjectId_Status_CreateTime (ProjectId, Status, CreateTime),
+  INDEX IX_sprint_proposal_ProjectId_CreatedBy (ProjectId, CreatedBy)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sprint_proposal_material (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProposalId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  MaterialId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  MaterialVersionHash varchar(128) CHARACTER SET utf8mb4 NULL,
+  ExtractedTextSnapshotPath varchar(1024) CHARACTER SET utf8mb4 NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  UNIQUE INDEX IX_sprint_proposal_material_ProposalId_MaterialId (ProposalId, MaterialId),
+  INDEX IX_sprint_proposal_material_ProjectId_MaterialId (ProjectId, MaterialId)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sprint_proposal_conversation (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProposalId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Role varchar(16) CHARACTER SET utf8mb4 NOT NULL,
+  Content text CHARACTER SET utf8mb4 NOT NULL,
+  MaterialIdsJson text CHARACTER SET utf8mb4 NULL,
+  TokenUsageJson text CHARACTER SET utf8mb4 NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_sprint_proposal_conversation_ProposalId_CreateTime (ProposalId, CreateTime)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sprint_proposal_requirement (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  ProposalId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  RequirementId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  MaterialIdsJson text CHARACTER SET utf8mb4 NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  UNIQUE INDEX IX_sprint_proposal_requirement_ProposalId_RequirementId (ProposalId, RequirementId),
+  INDEX IX_sprint_proposal_requirement_RequirementId (RequirementId)
+) CHARACTER SET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS sprint_requirement (
   Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
   ProjectId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
@@ -729,12 +843,15 @@ CREATE TABLE IF NOT EXISTS digital_worker (
   Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
   AgentUserId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
   AgentTokenId varchar(64) CHARACTER SET utf8mb4 NULL,
+  ActiveAgentTokenKey varchar(64) CHARACTER SET utf8mb4 NULL,
   ProjectIds varchar(1024) CHARACTER SET utf8mb4 NULL,
   EndpointIds varchar(1024) CHARACTER SET utf8mb4 NULL,
   SkillIds varchar(1024) CHARACTER SET utf8mb4 NULL,
   EmployeeType varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'development',
   WorkerType varchar(32) CHARACTER SET utf8mb4 NOT NULL,
   Status varchar(32) CHARACTER SET utf8mb4 NOT NULL,
+  RuntimeProfile varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'dotnet-default',
+  BackendTechCapabilities varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'dotnet',
   MaxConcurrentRuns int NOT NULL,
   HeartbeatTimeoutSeconds int NOT NULL,
   PollIntervalSeconds int NOT NULL DEFAULT 15,
@@ -758,7 +875,86 @@ CREATE TABLE IF NOT EXISTS digital_worker (
   IsDelete int NOT NULL,
   PRIMARY KEY (Id),
   UNIQUE INDEX IX_digital_worker_Code (Code),
+  UNIQUE INDEX IX_digital_worker_ActiveAgentTokenKey (ActiveAgentTokenKey),
   INDEX IX_digital_worker_AgentUserId_Status (AgentUserId, Status)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS digital_worker_deploy_template (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  Description varchar(512) CHARACTER SET utf8mb4 NULL,
+  RuntimeProfile varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  BackendTechCapabilities varchar(512) CHARACTER SET utf8mb4 NOT NULL,
+  ComposeTemplate longtext CHARACTER SET utf8mb4 NOT NULL,
+  DockerfileExtension text CHARACTER SET utf8mb4 NULL,
+  Version int NOT NULL,
+  Sort int NOT NULL,
+  Status int NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  UNIQUE INDEX IX_digital_worker_deploy_template_Code (Code)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS digital_worker_deploy_render (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  TemplateId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  TemplateVersion int NOT NULL,
+  RenderedCompose longtext CHARACTER SET utf8mb4 NOT NULL,
+  RenderedEnv text CHARACTER SET utf8mb4 NULL,
+  PlainSecretEnabled tinyint(1) NOT NULL,
+  PlaceholderValuesJson text CHARACTER SET utf8mb4 NOT NULL,
+  CreatedBy varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_digital_worker_deploy_render_WorkerId_CreateTime (WorkerId, CreateTime)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS digital_worker_startup_probe_config (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  Code varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  Name varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  Command varchar(512) CHARACTER SET utf8mb4 NOT NULL,
+  ExpectedPattern varchar(512) CHARACTER SET utf8mb4 NULL,
+  Required tinyint(1) NOT NULL,
+  Sort int NOT NULL,
+  Status int NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  UNIQUE INDEX IX_digital_worker_startup_probe_config_Code (Code)
+) CHARACTER SET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS digital_worker_startup_probe_result (
+  Id varchar(255) CHARACTER SET utf8mb4 NOT NULL,
+  WorkerId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  SessionId varchar(64) CHARACTER SET utf8mb4 NULL,
+  InstanceId varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  WorkerDeployRenderId varchar(64) CHARACTER SET utf8mb4 NULL,
+  ProbeConfigId varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ProbeCode varchar(64) CHARACTER SET utf8mb4 NOT NULL,
+  ProbeName varchar(128) CHARACTER SET utf8mb4 NOT NULL,
+  Command varchar(512) CHARACTER SET utf8mb4 NOT NULL,
+  ExitCode int NULL,
+  Stdout text CHARACTER SET utf8mb4 NULL,
+  Stderr text CHARACTER SET utf8mb4 NULL,
+  Error varchar(1024) CHARACTER SET utf8mb4 NULL,
+  Passed tinyint(1) NOT NULL,
+  Required tinyint(1) NOT NULL,
+  ReportedAt datetime(6) NOT NULL,
+  CreateTime datetime(6) NOT NULL,
+  UpdateTime datetime(6) NULL,
+  IsDelete int NOT NULL,
+  PRIMARY KEY (Id),
+  INDEX IX_digital_worker_startup_probe_result_WorkerId_CreateTime (WorkerId, CreateTime),
+  INDEX IX_digital_worker_startup_probe_result_RenderId_ReportedAt (WorkerDeployRenderId, ReportedAt),
+  UNIQUE INDEX IX_digital_worker_startup_probe_result_CurrentProbe (WorkerId, SessionId, InstanceId, ProbeConfigId)
 ) CHARACTER SET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS worker_session (
@@ -980,6 +1176,45 @@ CALL agentsprint_create_index_if_not_exists('code_audit_task', 'IX_code_audit_ta
 
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'EmployeeType', 'ALTER TABLE digital_worker ADD COLUMN EmployeeType varchar(32) CHARACTER SET utf8mb4 NOT NULL DEFAULT ''development'' AFTER SkillIds;');
 
+DELETE FROM digital_worker_startup_probe_result
+WHERE IsDelete <> 0;
+
+DELETE duplicate_probe
+FROM digital_worker_startup_probe_result duplicate_probe
+INNER JOIN digital_worker_startup_probe_result latest_probe
+  ON latest_probe.WorkerId = duplicate_probe.WorkerId
+  AND COALESCE(latest_probe.SessionId, '') = COALESCE(duplicate_probe.SessionId, '')
+  AND latest_probe.InstanceId = duplicate_probe.InstanceId
+  AND latest_probe.ProbeConfigId = duplicate_probe.ProbeConfigId
+  AND (
+    latest_probe.ReportedAt > duplicate_probe.ReportedAt OR
+    (latest_probe.ReportedAt = duplicate_probe.ReportedAt AND latest_probe.Id > duplicate_probe.Id)
+  );
+
+CALL agentsprint_create_index_if_not_exists('digital_worker_startup_probe_result', 'IX_digital_worker_startup_probe_result_CurrentProbe', 'CREATE UNIQUE INDEX IX_digital_worker_startup_probe_result_CurrentProbe ON digital_worker_startup_probe_result (WorkerId, SessionId, InstanceId, ProbeConfigId);');
+
+CALL agentsprint_add_column_if_not_exists('digital_worker', 'ActiveAgentTokenKey', 'ALTER TABLE digital_worker ADD COLUMN ActiveAgentTokenKey varchar(64) CHARACTER SET utf8mb4 NULL AFTER AgentTokenId;');
+
+CALL agentsprint_add_column_if_not_exists('digital_worker', 'RuntimeProfile', 'ALTER TABLE digital_worker ADD COLUMN RuntimeProfile varchar(64) CHARACTER SET utf8mb4 NOT NULL DEFAULT ''dotnet-default'' AFTER Status;');
+
+CALL agentsprint_add_column_if_not_exists('digital_worker', 'BackendTechCapabilities', 'ALTER TABLE digital_worker ADD COLUMN BackendTechCapabilities varchar(512) CHARACTER SET utf8mb4 NOT NULL DEFAULT ''dotnet'' AFTER RuntimeProfile;');
+
+UPDATE digital_worker worker
+JOIN (
+  SELECT AgentTokenId
+  FROM digital_worker
+  WHERE IsDelete = 0
+    AND AgentTokenId IS NOT NULL
+    AND AgentTokenId <> ''
+  GROUP BY AgentTokenId
+  HAVING COUNT(*) = 1
+) unique_token ON unique_token.AgentTokenId = worker.AgentTokenId
+SET worker.ActiveAgentTokenKey = worker.AgentTokenId
+WHERE worker.IsDelete = 0
+  AND (worker.ActiveAgentTokenKey IS NULL OR worker.ActiveAgentTokenKey = '');
+
+CALL agentsprint_create_index_if_not_exists('digital_worker', 'IX_digital_worker_ActiveAgentTokenKey', 'CREATE UNIQUE INDEX IX_digital_worker_ActiveAgentTokenKey ON digital_worker (ActiveAgentTokenKey);');
+
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'PollIntervalSeconds', 'ALTER TABLE digital_worker ADD COLUMN PollIntervalSeconds int NOT NULL DEFAULT 15 AFTER HeartbeatTimeoutSeconds;');
 
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'IdleMaxIntervalSeconds', 'ALTER TABLE digital_worker ADD COLUMN IdleMaxIntervalSeconds int NOT NULL DEFAULT 180 AFTER PollIntervalSeconds;');
@@ -1007,6 +1242,117 @@ CALL agentsprint_add_column_if_not_exists('digital_worker', 'CodexModel', 'ALTER
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'OpenAiBaseUrl', 'ALTER TABLE digital_worker ADD COLUMN OpenAiBaseUrl varchar(512) CHARACTER SET utf8mb4 NULL AFTER CodexModel;');
 
 CALL agentsprint_add_column_if_not_exists('digital_worker', 'ConfigVersion', 'ALTER TABLE digital_worker ADD COLUMN ConfigVersion int NOT NULL DEFAULT 1 AFTER OpenAiBaseUrl;');
+
+INSERT INTO digital_worker_deploy_template (
+  Id, Code, Name, Description, RuntimeProfile, BackendTechCapabilities, ComposeTemplate, DockerfileExtension,
+  Version, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT
+  REPLACE(UUID(), '-', ''),
+  'dotnet-default',
+  '默认 Codex Worker',
+  '平台生成人工部署 compose，不执行 SSH 或 Docker 命令。',
+  'dotnet-default',
+  'dotnet',
+  'services:
+  {{serviceName}}:
+    image: {{imageName}}
+    container_name: {{containerName}}
+    restart: unless-stopped
+    environment:
+      AgentSprint__ApiBaseUrl: "{{apiBaseUrl}}"
+      AgentSprint__AgentToken: "{{agentToken}}"
+      AgentSprint__WorkerDeployRenderId: "{{workerDeployRenderId}}"
+    volumes:
+      - {{workspaceRoot}}:/workspaces
+      - {{runsRoot}}:/runs
+      - {{codexHome}}:/codex-home
+',
+  NULL,
+  1,
+  10,
+  1,
+  UTC_TIMESTAMP(6),
+  NULL,
+  0
+WHERE NOT EXISTS (
+  SELECT 1 FROM digital_worker_deploy_template WHERE Code = 'dotnet-default' AND IsDelete = 0
+);
+
+INSERT INTO digital_worker_deploy_template (
+  Id, Code, Name, Description, RuntimeProfile, BackendTechCapabilities, ComposeTemplate, DockerfileExtension,
+  Version, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT
+  REPLACE(UUID(), '-', ''),
+  'java17',
+  'Java 17 Codex Worker',
+  '带 Java 17 能力的人工部署模板。',
+  'java17',
+  'dotnet,java',
+  'services:
+  {{serviceName}}:
+    image: {{imageName}}
+    container_name: {{containerName}}
+    restart: unless-stopped
+    environment:
+      AgentSprint__ApiBaseUrl: "{{apiBaseUrl}}"
+      AgentSprint__AgentToken: "{{agentToken}}"
+      AgentSprint__WorkerDeployRenderId: "{{workerDeployRenderId}}"
+    volumes:
+      - {{workspaceRoot}}:/workspaces
+      - {{runsRoot}}:/runs
+      - {{codexHome}}:/codex-home
+',
+  'RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jdk-headless \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*',
+  1,
+  20,
+  1,
+  UTC_TIMESTAMP(6),
+  NULL,
+  0
+WHERE NOT EXISTS (
+  SELECT 1 FROM digital_worker_deploy_template WHERE Code = 'java17' AND IsDelete = 0
+);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'codex-version', 'Codex CLI', 'codex --version', NULL, 1, 10, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'codex-version' AND IsDelete = 0);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'git-version', 'Git', 'git --version', NULL, 1, 20, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'git-version' AND IsDelete = 0);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'codex-login-status', 'Codex Login', 'codex login status', NULL, 1, 25, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'codex-login-status' AND IsDelete = 0);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'dotnet-version', '.NET SDK', 'dotnet --version', NULL, 0, 30, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'dotnet-version' AND IsDelete = 0);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'java-version', 'Java', 'java -version', NULL, 0, 40, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'java-version' AND IsDelete = 0);
+
+INSERT INTO digital_worker_startup_probe_config (
+  Id, Code, Name, Command, ExpectedPattern, Required, Sort, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT REPLACE(UUID(), '-', ''), 'python3-version', 'Python 3', 'python3 --version', NULL, 0, 50, 1, UTC_TIMESTAMP(6), NULL, 0
+WHERE NOT EXISTS (SELECT 1 FROM digital_worker_startup_probe_config WHERE Code = 'python3-version' AND IsDelete = 0);
 
 CALL agentsprint_add_column_if_not_exists('sprint_project', 'Description', 'ALTER TABLE sprint_project ADD COLUMN Description varchar(2048) CHARACTER SET utf8mb4 NULL;');
 
@@ -1259,6 +1605,83 @@ ON DUPLICATE KEY UPDATE
   Description = VALUES(Description),
   Sort = VALUES(Sort),
   Status = VALUES(Status),
+  IsDelete = 0,
+  UpdateTime = UTC_TIMESTAMP(6);
+
+-- Add Proposal Management before Requirement Management under Product Management.
+SET @agentsprint_product_menu_id := (
+  SELECT Id
+  FROM sys_menu
+  WHERE Path = '/sprint/product' AND IsDelete = 0
+  LIMIT 1
+);
+
+INSERT INTO sys_menu (
+  Id, ParentId, Path, Name, Component, Icon, Sort, Type, Status, CreateTime, UpdateTime, IsDelete
+)
+SELECT
+  'menu-sprint-proposals',
+  @agentsprint_product_menu_id,
+  '/sprint/proposals',
+  '提案管理',
+  '/sprint/proposals/index',
+  'lucide:file-text',
+  10,
+  1,
+  1,
+  UTC_TIMESTAMP(6),
+  NULL,
+  0
+WHERE @agentsprint_product_menu_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_menu
+    WHERE Path = '/sprint/proposals'
+  );
+
+UPDATE sys_menu
+SET
+  ParentId = COALESCE(@agentsprint_product_menu_id, ParentId),
+  Name = '提案管理',
+  Component = '/sprint/proposals/index',
+  Icon = 'lucide:file-text',
+  Sort = 10,
+  Type = 1,
+  Status = 1,
+  IsDelete = 0,
+  UpdateTime = UTC_TIMESTAMP(6)
+WHERE Path = '/sprint/proposals';
+
+UPDATE sys_menu
+SET Sort = 20, UpdateTime = UTC_TIMESTAMP(6)
+WHERE Path = '/sprint/requirements' AND Sort < 20;
+
+UPDATE sys_menu
+SET Sort = 21, UpdateTime = UTC_TIMESTAMP(6)
+WHERE Path = '/sprint/requirements/detail/:id' AND Sort < 21;
+
+UPDATE sys_menu
+SET Sort = 30, UpdateTime = UTC_TIMESTAMP(6)
+WHERE Path = '/sprint/reviews' AND Sort < 30;
+
+INSERT INTO sys_role_menu (
+  Id, RoleId, MenuId, CreateTime, UpdateTime, IsDelete
+)
+SELECT
+  REPLACE(UUID(), '-', ''),
+  source_roles.RoleId,
+  proposal_menu.Id,
+  UTC_TIMESTAMP(6),
+  NULL,
+  0
+FROM (
+  SELECT DISTINCT role_menu.RoleId
+  FROM sys_role_menu role_menu
+  INNER JOIN sys_menu source_menu ON source_menu.Id = role_menu.MenuId
+  WHERE source_menu.Path IN ('/sprint/product', '/sprint/requirements')
+) source_roles
+INNER JOIN sys_menu proposal_menu ON proposal_menu.Path = '/sprint/proposals' AND proposal_menu.IsDelete = 0
+ON DUPLICATE KEY UPDATE
   IsDelete = 0,
   UpdateTime = UTC_TIMESTAMP(6);
 

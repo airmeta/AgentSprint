@@ -143,6 +143,12 @@ public sealed class Startup : AppStartup
         services.AddTransient<IGitBranchOperationDomain, GitBranchOperationDomain>();
         services.AddTransient<IGitCommandRunner, ProcessGitCommandRunner>();
         services.AddTransient<ISprintProjectMemberDomain, SprintProjectMemberDomain>();
+        services.AddTransient<ISprintProjectMaterialDomain, SprintProjectMaterialDomain>();
+        services.AddTransient<ISprintProjectMaterialEventDomain, SprintProjectMaterialEventDomain>();
+        services.AddTransient<ISprintProposalDomain, SprintProposalDomain>();
+        services.AddTransient<ISprintProposalMaterialDomain, SprintProposalMaterialDomain>();
+        services.AddTransient<ISprintProposalConversationDomain, SprintProposalConversationDomain>();
+        services.AddTransient<ISprintProposalRequirementDomain, SprintProposalRequirementDomain>();
         services.AddTransient<ISprintProjectEndpointDomain, SprintProjectEndpointDomain>();
         services.AddTransient<ISprintFeatureModuleDomain, SprintFeatureModuleDomain>();
         services.AddTransient<ISprintRequirementDomain, SprintRequirementDomain>();
@@ -158,6 +164,10 @@ public sealed class Startup : AppStartup
         services.AddTransient<ICodeAuditResultDomain, CodeAuditResultDomain>();
         services.AddTransient<ICodeAuditFileDomain, CodeAuditFileDomain>();
         services.AddTransient<IDigitalWorkerDomain, DigitalWorkerDomain>();
+        services.AddTransient<IDigitalWorkerDeployTemplateDomain, DigitalWorkerDeployTemplateDomain>();
+        services.AddTransient<IDigitalWorkerDeployRenderDomain, DigitalWorkerDeployRenderDomain>();
+        services.AddTransient<IDigitalWorkerStartupProbeConfigDomain, DigitalWorkerStartupProbeConfigDomain>();
+        services.AddTransient<IDigitalWorkerStartupProbeResultDomain, DigitalWorkerStartupProbeResultDomain>();
         services.AddTransient<IWorkerSessionDomain, WorkerSessionDomain>();
         services.AddTransient<IWorkerCommandDomain, WorkerCommandDomain>();
         services.AddTransient<IWorkerCommandLogDomain, WorkerCommandLogDomain>();

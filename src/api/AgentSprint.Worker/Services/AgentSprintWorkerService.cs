@@ -27,6 +27,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
     private readonly AgentSprintApiClient _apiClient;
     private readonly AgentSprintOptions _agentSprintOptions;
     private readonly IAkkaClusterService _akkaClusterService;
+    private readonly CodexLoginInitializer _codexLoginInitializer;
     private readonly CodexProcessRunner _codexProcessRunner;
     private readonly WorkerEnvironmentProbe _environmentProbe;
     private readonly GitWorkspaceManager _gitWorkspaceManager;
@@ -66,6 +67,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
         AgentSprintApiClient apiClient,
         IAkkaClusterService akkaClusterService,
         WorkerRuntimeConfigApplier runtimeConfigApplier,
+        CodexLoginInitializer codexLoginInitializer,
         WorkerRunLogger runLogger,
         IOptions<AgentSprintOptions> agentSprintOptions,
         IOptions<WorkerOptions> options)
@@ -76,6 +78,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
         _apiClient = apiClient;
         _akkaClusterService = akkaClusterService;
         _runtimeConfigApplier = runtimeConfigApplier;
+        _codexLoginInitializer = codexLoginInitializer;
         _runLogger = runLogger;
         _agentSprintOptions = agentSprintOptions.Value;
         _options = options.Value;
@@ -117,6 +120,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
             WorkerDiagnostics.Info("Worker拉取运行配置", $"apiBaseUrl={_agentSprintOptions.ApiBaseUrl}");
             var config = await _apiClient.GetRuntimeConfigAsync(stoppingToken);
             await _runtimeConfigApplier.ApplyAsync(config, stoppingToken);
+            await _codexLoginInitializer.EnsureLoggedInAsync(config, stoppingToken);
             _apiClient.UseAgentToken(config.AgentToken);
         }
 
@@ -125,6 +129,7 @@ public sealed class AgentSprintWorkerService : BackgroundService
         WorkerDiagnostics.Info(
             "Worker会话注册完成",
             $"sessionId={session.Id}, workerId={session.WorkerId}, status={session.Status}, canEnterWorkLoop={snapshot.CanEnterWorkLoop}, isCodexAuthenticated={snapshot.IsCodexAuthenticated}");
+        await RunPlatformStartupProbesAsync(session, stoppingToken);
         await ReportEventAsync(session.Id, null, "worker_probe_finished", "info", "Worker environment probe finished.", stoppingToken);
         await ReportAkkaClusterStartedAsync(session.Id, stoppingToken);
 
@@ -227,6 +232,83 @@ public sealed class AgentSprintWorkerService : BackgroundService
             ErrorSummary: snapshot.CanEnterWorkLoop ? null : "Codex CLI is unavailable.");
 
         return await _apiClient.RegisterSessionAsync(request, stoppingToken);
+    }
+
+    private async Task RunPlatformStartupProbesAsync(
+        WorkerSessionResult session,
+        CancellationToken stoppingToken)
+    {
+        var configs = await _apiClient.ListStartupProbeConfigsAsync(stoppingToken);
+        if (configs.Count == 0)
+        {
+            WorkerDiagnostics.Info("平台启动探针为空", "No startup probe config returned from platform.");
+            return;
+        }
+
+        var results = new List<StartupProbeResultReportItem>();
+        foreach (var config in configs.OrderBy(item => item.Sort))
+        {
+            var result = await RunStartupProbeCommandAsync(config, stoppingToken);
+            results.Add(result);
+        }
+
+        var workerDeployRenderId = Environment.GetEnvironmentVariable("AgentSprint__WorkerDeployRenderId");
+        await _apiClient.ReportStartupProbeResultsAsync(
+            new ReportStartupProbeResultsRequest(
+                _options.WorkerId,
+                session.Id,
+                session.InstanceId,
+                workerDeployRenderId,
+                results),
+            stoppingToken);
+        WorkerDiagnostics.Info(
+            "平台启动探针已上报",
+            $"sessionId={session.Id}, probeCount={results.Count}, passed={results.Count(item => item.Passed)}, workerDeployRenderId={workerDeployRenderId ?? string.Empty}");
+    }
+
+    private static async Task<StartupProbeResultReportItem> RunStartupProbeCommandAsync(
+        StartupProbeConfigResult config,
+        CancellationToken stoppingToken)
+    {
+        var command = config.Command.Trim();
+        var firstSpace = command.IndexOf(' ', StringComparison.Ordinal);
+        var fileName = firstSpace < 0 ? command : command[..firstSpace];
+        var arguments = firstSpace < 0 ? string.Empty : command[(firstSpace + 1)..];
+        var result = await ProcessCommandRunner.RunAsync(
+            fileName,
+            arguments,
+            null,
+            TimeSpan.FromSeconds(20),
+            stoppingToken);
+        var combinedOutput = string.Join(Environment.NewLine, result.Stdout, result.Stderr);
+        var expectedMatched = string.IsNullOrWhiteSpace(config.ExpectedPattern) ||
+            combinedOutput.Contains(config.ExpectedPattern, StringComparison.OrdinalIgnoreCase);
+        var passed = result.Succeeded && expectedMatched;
+        WorkerDiagnostics.Info(
+            "平台启动探针命令完成",
+            $"probeCode={config.Code}, required={config.Required}, passed={passed}, exitCode={result.ExitCode?.ToString() ?? "<null>"}, stdout={WorkerDiagnostics.Trim(result.Stdout)}, stderr={WorkerDiagnostics.Trim(result.Stderr)}, error={result.Error ?? string.Empty}");
+        return new StartupProbeResultReportItem(
+            config.Id,
+            config.Code,
+            config.Name,
+            config.Command,
+            result.ExitCode,
+            TrimProbeText(result.Stdout),
+            TrimProbeText(result.Stderr),
+            result.Error,
+            passed,
+            config.Required);
+    }
+
+    private static string? TrimProbeText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= 4000 ? trimmed : trimmed[..4000];
     }
 
     private async Task<bool> HandleCommandAsync(

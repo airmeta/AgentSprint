@@ -80,7 +80,7 @@ function resolveGitRepositoryName(id?: string) {
 
 function resolveUserNames(ids?: string[] | null) {
   if (!ids || ids.length === 0) return '未配置';
-  return ids.map((id) => resolveUserName(id, userLookup)).join('、');
+  return ids.map((id) => resolveUserName(id, userLookup.value)).join('、');
 }
 
 async function loadDetail() {

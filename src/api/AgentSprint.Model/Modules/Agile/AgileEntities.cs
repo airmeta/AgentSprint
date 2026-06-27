@@ -177,6 +177,187 @@ public sealed class SprintProjectMemberEntity : EntityBase
     public string Status { get; set; } = SprintProjectMemberStatuses.Active;
 }
 
+[Table("sprint_project_material")]
+public sealed class SprintProjectMaterialEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string? ParentId { get; set; }
+
+    [MaxLength(16)]
+    public string ItemType { get; set; } = SprintProjectMaterialItemTypes.File;
+
+    [MaxLength(255)]
+    public string Name { get; set; } = string.Empty;
+
+    [MaxLength(255)]
+    public string? OriginalFileName { get; set; }
+
+    [MaxLength(32)]
+    public string? Extension { get; set; }
+
+    [MaxLength(128)]
+    public string? ContentType { get; set; }
+
+    public long SizeBytes { get; set; }
+
+    [MaxLength(64)]
+    public string StorageRoot { get; set; } = SprintProjectMaterialStorageRoots.ApiRunDirectory;
+
+    [MaxLength(1024)]
+    public string? RelativePath { get; set; }
+
+    [MaxLength(128)]
+    public string? Sha256 { get; set; }
+
+    [MaxLength(64)]
+    public string? Category { get; set; }
+
+    [MaxLength(1024)]
+    public string? TagsJson { get; set; }
+
+    [MaxLength(2048)]
+    public string? Description { get; set; }
+
+    [MaxLength(32)]
+    public string ExtractStatus { get; set; } = SprintProjectMaterialExtractStatuses.None;
+
+    [MaxLength(1024)]
+    public string? ExtractedTextPath { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? Summary { get; set; }
+
+    [MaxLength(64)]
+    public string UploadedBy { get; set; } = string.Empty;
+
+    public DateTime? DeletedAt { get; set; }
+}
+
+[Table("sprint_project_material_event")]
+public sealed class SprintProjectMaterialEventEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string MaterialId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string EventType { get; set; } = string.Empty;
+
+    [Column(TypeName = "text")]
+    public string? PayloadJson { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+[Table("sprint_proposal")]
+public sealed class SprintProposalEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string Title { get; set; } = string.Empty;
+
+    [MaxLength(32)]
+    public string Status { get; set; } = SprintProposalStatuses.Draft;
+
+    [MaxLength(32)]
+    public string SourceType { get; set; } = SprintProposalSourceTypes.Manual;
+
+    [MaxLength(2048)]
+    public string? Instruction { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? Content { get; set; }
+
+    [MaxLength(2048)]
+    public string? Summary { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? AiPromptSnapshot { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? AiResultSnapshot { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+
+    public DateTime? ConfirmedAt { get; set; }
+
+    public DateTime? ConvertedAt { get; set; }
+
+    public DateTime? VoidedAt { get; set; }
+}
+
+[Table("sprint_proposal_material")]
+public sealed class SprintProposalMaterialEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProposalId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string MaterialId { get; set; } = string.Empty;
+
+    [MaxLength(128)]
+    public string? MaterialVersionHash { get; set; }
+
+    [MaxLength(1024)]
+    public string? ExtractedTextSnapshotPath { get; set; }
+}
+
+[Table("sprint_proposal_conversation")]
+public sealed class SprintProposalConversationEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProposalId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(16)]
+    public string Role { get; set; } = SprintProposalConversationRoles.User;
+
+    [Column(TypeName = "text")]
+    public string Content { get; set; } = string.Empty;
+
+    [Column(TypeName = "text")]
+    public string? MaterialIdsJson { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? TokenUsageJson { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+[Table("sprint_proposal_requirement")]
+public sealed class SprintProposalRequirementEntity : EntityBase
+{
+    [MaxLength(64)]
+    public string ProposalId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [MaxLength(64)]
+    public string RequirementId { get; set; } = string.Empty;
+
+    [Column(TypeName = "text")]
+    public string? MaterialIdsJson { get; set; }
+
+    [MaxLength(64)]
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
 [Table("sprint_project_endpoint")]
 public sealed class SprintProjectEndpointEntity : EntityBase
 {
@@ -635,6 +816,83 @@ public static class SprintProjectMemberStatuses
     public const string Active = "active";
 
     public const string Disabled = "disabled";
+}
+
+public static class SprintProjectMaterialItemTypes
+{
+    public const string File = "file";
+
+    public const string Folder = "folder";
+}
+
+public static class SprintProjectMaterialStorageRoots
+{
+    public const string ApiRunDirectory = "api_run_directory";
+}
+
+public static class SprintProjectMaterialExtractStatuses
+{
+    public const string None = "none";
+
+    public const string Pending = "pending";
+
+    public const string Completed = "completed";
+
+    public const string Failed = "failed";
+
+    public const string Unsupported = "unsupported";
+}
+
+public static class SprintProjectMaterialEventTypes
+{
+    public const string Uploaded = "project_material_uploaded";
+
+    public const string FolderCreated = "project_material_folder_created";
+
+    public const string Renamed = "project_material_renamed";
+
+    public const string Moved = "project_material_moved";
+
+    public const string Deleted = "project_material_deleted";
+
+    public const string Downloaded = "project_material_downloaded";
+
+    public const string ExtractCompleted = "project_material_extract_completed";
+
+    public const string ExtractFailed = "project_material_extract_failed";
+}
+
+public static class SprintProposalStatuses
+{
+    public const string Draft = "draft";
+
+    public const string Generating = "generating";
+
+    public const string Generated = "generated";
+
+    public const string Confirmed = "confirmed";
+
+    public const string Converted = "converted";
+
+    public const string Voided = "voided";
+}
+
+public static class SprintProposalSourceTypes
+{
+    public const string Manual = "manual";
+
+    public const string ProjectMaterials = "project_materials";
+
+    public const string AiChat = "ai_chat";
+}
+
+public static class SprintProposalConversationRoles
+{
+    public const string System = "system";
+
+    public const string User = "user";
+
+    public const string Assistant = "assistant";
 }
 
 public static class SprintProjectEndpointTypes

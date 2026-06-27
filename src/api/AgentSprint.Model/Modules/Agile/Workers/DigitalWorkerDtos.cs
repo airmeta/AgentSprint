@@ -56,6 +56,11 @@ public sealed record UpdateDigitalWorkerRequest(
 
 public sealed record SetDigitalWorkerStatusRequest(string Status);
 
+public sealed record GenerateDigitalWorkerInstallRequest(
+    string? TemplateId = null,
+    bool PlainSecretEnabled = false,
+    string? ApiBaseUrl = null);
+
 public sealed record CreateWorkerCommandRequest(
     string WorkerId,
     string CommandType,
@@ -85,6 +90,25 @@ public sealed record WorkerHeartbeatRequest(
     string Status,
     string? CurrentRunId = null,
     string? ErrorSummary = null);
+
+public sealed record StartupProbeResultReportItem(
+    string ProbeConfigId,
+    string ProbeCode,
+    string ProbeName,
+    string Command,
+    int? ExitCode,
+    string? Stdout,
+    string? Stderr,
+    string? Error,
+    bool Passed,
+    bool Required);
+
+public sealed record ReportStartupProbeResultsRequest(
+    string WorkerId,
+    string? SessionId,
+    string InstanceId,
+    string? WorkerDeployRenderId,
+    IReadOnlyList<StartupProbeResultReportItem> Results);
 
 public sealed record AckWorkerCommandRequest(string SessionId);
 
@@ -144,6 +168,8 @@ public sealed record DigitalWorkerResult(
     string EmployeeType,
     string WorkerType,
     string Status,
+    string RuntimeProfile,
+    string BackendTechCapabilities,
     int MaxConcurrentRuns,
     int HeartbeatTimeoutSeconds,
     int PollIntervalSeconds,
@@ -163,7 +189,76 @@ public sealed record DigitalWorkerResult(
     string? Description,
     string CreatedBy,
     DateTime CreateTime,
+    DateTime? UpdateTime,
+    DateTime? LatestHeartbeatAt = null,
+    string? LatestSessionStatus = null,
+    string? RuntimeSummary = null);
+
+public sealed record DigitalWorkerDeployTemplateResult(
+    string Id,
+    string Code,
+    string Name,
+    string? Description,
+    string RuntimeProfile,
+    string BackendTechCapabilities,
+    string ComposeTemplate,
+    string? DockerfileExtension,
+    int Version,
+    int Sort,
+    int Status,
+    DateTime CreateTime,
     DateTime? UpdateTime);
+
+public sealed record SaveDigitalWorkerDeployTemplateRequest(
+    string Code,
+    string Name,
+    string RuntimeProfile,
+    string BackendTechCapabilities,
+    string ComposeTemplate,
+    string? Description = null,
+    string? DockerfileExtension = null,
+    int? Version = null,
+    int? Sort = null,
+    int? Status = null);
+
+public sealed record DigitalWorkerInstallRenderResult(
+    string Id,
+    string WorkerId,
+    string TemplateId,
+    int TemplateVersion,
+    string RenderedCompose,
+    string? RenderedEnv,
+    bool PlainSecretEnabled,
+    string PlaceholderValuesJson,
+    DateTime CreateTime);
+
+public sealed record StartupProbeConfigResult(
+    string Id,
+    string Code,
+    string Name,
+    string Command,
+    string? ExpectedPattern,
+    bool Required,
+    int Sort);
+
+public sealed record StartupProbeResult(
+    string Id,
+    string WorkerId,
+    string? SessionId,
+    string InstanceId,
+    string? WorkerDeployRenderId,
+    string ProbeConfigId,
+    string ProbeCode,
+    string ProbeName,
+    string Command,
+    int? ExitCode,
+    string? Stdout,
+    string? Stderr,
+    string? Error,
+    bool Passed,
+    bool Required,
+    DateTime ReportedAt,
+    DateTime CreateTime);
 
 public sealed record WorkerRuntimeConfigResult(
     string WorkerId,
@@ -292,7 +387,8 @@ public sealed record DigitalWorkerDetailResult(
     DigitalWorkerResult Worker,
     WorkerSessionResult? LatestSession,
     WorkerRunResult? CurrentRun,
-    IReadOnlyList<WorkerCommandResult> PendingCommands);
+    IReadOnlyList<WorkerCommandResult> PendingCommands,
+    IReadOnlyList<StartupProbeResult>? StartupProbeResults = null);
 
 public sealed record WorkerPromptContextResult(
     string TargetType,

@@ -49,6 +49,13 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
         return Execute(() => _service.GetRuntimeConfigByAgentTokenAsync(ReadBearerToken()));
     }
 
+    [HttpGet("startup-probes")]
+    public async Task<ApiResponse<IReadOnlyList<StartupProbeConfigResult>>> ListStartupProbeConfigs()
+    {
+        return ApiResponse<IReadOnlyList<StartupProbeConfigResult>>.Ok(
+            await _service.ListStartupProbeConfigsAsync());
+    }
+
     /// <summary>
     /// zh-cn: 为受控端数字员工生成任务或缺陷执行提示词；Worker 会把返回内容写入 codex exec，Codex 不需要也不应该通过 MCP 连接平台。
     /// en-us: Builds the task or bug execution prompt for the controlled digital worker; Worker writes the returned content into codex exec, and Codex does not need or use MCP to connect back to the platform.
@@ -91,6 +98,13 @@ public sealed class DigitalWorkerRuntimeController : ControllerBase
     public Task<ActionResult<ApiResponse<WorkerHeartbeatResult>>> Heartbeat(WorkerHeartbeatRequest request)
     {
         return Execute(() => _service.HeartbeatAsync(request));
+    }
+
+    [HttpPost("startup-probes/report")]
+    public Task<ActionResult<ApiResponse<IReadOnlyList<StartupProbeResult>>>> ReportStartupProbeResults(
+        ReportStartupProbeResultsRequest request)
+    {
+        return Execute(() => _service.ReportStartupProbeResultsAsync(request));
     }
 
     [HttpPost("commands/{id}/ack")]

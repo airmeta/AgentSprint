@@ -67,16 +67,17 @@ public sealed class UserServiceMenuTests
             "/sprint/projects/detail",
             13,
             2);
-        var requirements = CreateMenu("menu-requirements", productGroup.Id, "SprintRequirements", "/sprint/requirements", "/sprint/requirements/index", 10, 1);
+        var proposals = CreateMenu("menu-proposals", productGroup.Id, "SprintProposals", "/sprint/proposals", "/sprint/proposals/index", 10, 1);
+        var requirements = CreateMenu("menu-requirements", productGroup.Id, "SprintRequirements", "/sprint/requirements", "/sprint/requirements/index", 20, 1);
         var requirementDetail = CreateMenu(
             "menu-requirement-detail",
             productGroup.Id,
             "SprintRequirementDetail",
             "/sprint/requirements/detail/:id",
             "/sprint/requirements/detail",
-            11,
+            21,
             2);
-        var reviews = CreateMenu("menu-reviews", productGroup.Id, "SprintRequirementReviews", "/sprint/reviews", "/sprint/reviews/index", 20, 1);
+        var reviews = CreateMenu("menu-reviews", productGroup.Id, "SprintRequirementReviews", "/sprint/reviews", "/sprint/reviews/index", 30, 1);
         var myTasks = CreateMenu("menu-my-tasks", workerGroup.Id, "SprintMyTasks", "/sprint/my-tasks", "/sprint/my-tasks/index", 10, 1);
         var tasks = CreateMenu("menu-tasks", workerGroup.Id, "SprintTasks", "/sprint/tasks", "/sprint/tasks/index", 20, 1);
         var taskDetail = CreateMenu(
@@ -121,6 +122,7 @@ public sealed class UserServiceMenuTests
                 multiEndpoints,
                 projectDetail,
                 productGroup,
+                proposals,
                 requirements,
                 requirementDetail,
                 reviews,
@@ -163,6 +165,7 @@ public sealed class UserServiceMenuTests
                 new RoleMenuEntity { RoleId = role.Id, MenuId = multiEndpoints.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = projectDetail.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = productGroup.Id },
+                new RoleMenuEntity { RoleId = role.Id, MenuId = proposals.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = requirements.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = requirementDetail.Id },
                 new RoleMenuEntity { RoleId = role.Id, MenuId = reviews.Id },
@@ -228,7 +231,8 @@ public sealed class UserServiceMenuTests
         Assert.Equal(["SprintProjects", "SprintMultiEndpoints", "SprintProjectDetail"], projectGroupMenu.Children.Select(menu => menu.Meta.Title));
 
         var productGroupMenu = menus.Single(menu => menu.Path == "/sprint/product");
-        Assert.Equal(["SprintRequirements", "SprintRequirementDetail", "SprintRequirementReviews"], productGroupMenu.Children.Select(menu => menu.Meta.Title));
+        Assert.Equal(["SprintProposals", "SprintRequirements", "SprintRequirementDetail", "SprintRequirementReviews"], productGroupMenu.Children.Select(menu => menu.Meta.Title));
+        Assert.Equal("/sprint/proposals", productGroupMenu.Redirect);
 
         var workerGroupMenu = menus.Single(menu => menu.Path == "/sprint/worker");
         Assert.Equal(["SprintMyTasks", "SprintTasks", "SprintTaskDetail"], workerGroupMenu.Children.Select(menu => menu.Meta.Title));
@@ -335,6 +339,12 @@ public sealed class UserServiceMenuTests
         Assert.Equal("/sprint/projects", detailMenu.Meta.ActivePath);
         Assert.Equal("/sprint/projects/detail/:id", detailMenu.Path);
         Assert.Equal("/sprint/projects/detail", detailMenu.Component);
+
+        var proposalMenu = productGroupMenu.Children.Single(menu => menu.Path == "/sprint/proposals");
+        Assert.Equal("SprintProposals", proposalMenu.Meta.Title);
+        Assert.Null(proposalMenu.Meta.HideInMenu);
+        Assert.Equal("/sprint/proposals", proposalMenu.Path);
+        Assert.Equal("/sprint/proposals/index", proposalMenu.Component);
 
         var requirementDetailMenu = productGroupMenu.Children.Single(menu => menu.Path == "/sprint/requirements/detail/:id");
         Assert.True(requirementDetailMenu.Meta.HideInMenu);
