@@ -20,6 +20,7 @@ import {
   Space as TSpace,
   Table as TTable,
   Tag as TTag,
+  Tooltip as TTooltip,
 } from 'tdesign-vue-next';
 
 import {
@@ -30,6 +31,7 @@ import {
   listUserOptionsApi,
 } from '#/api/sprint/mvp';
 import { listDigitalWorkersApi, type AutomationApi } from '#/api/automation/workers';
+import { formatDateTime } from '#/views/_shared/date-format';
 import { requiredRule, validateForm } from '#/views/_shared/form-rules';
 import { withSerialColumn } from '#/views/_shared/table-columns';
 import ProjectContextListShell from '#/components/project-context-list-shell/project-context-list-shell.vue';
@@ -118,13 +120,15 @@ const canAssignTask = computed(() =>
 );
 
 const columns = [
-  { colKey: 'title', title: '任务标题' },
-  { colKey: 'requirementId', title: '需求', width: 200 },
-  { colKey: 'status', title: '状态', width: 130 },
-  { colKey: 'createdBy', title: '创建人', width: 130 },
-  { colKey: 'executorType', title: '执行人类型', width: 120 },
-  { colKey: 'executor', title: '执行人', width: 150 },
-  { colKey: 'actions', title: '操作', width: 160 },
+  { colKey: 'title', title: '任务标题', minWidth: 220 },
+  { colKey: 'requirementId', title: '需求', width: 200, cell: 'requirementId' },
+  { colKey: 'priority', title: '优先级', cell: 'priority', width: 110 },
+  { colKey: 'status', title: '状态', cell: 'status', width: 110 },
+  { colKey: 'executorType', title: '执行人类型', cell: 'executorType', width: 120 },
+  { colKey: 'executor', title: '执行人', cell: 'executor', width: 150 },
+  { colKey: 'createdBy', title: '创建人', cell: 'createdBy', width: 130 },
+  { colKey: 'createTime', title: '创建时间', cell: 'createTime', width: 180 },
+  { colKey: 'actions', title: '操作', cell: 'actions', width: 160 },
 ];
 
 const priorityText: Record<number, string> = {
@@ -406,20 +410,27 @@ onActivated(async () => {
       >
         <template #title="{ row }">
           <div class="task-title-cell">
-            <TTag size="small" :theme="resolvePriorityTheme(row.priority)" variant="light">
-              {{ resolvePriorityText(row.priority) }}
-            </TTag>
-            <span>{{ row.title }}</span>
+            <span class="task-title-text">{{ row.title }}</span>
           </div>
         </template>
         <template #requirementId="{ row }">
-          {{ requirementMap[row.requirementId]?.title || row.requirementId }}
+          <TTooltip
+            v-if="requirementMap[row.requirementId]?.title"
+            placement="top"
+            theme="light"
+          >
+            <template #content>{{ requirementMap[row.requirementId].title }}</template>
+            <span class="requirement-text">{{ requirementMap[row.requirementId].title }}</span>
+          </TTooltip>
+          <span v-else class="requirement-text">{{ row.requirementId }}</span>
+        </template>
+        <template #priority="{ row }">
+          <TTag size="small" :theme="resolvePriorityTheme(row.priority)" variant="light">
+            {{ resolvePriorityText(row.priority) }}
+          </TTag>
         </template>
         <template #status="{ row }">
           <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
-        </template>
-        <template #createdBy="{ row }">
-          {{ resolveUserName(row.createdBy) }}
         </template>
         <template #executorType="{ row }">
           <TTag size="small" :theme="resolveTaskExecutorTypeTheme(row)" variant="light">
@@ -428,6 +439,12 @@ onActivated(async () => {
         </template>
         <template #executor="{ row }">
           {{ resolveTaskExecutorName(row) }}
+        </template>
+        <template #createdBy="{ row }">
+          {{ resolveUserName(row.createdBy) }}
+        </template>
+        <template #createTime="{ row }">
+          {{ formatDateTime(row.createTime) }}
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
@@ -483,10 +500,19 @@ onActivated(async () => {
   gap: 6px;
 }
 
-.task-title-cell span:last-child {
+.task-title-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.requirement-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
   white-space: nowrap;
 }
 </style>

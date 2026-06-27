@@ -36,6 +36,7 @@ import {
   Tabs as TTabs,
   Tag as TTag,
   Textarea as TTextarea,
+  Tooltip as TTooltip,
 } from 'tdesign-vue-next';
 
 defineOptions({ name: 'AutomationDigitalWorkers' });
@@ -126,10 +127,9 @@ const commandOptions = [
   { label: '取消当前运行', value: 'cancel_current_run' },
 ];
 const columns: PrimaryTableCol[] = [
-  { colKey: 'name', title: '名称', width: 170 },
+  { colKey: 'name', title: '名称', cell: 'name', width: 200 },
   { colKey: 'employeeType', title: '员工类型', cell: 'employeeType', width: 120 },
   { colKey: 'workerType', title: '驱动类型', cell: 'workerType', width: 120 },
-  { colKey: 'agentUserId', title: '平台账号', cell: 'agentUserId', width: 150 },
   { colKey: 'runtime', title: '运行策略', cell: 'runtime', width: 150 },
   { colKey: 'status', title: '状态', cell: 'status', width: 100 },
   { colKey: 'updateTime', title: '更新时间', cell: 'updateTime', width: 170 },
@@ -212,11 +212,6 @@ function getSelectedAiPlatform() {
   return activeAiPlatforms.value.find((item) => item.code === form.aiPlatformCode);
 }
 
-function resolveUserName(userId?: string) {
-  const user = userId ? userMap.value[userId] : undefined;
-  return user ? `${user.displayName || user.username}` : userId || '-';
-}
-
 function statusTheme(status?: string) {
   if (status === 'active') return 'success';
   if (status === 'maintenance') return 'warning';
@@ -226,6 +221,26 @@ function statusTheme(status?: string) {
 
 function statusText(status?: string) {
   return statusOptions.find((item) => item.value === status)?.label || status || '-';
+}
+
+function resolveEnvironmentSummary(row?: AutomationApi.DigitalWorker) {
+  if (!row) return ['-'];
+  const lines: string[] = [];
+  lines.push(`驱动：${row.workerType || '-'}`);
+  lines.push(`AI：${row.codexProvider || '-'} / ${row.codexModel || '-'}`);
+  lines.push(`沙箱：${row.sandboxMode || '-'}`);
+  lines.push(`工作区：${row.workspaceRoot || '-'}`);
+  lines.push(`Codex Home：${row.codexHome || '-'}`);
+  return lines;
+}
+
+function resolveBackendCapabilities(row?: AutomationApi.DigitalWorker) {
+  if (!row) return ['-'];
+  const lines: string[] = [];
+  lines.push(`项目：${row.projectIds?.length ? row.projectIds.join('、') : '未配置'}`);
+  lines.push(`端：${row.endpointIds?.length ? row.endpointIds.join('、') : '未配置'}`);
+  lines.push(`技能：${row.skillIds?.length ? row.skillIds.join('、') : '未配置'}`);
+  return lines;
 }
 
 function resolveEmployeeTypeName(type?: string) {
@@ -382,7 +397,7 @@ onMounted(async () => {
 <template>
   <AdminListPage
     title="员工实例管理"
-    description="维护通过 AgentSprint.Worker 注册和执行的数字员工，管理平台账号、员工类型、驱动类型和运行策略。"
+    description="维护通过 AgentSprint.Worker 注册和执行的数字员工，记录员工类型、驱动类型和运行策略，将环境摘要与后端能力展示在名称提示中。"
     table-title="数字员工列表"
     add-button-text="新增数字员工"
     :columns="columns"
@@ -410,9 +425,25 @@ onMounted(async () => {
       </label>
     </template>
 
+    <template #name="{ row }">
+      <TTooltip placement="top" theme="light">
+        <template #content>
+          <div class="worker-name-tip">
+            <div class="worker-name-tip-section">
+              <strong>环境摘要</strong>
+              <p v-for="line in resolveEnvironmentSummary(row)" :key="line">{{ line }}</p>
+            </div>
+            <div class="worker-name-tip-section">
+              <strong>后端能力</strong>
+              <p v-for="line in resolveBackendCapabilities(row)" :key="line">{{ line }}</p>
+            </div>
+          </div>
+        </template>
+        <span class="worker-name-cell">{{ row.name }}</span>
+      </TTooltip>
+    </template>
     <template #employeeType="{ row }">{{ resolveEmployeeTypeName(row.employeeType) }}</template>
     <template #workerType="{ row }">{{ resolveDriverTypeName(row.workerType) }}</template>
-    <template #agentUserId="{ row }">{{ resolveUserName(row.agentUserId) }}</template>
     <template #runtime="{ row }">
       {{ row.maxConcurrentRuns }} 并发 / {{ row.heartbeatTimeoutSeconds }} 秒心跳
     </template>
@@ -553,6 +584,33 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.worker-name-cell {
+  cursor: help;
+  border-bottom: 1px dashed var(--td-component-stroke);
+}
+
+.worker-name-tip {
+  display: grid;
+  gap: 8px;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+.worker-name-tip-section {
+  display: grid;
+  gap: 2px;
+}
+
+.worker-name-tip-section strong {
+  color: var(--td-text-color-primary);
+}
+
+.worker-name-tip-section p {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  word-break: break-all;
+}
+
 .filter-field {
   display: grid;
   grid-template-columns: auto minmax(180px, 260px);

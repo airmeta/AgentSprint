@@ -83,7 +83,7 @@ const columns = [
   { colKey: 'code', title: '账户编码', width: 180, ellipsis: true },
   { colKey: 'name', title: '账户名称', minWidth: 160, ellipsis: true },
   { colKey: 'username', title: 'Git用户名', minWidth: 160, ellipsis: true },
-  { colKey: 'hasAccessToken', title: renderAccessTokenTitle, width: 140 },
+  { colKey: 'hasAccessToken', title: renderAccessTokenTitle, minWidth: 220, width: 220 },
   { colKey: 'commitAuthorName', title: '提交作者', minWidth: 160, ellipsis: true },
   { colKey: 'commitAuthorEmail', title: '提交邮箱', minWidth: 200, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100 },

@@ -276,24 +276,31 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="panel tabs-panel">
-          <TButton v-if="activeTab === 'authorization'" class="tabs-save-button" theme="primary" :loading="saving" @click="saveAuthorize">
-            <template #icon>
-              <IconifyIcon icon="lucide:save" />
-            </template>
-            保存授权
-          </TButton>
-          <TButton
-            v-if="activeTab === 'behaviorRules'"
-            class="tabs-save-button"
-            theme="primary"
-            :loading="savingRules"
-            @click="saveBehaviorRules"
-          >
-            <template #icon>
-              <IconifyIcon icon="lucide:save" />
-            </template>
-            保存规则
-          </TButton>
+          <div class="panel-header">
+            <h3>授权范围</h3>
+            <TButton
+              v-if="activeTab === 'authorization'"
+              theme="primary"
+              :loading="saving"
+              @click="saveAuthorize"
+            >
+              <template #icon>
+                <IconifyIcon icon="lucide:save" />
+              </template>
+              保存授权
+            </TButton>
+            <TButton
+              v-else-if="activeTab === 'behaviorRules'"
+              theme="primary"
+              :loading="savingRules"
+              @click="saveBehaviorRules"
+            >
+              <template #icon>
+                <IconifyIcon icon="lucide:save" />
+              </template>
+              保存规则
+            </TButton>
+          </div>
           <TTabs v-model="activeTab" theme="card" :destroy-on-hide="false">
             <TTabPanel value="authorization" label="授权信息">
               <div class="tab-content">
@@ -386,13 +393,6 @@ onBeforeUnmount(() => {
 
 .tabs-panel {
   position: relative;
-}
-
-.tabs-save-button {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  z-index: 1;
 }
 
 .auth-tree {

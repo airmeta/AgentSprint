@@ -511,6 +511,10 @@ public interface IAgileMvpService
     /// zh-cn: 可选关联人员标识，负责人或指派人任一匹配即返回。
     /// en-us: Optional related user identifier; returns tasks where either assignee or assigner matches.
     /// </param>
+    /// <param name="assigneeType">
+    /// zh-cn: 可选指派类型过滤（0=员工，1=数字员工），仅返回匹配指派类型的任务。
+    /// en-us: Optional assignee-type filter (0=employee, 1=digital worker); only tasks matching the assignee type are returned.
+    /// </param>
     /// <returns>
     /// zh-cn: 开发任务列表。
     /// en-us: Development-task list.
@@ -520,7 +524,8 @@ public interface IAgileMvpService
         string? requirementId,
         string? assigneeId,
         string? relatedUserId = null,
-        string? status = null);
+        string? status = null,
+        int? assigneeType = null);
 
     /// <summary>
     /// zh-cn: 查询当前用户参与项目范围内的任务大厅任务，管理角色可在参与项目内按条件筛选，普通开发由控制器使用负责人过滤。

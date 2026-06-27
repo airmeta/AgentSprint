@@ -275,6 +275,24 @@ public sealed class AgileMvpControllerTests
     }
 
     [Fact]
+    public async Task ListMyDevelopmentTasks_FiltersByCurrentUserAndEmployeeAssigneeType()
+    {
+        var service = new CapturingAgileMvpService();
+        var controller = CreateController(service, "dev-100", ["developer"]);
+
+        var result = await controller.ListMyDevelopmentTasks("project-100", "req-100", "assigned");
+
+        var response = Assert.IsType<ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>>(result.Value);
+        Assert.Equal(0, response.Code);
+        Assert.Equal("project-100", service.LastTaskProjectId);
+        Assert.Equal("req-100", service.LastTaskRequirementId);
+        Assert.Equal("dev-100", service.LastTaskAssigneeId);
+        Assert.Null(service.LastTaskRelatedUserId);
+        Assert.Equal("assigned", service.LastTaskStatus);
+        Assert.Equal(SprintTaskAssigneeTypes.Employee, service.LastTaskAssigneeType);
+    }
+
+    [Fact]
     public async Task ListRequirementReviews_UsesRouteRequirementId()
     {
         var service = new CapturingAgileMvpService();
@@ -434,6 +452,8 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
     public string? LastModuleId { get; private set; }
 
     public string? LastTaskAssigneeId { get; private set; }
+
+    public int? LastTaskAssigneeType { get; private set; }
 
     public string? LastTaskProjectId { get; private set; }
 
@@ -901,11 +921,13 @@ internal sealed class CapturingAgileMvpService : IAgileMvpService
         string? requirementId,
         string? assigneeId,
         string? relatedUserId = null,
-        string? status = null)
+        string? status = null,
+        int? assigneeType = null)
     {
         LastUsedGlobalTaskList = true;
         LastUsedParticipatingTaskList = false;
         LastTaskAssigneeId = assigneeId;
+        LastTaskAssigneeType = assigneeType;
         LastTaskProjectId = projectId;
         LastTaskRequirementId = requirementId;
         LastTaskRelatedUserId = relatedUserId;

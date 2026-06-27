@@ -78,6 +78,11 @@ function resolveGitRepositoryName(id?: string) {
   return repository ? `${repository.name} (${repository.code})` : id;
 }
 
+function resolveUserNames(ids?: string[] | null) {
+  if (!ids || ids.length === 0) return '未配置';
+  return ids.map((id) => resolveUserName(id, userLookup)).join('、');
+}
+
 async function loadDetail() {
   loading.value = true;
   try {
@@ -123,14 +128,25 @@ onMounted(loadDetail);
       <section class="panel">
         <TDescriptions bordered :column="2">
           <TDescriptionsItem label="项目编码">{{ project.code }}</TDescriptionsItem>
+          <TDescriptionsItem label="项目名称">{{ project.name }}</TDescriptionsItem>
           <TDescriptionsItem label="状态">
             <TTag theme="success" variant="light">{{ project.status }}</TTag>
           </TDescriptionsItem>
+          <TDescriptionsItem label="AI 平台">{{ project.aiPlatformCode || '未配置' }}</TDescriptionsItem>
           <TDescriptionsItem label="Git 仓库">{{ resolveGitRepositoryName(project.gitRepositoryId) }}</TDescriptionsItem>
           <TDescriptionsItem label="Git 账号">{{ resolveGitAccountName(project.gitAccountId) }}</TDescriptionsItem>
           <TDescriptionsItem label="测试环境">
             {{ project.testEnvironmentUrl || '未配置' }}
           </TDescriptionsItem>
+          <TDescriptionsItem label="测试环境 ID">{{ project.testEnvironmentId || '未配置' }}</TDescriptionsItem>
+          <TDescriptionsItem label="详细信息" :span="2">{{ project.description || '未填写' }}</TDescriptionsItem>
+          <TDescriptionsItem label="前端技术栈">{{ project.frontendTechStack || '未配置' }}</TDescriptionsItem>
+          <TDescriptionsItem label="后端技术栈">{{ project.backendTechStack || '未配置' }}</TDescriptionsItem>
+          <TDescriptionsItem label="项目经理">{{ resolveUserName(project.projectManagerId, userLookup) }}</TDescriptionsItem>
+          <TDescriptionsItem label="产品经理">{{ resolveUserNames(project.productManagerIds) }}</TDescriptionsItem>
+          <TDescriptionsItem label="研发人员">{{ resolveUserNames(project.developerIds) }}</TDescriptionsItem>
+          <TDescriptionsItem label="测试人员">{{ resolveUserNames(project.testerIds) }}</TDescriptionsItem>
+          <TDescriptionsItem label="架构师">{{ resolveUserName(project.architectId, userLookup) }}</TDescriptionsItem>
           <TDescriptionsItem label="创建人">{{ resolveUserName(project.createdBy, userLookup) }}</TDescriptionsItem>
           <TDescriptionsItem label="创建时间">{{ formatDateTime(project.createTime) }}</TDescriptionsItem>
         </TDescriptions>

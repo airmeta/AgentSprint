@@ -95,13 +95,15 @@ const columns: PrimaryTableCol[] = [
     type: 'single',
     width: 48,
   },
-  { colKey: 'title', title: '任务标题' },
-  { colKey: 'requirementId', title: '需求', width: 200 },
-  { colKey: 'status', title: '状态', width: 120 },
-  { colKey: 'priority', title: '优先级', width: 90 },
-  { colKey: 'assignedBy', title: '指派人', width: 140 },
-  { colKey: 'updateTime', title: '更新时间', width: 180 },
-  { colKey: 'actions', title: '操作', width: 100 },
+  { colKey: 'title', title: '任务标题', minWidth: 220 },
+  { colKey: 'requirementId', title: '需求', width: 200, cell: 'requirementId' },
+  { colKey: 'priority', title: '优先级', cell: 'priority', width: 100 },
+  { colKey: 'status', title: '状态', cell: 'status', width: 110 },
+  { colKey: 'executorType', title: '执行人类型', cell: 'executorType', width: 120 },
+  { colKey: 'executor', title: '执行人', cell: 'executor', width: 150 },
+  { colKey: 'createdBy', title: '创建人', cell: 'createdBy', width: 130 },
+  { colKey: 'createTime', title: '创建时间', cell: 'createTime', width: 180 },
+  { colKey: 'actions', title: '操作', cell: 'actions', width: 110 },
 ];
 
 const priorityText: Record<number, string> = {
@@ -294,6 +296,18 @@ function resolvePriorityTheme(priority: number) {
   return priorityTheme[priority] || 'default';
 }
 
+function resolveExecutorName(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.assigneeId) return '-';
+  const user = userMap.value[task.assigneeId];
+  return user?.displayName || user?.username || task.assigneeId;
+}
+
+function resolveCreatedByName(task: SprintMvpApi.DevelopmentTask) {
+  if (!task.createdBy) return '-';
+  const user = userMap.value[task.createdBy];
+  return user?.displayName || user?.username || task.createdBy;
+}
+
 function fallbackCopyText(content: string) {
   const textarea = document.createElement('textarea');
   textarea.value = content;
@@ -388,7 +402,7 @@ onMounted(loadTasks);
       我的任务
     </template>
     <template #description>
-      当前账号被指派的需求拆解任务。
+      当前账号作为研发负责人被指派的需求拆解任务，不包含指派给数字员工的协作任务。
     </template>
 
     <section class="sprint-filter-panel">
@@ -484,21 +498,35 @@ onMounted(loadTasks);
         @select-change="handleSelectChange"
       >
         <template #requirementId="{ row }">
-          {{ requirementMap[row.requirementId]?.title || row.requirementId }}
-        </template>
-        <template #status="{ row }">
-          <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
+          <TTooltip
+            v-if="requirementMap[row.requirementId]?.title"
+            placement="top"
+            theme="light"
+          >
+            <template #content>{{ requirementMap[row.requirementId].title }}</template>
+            <span class="requirement-text">{{ requirementMap[row.requirementId].title }}</span>
+          </TTooltip>
+          <span v-else class="requirement-text">{{ row.requirementId }}</span>
         </template>
         <template #priority="{ row }">
           <TTag :theme="resolvePriorityTheme(row.priority)" variant="light">
             {{ resolvePriorityText(row.priority) }}
           </TTag>
         </template>
-        <template #assignedBy="{ row }">
-          {{ row.assignedBy ? userMap[row.assignedBy]?.displayName || row.assignedBy : '-' }}
+        <template #status="{ row }">
+          <TTag variant="light">{{ statusText[row.status] || row.status }}</TTag>
         </template>
-        <template #updateTime="{ row }">
-          {{ formatDateTime(row.updateTime || row.createTime) }}
+        <template #executorType="{ row }">
+          <TTag size="small" theme="success" variant="light">员工</TTag>
+        </template>
+        <template #executor="{ row }">
+          {{ resolveExecutorName(row) }}
+        </template>
+        <template #createdBy="{ row }">
+          {{ resolveCreatedByName(row) }}
+        </template>
+        <template #createTime="{ row }">
+          {{ formatDateTime(row.createTime) }}
         </template>
         <template #actions="{ row }">
           <TSpace class="sprint-row-actions">
@@ -614,6 +642,15 @@ onMounted(loadTasks);
 </template>
 
 <style scoped>
+.requirement-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
 .prompt-drawer {
   display: grid;
   gap: 16px;

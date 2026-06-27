@@ -101,9 +101,9 @@ const auditTargetOptions = [
 ];
 const columns: PrimaryTableCol[] = [
   { colKey: 'taskName', title: '审计任务', minWidth: 220 },
-  { colKey: 'projectId', title: '项目', minWidth: 160 },
+  { colKey: 'projectId', title: '项目', minWidth: 160, cell: 'projectId' },
   { colKey: 'branch', title: '分支', minWidth: 150 },
-  { colKey: 'workerId', title: 'Worker', minWidth: 180 },
+  { colKey: 'workerId', title: 'Worker', minWidth: 180, cell: 'workerId' },
   { colKey: 'auditTargetType', title: '范围', cell: 'auditTargetType', width: 150 },
   { colKey: 'status', title: '状态', cell: 'status', width: 110 },
   { colKey: 'actions', title: '操作', cell: 'actions', width: 160 },
@@ -139,12 +139,28 @@ const projectOptions = computed(() =>
     value: item.id,
   })),
 );
+const projectMap = computed(() =>
+  Object.fromEntries(projects.value.map((item) => [item.id, item])),
+);
 const workerOptions = computed(() =>
   workers.value.map((item) => ({
     label: `${item.name} (${item.code})`,
     value: item.id,
   })),
 );
+const workerMap = computed(() =>
+  Object.fromEntries(workers.value.map((item) => [item.id, item])),
+);
+function resolveProjectName(projectId?: string) {
+  if (!projectId) return '-';
+  const project = projectMap.value[projectId];
+  return project ? project.name : projectId;
+}
+function resolveWorkerName(workerId?: string) {
+  if (!workerId) return '-';
+  const worker = workerMap.value[workerId];
+  return worker ? worker.name : workerId;
+}
 const taskOptions = computed(() =>
   developmentTasks.value
     .filter((item) => !createForm.projectId || item.projectId === createForm.projectId)
@@ -183,7 +199,7 @@ function canCancel(row: CodeReviewTaskRow) {
 }
 
 function canRetry(row: CodeReviewTaskRow) {
-  return ['blocked', 'cancelled', 'failed', 'needs_changes'].includes(row.status);
+  return ['pending', 'blocked', 'cancelled', 'failed'].includes(row.status);
 }
 
 function handlePageChange(pageInfo: { current: number; pageSize: number }) {
@@ -404,6 +420,12 @@ loadRows();
         <span>状态</span>
         <TSelect v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
       </label>
+    </template>
+    <template #projectId="{ row }">
+      {{ resolveProjectName(row.projectId) }}
+    </template>
+    <template #workerId="{ row }">
+      {{ resolveWorkerName(row.workerId) }}
     </template>
     <template #status="{ row }">
       <TTag :theme="statusTheme(row.status)" variant="light">{{ statusText(row.status) }}</TTag>

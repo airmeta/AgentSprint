@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 
+using AgentSprint.Model.Modules.Agile;
 using AgentSprint.Model.Modules.Agile.Dtos;
 using AgentSprint.Service.Services.AgileServices;
 
@@ -914,8 +915,8 @@ public sealed class AgileMvpController : ControllerBase
     }
 
     /// <summary>
-    /// zh-cn: 查询当前登录人的任务。
-    /// en-us: Lists development tasks assigned to the current signed-in user.
+    /// zh-cn: 查询指派给当前登录人的任务，仅返回指派类型为员工的个人任务。
+    /// en-us: Lists development tasks assigned to the current signed-in user; only returns tasks with employee assignee type.
     /// </summary>
     /// <returns>
     /// zh-cn: 我的任务列表。
@@ -930,7 +931,13 @@ public sealed class AgileMvpController : ControllerBase
         try
         {
             return ApiResponse<IReadOnlyList<SprintDevelopmentTaskResult>>.Ok(
-                await _agileMvpService.ListDevelopmentTasksAsync(projectId, requirementId, GetUserId(), null, status));
+                await _agileMvpService.ListDevelopmentTasksAsync(
+                    projectId,
+                    requirementId,
+                    GetUserId(),
+                    null,
+                    status,
+                    SprintTaskAssigneeTypes.Employee));
         }
         catch (UnauthorizedAccessException)
         {

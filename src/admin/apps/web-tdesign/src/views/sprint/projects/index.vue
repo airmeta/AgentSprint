@@ -4,6 +4,7 @@ import type { FormInstanceFunctions, FormRules } from 'tdesign-vue-next';
 
 import { IconifyIcon } from '@vben/icons';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   Button as TButton,
@@ -44,11 +45,13 @@ import {
 } from '#/views/_shared/form-rules';
 import { formatDateTime } from '#/views/_shared/date-format';
 
+const router = useRouter();
+
 const creating = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const drawerVisible = ref(false);
-const drawerMode = ref<'detail' | 'edit' | 'stats'>('detail');
+const drawerMode = ref<'edit' | 'stats'>('edit');
 const createVisible = ref(false);
 const createFormRef = ref<FormInstanceFunctions>();
 const editFormRef = ref<FormInstanceFunctions>();
@@ -174,6 +177,10 @@ function openCreate() {
   resetCreateForm();
   createCodeSeed.value = Date.now().toString(36).toUpperCase();
   createVisible.value = true;
+}
+
+function openProjectDetail(project: SprintMvpApi.Project) {
+  router.push(`/sprint/projects/detail/${project.id}`);
 }
 
 function openDrawer(project: SprintMvpApi.Project, mode: typeof drawerMode.value) {
@@ -440,7 +447,7 @@ onMounted(async () => {
             <IconifyIcon icon="lucide:pencil" />
             编辑
           </TLink>
-          <TLink theme="primary" @click="openDrawer(project, 'detail')">
+          <TLink theme="primary" @click="openProjectDetail(project)">
             <IconifyIcon icon="lucide:eye" />
             详情
           </TLink>
@@ -550,43 +557,6 @@ onMounted(async () => {
               <TSelect v-model="editForm.architectId" filterable :options="userOptions" />
             </TFormItem>
           </TForm>
-        </template>
-        <template v-else>
-          <dl>
-            <dt>项目编码</dt>
-            <dd>{{ selectedProject.code }}</dd>
-            <dt>详细信息</dt>
-            <dd>{{ selectedProject.description || '未填写' }}</dd>
-            <dt>Git仓库</dt>
-            <dd>{{ resolveGitRepositoryName(selectedProject.gitRepositoryId) }}</dd>
-            <dt>Git账户</dt>
-            <dd>{{ resolveGitAccountName(selectedProject.gitAccountId) }}</dd>
-            <dt>测试环境</dt>
-            <dd>
-              {{ resolveRuntimeEnvironmentName(selectedProject.testEnvironmentId) }}
-              <span v-if="selectedProject.testEnvironmentUrl">
-                / {{ selectedProject.testEnvironmentUrl }}
-              </span>
-            </dd>
-            <dt>AI平台</dt>
-            <dd>{{ resolveAiPlatformName(selectedProject.aiPlatformCode) }}</dd>
-            <dt>前端技术栈</dt>
-            <dd>{{ resolveDictionaryNames(selectedProject.frontendTechStack, frontendTechOptions) }}</dd>
-            <dt>后端技术栈</dt>
-            <dd>{{ resolveDictionaryNames(selectedProject.backendTechStack, backendTechOptions) }}</dd>
-            <dt>项目经理</dt>
-            <dd>{{ resolveUserName(selectedProject.projectManagerId) }}</dd>
-            <dt>产品经理</dt>
-            <dd>{{ resolveUserNames(selectedProject.productManagerIds) }}</dd>
-            <dt>研发人员</dt>
-            <dd>{{ resolveUserNames(selectedProject.developerIds) }}</dd>
-            <dt>测试人员</dt>
-            <dd>{{ resolveUserNames(selectedProject.testerIds) }}</dd>
-            <dt>架构师</dt>
-            <dd>{{ resolveUserName(selectedProject.architectId) }}</dd>
-            <dt>状态</dt>
-            <dd>{{ selectedProject.status }}</dd>
-          </dl>
         </template>
       </div>
     </TDrawer>

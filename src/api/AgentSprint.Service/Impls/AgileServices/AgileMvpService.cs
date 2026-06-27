@@ -1145,7 +1145,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
         string? requirementId,
         string? assigneeId,
         string? relatedUserId = null,
-        string? status = null)
+        string? status = null,
+        int? assigneeType = null)
     {
         var entities = await _taskDomain.ListAsync(entity =>
             (string.IsNullOrWhiteSpace(projectId) || entity.ProjectId == projectId) &&
@@ -1154,7 +1155,8 @@ public sealed class AgileMvpService : AgentSprintServiceBase, IAgileMvpService
             (string.IsNullOrWhiteSpace(relatedUserId) ||
                 entity.AssigneeId == relatedUserId ||
                 entity.AssignedBy == relatedUserId) &&
-            (string.IsNullOrWhiteSpace(status) || entity.Status == status));
+            (string.IsNullOrWhiteSpace(status) || entity.Status == status) &&
+            (!assigneeType.HasValue || entity.AssigneeType == assigneeType.Value));
 
         return await ToTaskResultsAsync(entities
             .OrderByDescending(entity => entity.CreateTime)
